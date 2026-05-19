@@ -1,0 +1,104 @@
+---
+description: らくらく給与明細αのシステムアーキテクチャ概要。システム理解のためのリファレンス。
+alwaysApply: true
+---
+
+# システムアーキテクチャ
+
+## 技術スタック
+
+| 項目 | 値 |
+|------|------|
+| ランタイム | Electron 33+ (Chromium + Node.js) |
+| フロントエンド | React 19 + TypeScript 5 + Vite 7 |
+| UIフレームワーク | shadcn/ui + TailwindCSS 4 + Radix UI |
+| データテーブル | TanStack Table v8 |
+| チャート | Recharts |
+| ローカルDB | SQLite (better-sqlite3) + Drizzle ORM |
+| PDF生成 | @react-pdf/renderer |
+| 自動更新 | electron-updater (GitHub Releases) |
+| 状態管理 | Zustand |
+| バリデーション | Zod |
+| アイコン | Lucide React |
+
+## プロセスアーキテクチャ
+
+```
+┌─ Electron App ─────────────────────────────────────┐
+│                                                     │
+│  ┌─ Main Process (Node.js) ──────────────────────┐  │
+│  │  IPC Handler ── SQLite DB (better-sqlite3)    │  │
+│  │       │                                        │  │
+│  │  Services ── PDF Generator                    │  │
+│  │       │                                        │  │
+│  │  Auto Updater ── GitHub Releases              │  │
+│  └───────────────────────────────────────────────┘  │
+│           ▲ IPC (invoke/handle) ▼                    │
+│  ┌─ Preload Script ─────────────────────────────┐  │
+│  │  contextBridge (API公開)                      │  │
+│  └───────────────────────────────────────────────┘  │
+│           ▲ window.api ▼                             │
+│  ┌─ Renderer Process (Chromium) ─────────────────┐  │
+│  │  React App ── React Router ── Zustand Store   │  │
+│  │  shadcn/ui + TailwindCSS + TanStack Table     │  │
+│  └───────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+```
+
+## ディレクトリ構成
+
+```
+src/
+├── main/                     # Electron Main Process
+│   ├── index.ts              # エントリポイント (BrowserWindow作成)
+│   ├── ipc/                  # IPCハンドラ群 (*.ipc.ts)
+│   ├── db/
+│   │   ├── schema.ts         # Drizzle スキーマ定義 (単一ソース)
+│   │   ├── connection.ts     # DB接続管理
+│   │   └── migrations/       # マイグレーションファイル
+│   ├── services/             # ビジネスロジック
+│   │   ├── payroll.calc.ts   # 給与計算エンジン
+│   │   ├── tax.calc.ts       # 所得税・住民税計算
+│   │   ├── insurance.calc.ts # 社会保険料計算
+│   │   └── pdf.gen.ts        # PDF生成
+│   └── updater.ts            # 自動更新
+├── renderer/                 # Electron Renderer Process
+│   ├── App.tsx               # ルートコンポーネント
+│   ├── main.tsx              # React エントリポイント
+│   ├── pages/                # ページコンポーネント
+│   ├── components/           # アプリ固有コンポーネント
+│   │   └── ui/               # shadcn/ui コンポーネント
+│   ├── hooks/                # カスタムフック
+│   ├── stores/               # Zustand ストア
+│   └── lib/                  # ユーティリティ (cn, format等)
+├── shared/                   # Main/Renderer 共有
+│   ├── types.ts              # 共有型定義
+│   └── ipc-channels.ts       # IPCチャンネル名定数
+└── preload/
+    └── index.ts              # contextBridge による API 公開
+```
+
+## IPC 通信パターン
+
+Renderer → Main の通信は必ず Preload Script 経由の `contextBridge` を使用する。
+`nodeIntegration: false`, `contextIsolation: true` が前提。
+
+```
+Renderer: window.api.employees.list()
+    → Preload: ipcRenderer.invoke('employees:list')
+        → Main: ipcMain.handle('employees:list', handler)
+```
+
+## iPad 打刻システム連携
+
+本システムは iPad PWA 打刻アプリ + Supabase を経由した勤怠データ連携を持つ。
+
+```
+iPad PWA (punch-app/) → Supabase (punch_records) → Windows アプリ (attendance.sync.ts) → SQLite
+```
+
+- **punch-app/**: iPad Safari で動作する PWA。従業員が名前タップで出退勤を打刻
+- **Supabase**: 打刻データの中継 DB。`punch_records` + `employees_sync` テーブル
+- **attendance.sync.ts**: Supabase から月次データを取得し、ローカル SQLite に反映
+- 逆方向: 従業員マスタ変更時に `employees_sync` へ同期 (Windows → Supabase)
+- **フォールバック**: 機器トラブル時は紙タイムカード → Windows アプリで手入力

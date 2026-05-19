@@ -1,0 +1,90 @@
+---
+description: React / フロントエンド (Renderer Process) の UI 規約。shadcn/ui, TailwindCSS, TanStack Table の使い方を定義。
+globs: src/renderer/**/*.tsx, src/renderer/**/*.ts, src/renderer/**/*.css
+alwaysApply: false
+---
+
+# React / フロントエンド規約
+
+## コンポーネント配置
+
+| 種別 | 配置先 | 例 |
+|------|--------|-----|
+| shadcn/ui | `src/renderer/components/ui/` | Button, Card, Dialog |
+| アプリ固有 | `src/renderer/components/` | Sidebar, TitleBar, PayslipCard |
+| ページ | `src/renderer/pages/` | Dashboard, Employees |
+
+- shadcn/ui コンポーネントは CLI (`npx shadcn@latest add`) でコピーし、必要に応じカスタマイズ
+- パスエイリアス `@/` → `src/renderer/` を使用
+
+## レイアウト構造
+
+```
++--[カスタムタイトルバー: ドラッグ領域 + ウィンドウコントロール]--+
+| +----------+--------------------------------------------------+ |
+| | Sidebar  |  Header (パンくず + アクション)                   | |
+| | (折畳式) |--------------------------------------------------| |
+| |          |  コンテンツ (ページごとに切替)                     | |
+| +----------+--------------------------------------------------+ |
++----------------------------------------------------------------+
+```
+
+- タイトルバー: `-webkit-app-region: drag` でウィンドウドラッグ対応
+- サイドバー: `Ctrl+B` で折り畳みトグル、狭い画面では Sheet に切替
+
+## テーマ / スタイル
+
+- **カラー**: CSS変数ベース (shadcn/ui 標準)。zinc ベース + blue アクセント
+- **ダーク/ライト**: `<html class="dark">` トグル。システム設定追従 + 手動切替
+- **フォント**: Noto Sans JP (日本語) + Inter (英数字)
+- **数値表示**: 3桁カンマ区切り、通貨は `¥` 前置。`Intl.NumberFormat('ja-JP')` を使用
+
+## データテーブル (TanStack Table v8)
+
+従業員一覧・給与明細一覧等のテーブルは TanStack Table で統一する。
+
+```typescript
+const columns: ColumnDef<Employee>[] = [
+  { accessorKey: 'name', header: '氏名' },
+  { accessorKey: 'department', header: '部署' },
+  {
+    accessorKey: 'basicSalary',
+    header: '基本給',
+    cell: ({ getValue }) => formatCurrency(getValue<number>()),
+  },
+];
+```
+
+- ソート・フィルタ・ページネーションを標準装備
+- 行クリックで詳細画面に遷移
+
+## フォーム (React Hook Form + Zod + shadcn/ui)
+
+```typescript
+const schema = z.object({
+  name: z.string().min(1, '氏名は必須です'),
+  basicSalary: z.number().min(0, '基本給は0以上'),
+});
+
+// shadcn/ui の Form + FormField + FormItem で構築
+```
+
+- バリデーションスキーマは Zod で定義し、`zodResolver` で接続
+- エラーメッセージは日本語
+
+## 通知 / フィードバック
+
+- CRUD操作の成功/失敗は Sonner トーストで表示
+- 重要な操作（削除等）は AlertDialog で確認を求める
+
+## アニメーション
+
+- Framer Motion を使用。ページ遷移は `opacity + y` の控えめなトランジション
+- テーブルの行追加/削除には `AnimatePresence` + `layout` アニメーション
+- 過度なアニメーションは禁止（業務ソフトの操作性を優先）
+
+## アクセシビリティ
+
+- shadcn/ui (Radix UI) の aria 属性を維持（カスタマイズ時に削除しない）
+- フォーカスの視認性を確保（`focus-visible` リング）
+- キーボードナビゲーション: Tab 順序、Escape で閉じる、Enter で確定

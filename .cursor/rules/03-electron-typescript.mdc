@@ -1,0 +1,97 @@
+---
+description: Electron Main Process の TypeScript コーディング規約。Main Process のファイル編集時に適用。
+globs: src/main/**/*.ts, src/preload/**/*.ts, src/shared/**/*.ts
+alwaysApply: false
+---
+
+# Electron / TypeScript コーディング規約
+
+## 基本原則
+
+- TypeScript strict モードを遵守（`any` 型禁止）
+- ESM (ES Modules) を使用
+- Electron のセキュリティベストプラクティスに従う
+
+## IPC ハンドラ
+
+### ファイル命名
+
+- `src/main/ipc/{domain}.ipc.ts` の形式
+- 1ドメイン1ファイルで管理
+
+### チャンネル命名規約
+
+IPCチャンネル名は `src/shared/ipc-channels.ts` で一元管理する。
+
+```typescript
+// 形式: {domain}:{action}
+export const IPC = {
+  EMPLOYEES: {
+    LIST: 'employees:list',
+    GET: 'employees:get',
+    CREATE: 'employees:create',
+    UPDATE: 'employees:update',
+    DELETE: 'employees:delete',
+  },
+} as const;
+```
+
+### ハンドラの実装パターン
+
+```typescript
+import { ipcMain } from 'electron';
+import { IPC } from '../../shared/ipc-channels';
+
+export function registerEmployeeHandlers() {
+  ipcMain.handle(IPC.EMPLOYEES.LIST, async (_event, params) => {
+    // Zod でパラメータをバリデーション
+    // DB操作は try-catch で囲む
+    // 結果を返す（エラー時は構造化エラーオブジェクト）
+  });
+}
+```
+
+## Preload Script
+
+- `contextBridge.exposeInMainWorld` で公開する API は最小限に
+- 型定義を `src/shared/types.ts` に記述し、Renderer 側で参照
+
+```typescript
+// src/preload/index.ts
+contextBridge.exposeInMainWorld('api', {
+  employees: {
+    list: (params) => ipcRenderer.invoke(IPC.EMPLOYEES.LIST, params),
+  },
+});
+```
+
+## BrowserWindow 設定
+
+```typescript
+const win = new BrowserWindow({
+  titleBarStyle: 'hidden',
+  ...(process.platform !== 'darwin' ? { titleBarOverlay: true } : {}),
+  webPreferences: {
+    nodeIntegration: false,
+    contextIsolation: true,
+    preload: path.join(__dirname, '../preload/index.js'),
+  },
+});
+```
+
+## エラーハンドリング
+
+- IPC ハンドラ内のエラーは構造化して返す（生の Error オブジェクトは IPC で送信不可）
+- Main Process の未補足エラーは `process.on('uncaughtException')` でログ記録
+
+```typescript
+type IpcResult<T> = { success: true; data: T } | { success: false; error: string };
+```
+
+## 禁止事項
+
+- `nodeIntegration: true` の使用
+- `contextIsolation: false` の使用
+- Renderer から直接 Node.js API (fs, path 等) を呼ぶこと
+- `remote` モジュールの使用（非推奨・削除済み）
+- `shell.openExternal` に未検証の URL を渡すこと

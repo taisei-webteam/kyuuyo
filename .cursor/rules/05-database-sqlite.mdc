@@ -1,0 +1,80 @@
+---
+description: SQLite + Drizzle ORM のデータベース操作規約。スキーマ・CRUD パターンを定義。
+globs: src/main/db/**/*.ts, src/main/ipc/**/*.ts, src/main/services/**/*.ts
+alwaysApply: false
+---
+
+# データベース / SQLite 操作規約
+
+## DB接続
+
+- `better-sqlite3` を使用（同期API、Electronとの相性が良い）
+- DBファイルは `app.getPath('userData')` 配下に配置
+- WAL モードを有効化（読み書き並行性向上）
+
+```typescript
+const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+```
+
+## Drizzle ORM
+
+スキーマは `src/main/db/schema.ts` に一元定義する。
+
+### テーブル一覧
+
+| テーブル名 | 用途 |
+|-----------|------|
+| `companies` | 会社情報（事業所名・住所・社会保険番号等） |
+| `employees` | 従業員マスタ（氏名・部署・基本給・各種控除設定） |
+| `payslips` | 給与明細ヘッダ（対象年月・支給日・従業員ID） |
+| `payslip_items` | 給与明細明細行（項目名・金額・区分） |
+| `tax_tables` | 源泉徴収税額表（給与所得の源泉徴収税額） |
+| `insurance_rates` | 社会保険料率マスタ（年度・健保・厚生年金・雇用保険） |
+
+### スキーマ定義パターン
+
+```typescript
+import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+
+export const employees = sqliteTable('employees', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull(),
+  // ... 全カラムに型とNOT NULL制約を明示
+  createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
+});
+```
+
+## CRUD パターン
+
+- **検索**: `db.select().from(table).where(condition)` — Drizzle クエリビルダを使用
+- **挿入**: `db.insert(table).values(data)` — Zod でバリデーション後に挿入
+- **更新**: `db.update(table).set(data).where(eq(table.id, id))`
+- **削除**: 論理削除 (`deletedAt` カラムをセット) を基本とする
+
+## マイグレーション
+
+- `drizzle-kit` で管理: `npx drizzle-kit generate` → `npx drizzle-kit migrate`
+- `schema.ts` を変更したら必ずマイグレーションを生成すること
+- マイグレーションファイルは `src/main/db/migrations/` に配置
+- 本番データの破壊的変更（カラム削除等）は段階的に実施
+
+## トランザクション
+
+複数テーブルにまたがる更新はトランザクションで保護する。
+
+```typescript
+db.transaction((tx) => {
+  tx.insert(payslips).values(header);
+  tx.insert(payslipItems).values(items);
+});
+```
+
+## 禁止事項
+
+- `*.db` / `*.sqlite` ファイルを直接編集・削除するシェルコマンド
+- `DROP TABLE` / `TRUNCATE` の実行
+- スキーマの破壊的変更をマイグレーションなしで行うこと
+- 生 SQL の直接実行（Drizzle クエリビルダを優先）

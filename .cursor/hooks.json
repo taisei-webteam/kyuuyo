@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node .cursor/hooks/db-safety-guard.js",
+        "failClosed": true
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "prompt",
+        "matcher": "Write|StrReplace",
+        "prompt": "The agent is about to modify a file. Check if the target file is `src/main/db/schema.ts`. If it IS schema.ts, remind the agent: 'schema.ts を変更しました。変更を適用するにはマイグレーションの生成が必要です: `npx drizzle-kit generate`。マイグレーション生成を忘れないでください。' If the file is NOT schema.ts, respond with just 'OK'. Here is the tool input: $ARGUMENTS",
+        "timeout": 10
+      }
+    ]
+  }
+}

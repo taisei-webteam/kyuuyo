@@ -1,0 +1,71 @@
+---
+description: セキュリティ対策・ビルド・リリースに関する規約。
+alwaysApply: true
+---
+
+# セキュリティ・ビルド・リリース規約
+
+## Electron セキュリティ
+
+### 必須設定
+
+```typescript
+webPreferences: {
+  nodeIntegration: false,      // 必須: Renderer で Node.js 無効化
+  contextIsolation: true,      // 必須: コンテキスト分離
+  sandbox: true,               // 推奨: サンドボックス有効化
+  webSecurity: true,           // 必須: 同一オリジンポリシー
+}
+```
+
+### IPC セキュリティ
+
+- Renderer → Main の通信は `contextBridge` 経由のみ
+- IPC ハンドラではパラメータを Zod でバリデーション
+- ファイルパスを受け取る IPC ではパストラバーサルを検証
+
+### 外部リンク
+
+- `shell.openExternal()` に渡す URL は `https://` スキームのみ許可
+- `file://` プロトコルの外部オープンは禁止
+
+## 秘匿情報管理
+
+- 秘匿情報はコードにハードコードしない
+- GitHub トークン等は環境変数 or `.env` ファイルで管理
+- `.env` ファイルは `.gitignore` に含まれていること（確認済み）
+- DBファイル (*.db, *.sqlite) はリポジトリに含めない
+
+## ビルド設定
+
+### electron-builder
+
+- ビルド設定は `electron-builder.yml` に記述
+- Windows: NSIS インストーラー (.exe)
+- アプリ署名: 将来の配布時に Windows コード署名証明書を適用
+
+### 自動更新 (electron-updater)
+
+- GitHub Releases をアップデートソースとして使用
+- `autoUpdater.checkForUpdatesAndNotify()` でアプリ起動時にチェック
+- アップデートのダウンロード進捗をユーザーに通知
+
+## リリースフロー
+
+```
+1. main ブランチで開発・テスト
+2. バージョン更新: npm version patch/minor/major
+3. タグプッシュ: git push --tags
+4. GitHub Actions が自動ビルド & リリース作成
+5. ユーザーのアプリが自動更新を検出
+```
+
+## 環境分岐
+
+| 環境 | 判定方法 | 用途 |
+|------|---------|------|
+| development | `app.isPackaged === false` | ローカル開発 |
+| production | `app.isPackaged === true` | 配布版 |
+
+- DevTools は development のみ自動オープン
+- ログレベルは環境で切替（dev: debug, prod: error）
