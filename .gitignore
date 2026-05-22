@@ -10,6 +10,7 @@ release/
 .env
 .env.*
 !.env.example
+.cursor/mcp.json
 *.log
 npm-debug.log*
 .DS_Store

@@ -1,0 +1,130 @@
+.container {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+}
+
+.logo {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.logoText {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-primary);
+  letter-spacing: -0.02em;
+}
+
+.nav {
+  flex: 1;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  transition: all 0.15s ease;
+}
+
+.navLink:hover {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.navLinkActive {
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.navLinkActive:hover {
+  background-color: var(--color-primary-hover);
+  color: #ffffff;
+}
+
+.navIcon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: 100vh;
+}
+
+.header {
+  height: var(--header-height);
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+
+.headerTitle {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.headerCompany {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.content {
+  flex: 1;
+  padding: 24px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media print {
+  .sidebar {
+    display: none;
+  }
+
+  .main {
+    margin-left: 0;
+    max-height: none;
+  }
+
+  .header {
+    display: none;
+  }
+
+  .content {
+    padding: 0;
+    overflow: visible;
+  }
+}

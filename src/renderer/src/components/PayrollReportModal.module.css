@@ -1,0 +1,217 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--color-surface);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 1400px;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHeader h2 {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.printButton {
+  padding: 6px 16px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.printButton:hover {
+  background: var(--color-primary-hover);
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.125rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.closeButton:hover {
+  background: var(--color-bg);
+}
+
+/* プレビューエリア */
+.previewArea {
+  padding: 16px;
+  background: #e5e7eb;
+  overflow: auto;
+  max-height: 80vh;
+}
+
+.page {
+  background: #fff;
+  padding: 24px 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", sans-serif;
+  min-width: 1100px;
+}
+
+/* ヘッダー */
+.reportHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.reportTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+/* テーブル */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.table th,
+.table td {
+  border: 1px solid #94a3b8;
+  padding: 2px 4px;
+}
+
+.table thead th {
+  background: #e8eef8;
+  color: #1e3a5f;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.thGroup {
+  font-size: 11px;
+  letter-spacing: 0.2em;
+}
+
+.thName {
+  width: 70px;
+  min-width: 70px;
+}
+
+.thSmall {
+  width: 32px;
+  min-width: 32px;
+  font-size: 9px;
+}
+
+.thAmount {
+  min-width: 52px;
+}
+
+.thAmountTotal {
+  min-width: 60px;
+  background: #dce6f5 !important;
+}
+
+/* データ行 */
+.tdName {
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+  padding-left: 4px;
+  font-size: 10px;
+}
+
+.tdNum {
+  text-align: center;
+}
+
+.tdAmount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: 4px;
+}
+
+.tdAmountTotal {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding-right: 4px;
+  font-weight: 700;
+  background: #f0f5ff;
+}
+
+/* 合計行 */
+.totalRow td {
+  background: #e8eef8;
+  font-weight: 700;
+  border-top: 2px solid #475569;
+}
+
+/* 印刷用 */
+@media print {
+  .overlay {
+    position: static;
+    background: none;
+    padding: 0;
+  }
+
+  .modal {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: none;
+  }
+
+  .modalHeader {
+    display: none;
+  }
+
+  .previewArea {
+    background: none;
+    padding: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .page {
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .table {
+    font-size: 9px;
+  }
+}
