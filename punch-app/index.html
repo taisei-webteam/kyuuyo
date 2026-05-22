@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>打刻</title>
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --success-hover: #15803d;
+      --warning: #ea580c;
+      --warning-hover: #c2410c;
+      --info: #0891b2;
+      --info-hover: #0e7490;
+      --danger: #dc2626;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-secondary: #64748b;
+      --radius: 16px;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .app {
+      max-width: 1024px;
+      margin: 0 auto;
+      padding: 20px;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+
+    .header-left { display: flex; align-items: center; gap: 16px; }
+
+    .header-title { font-size: 1.5rem; font-weight: 800; color: var(--text); }
+
+    .header-clock {
+      font-size: 2.5rem; font-weight: 700;
+      font-variant-numeric: tabular-nums; color: var(--primary);
+    }
+
+    .header-date { font-size: 0.875rem; color: var(--text-secondary); text-align: right; }
+
+    .btn-history {
+      padding: 6px 14px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+      color: var(--text-secondary); transition: all 0.15s;
+    }
+    .btn-history:hover { border-color: var(--primary); color: var(--primary); }
+
+    .screen { display: none; flex: 1; flex-direction: column; }
+    .screen.active { display: flex; }
+
+    /* ── Employee Grid ── */
+    .employee-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px; flex: 1; align-content: start;
+    }
+
+    .employee-card {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 20px 12px; background: var(--surface); border: 2px solid var(--border);
+      border-radius: var(--radius); cursor: pointer;
+      transition: transform 0.12s, border-color 0.15s, box-shadow 0.15s; user-select: none;
+    }
+    .employee-card:active { transform: scale(0.96); }
+    .employee-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(37,99,235,0.15); }
+
+    .employee-avatar {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.25rem; font-weight: 700; color: #fff;
+    }
+    .employee-name { font-size: 1rem; font-weight: 600; text-align: center; }
+    .employee-dept { font-size: 0.7rem; color: var(--text-secondary); }
+    .employee-status { font-size: 0.675rem; padding: 2px 8px; border-radius: 9999px; font-weight: 600; }
+    .status-out { background: #f1f5f9; color: #64748b; }
+    .status-in { background: #dcfce7; color: #16a34a; }
+    .status-goout { background: #fff7ed; color: #ea580c; }
+
+    /* ── Punch Screen ── */
+    .punch-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+
+    .btn-back {
+      background: none; border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 16px; font-size: 0.875rem; font-weight: 600;
+      cursor: pointer; color: var(--text-secondary); transition: background 0.12s;
+    }
+    .btn-back:hover { background: #f1f5f9; }
+
+    .punch-employee-name { font-size: 1.25rem; font-weight: 700; }
+    .punch-employee-dept { font-size: 0.8rem; color: var(--text-secondary); }
+
+    .punch-buttons {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+      max-width: 672px; margin: 0 auto; width: 100%;
+    }
+
+    .punch-btn {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; padding: 36px 16px; border: none; border-radius: 20px;
+      font-size: 1.125rem; font-weight: 700; color: #fff; cursor: pointer;
+      transition: transform 0.1s, opacity 0.15s; user-select: none;
+      max-width: 320px; width: 100%; margin: 0 auto;
+    }
+    .punch-btn:active { transform: scale(0.95); }
+    .punch-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .punch-btn-icon {
+      width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.25);
+      display: flex; align-items: center; justify-content: center; font-size: 1.5rem;
+    }
+    .punch-btn-label { font-size: 1.125rem; }
+
+    .btn-clockin { background: var(--success); }
+    .btn-clockin:hover:not(:disabled) { background: var(--success-hover); }
+    .btn-goout { background: var(--warning); }
+    .btn-goout:hover:not(:disabled) { background: var(--warning-hover); }
+    .btn-goreturn { background: var(--info); }
+    .btn-goreturn:hover:not(:disabled) { background: var(--info-hover); }
+    .btn-clockout { background: var(--danger); }
+    .btn-clockout:hover:not(:disabled) { background: #b91c1c; }
+
+    @media (max-width: 600px) {
+      .punch-buttons { grid-template-columns: 1fr; max-width: 320px; }
+    }
+
+    /* ── Message overlay ── */
+    .msg-overlay {
+      position: fixed; inset: 0; display: flex; align-items: center;
+      justify-content: center; z-index: 200; pointer-events: none;
+    }
+    .msg-bubble {
+      padding: 28px 48px; border-radius: 24px; font-size: 1.5rem; font-weight: 800;
+      color: #fff; opacity: 0; transform: scale(0.5);
+      animation: msgPop 2.5s ease-out forwards; text-align: center; line-height: 1.5;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.3);
+    }
+    .msg-clockin { background: linear-gradient(135deg, #16a34a, #22c55e); }
+    .msg-clockout { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+
+    @keyframes msgPop {
+      0%   { opacity: 0; transform: scale(0.5); }
+      15%  { opacity: 1; transform: scale(1.05); }
+      25%  { transform: scale(1); }
+      80%  { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(0.95) translateY(-20px); }
+    }
+
+    /* ── Today log ── */
+    .today-log {
+      margin-top: 32px; max-width: 672px; margin-left: auto; margin-right: auto; width: 100%;
+    }
+    .today-log-title {
+      font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);
+      margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .today-log-list {
+      list-style: none; background: var(--surface); border-radius: var(--radius);
+      border: 1px solid var(--border); overflow: hidden;
+    }
+    .today-log-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem;
+    }
+    .today-log-item:last-child { border-bottom: none; }
+
+    .log-type {
+      font-weight: 600; padding: 2px 10px; border-radius: 9999px; font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+    .log-type-clockin { background: #dcfce7; color: #16a34a; }
+    .log-type-goout { background: #fff7ed; color: #ea580c; }
+    .log-type-goreturn { background: #e0f2fe; color: #0284c7; }
+    .log-type-clockout { background: #fee2e2; color: #dc2626; }
+    .log-type-cancel { background: #f1f5f9; color: #94a3b8; }
+
+    .log-time { font-variant-numeric: tabular-nums; font-weight: 500; color: var(--text); }
+    .log-cancelled .log-time { text-decoration: line-through; color: #94a3b8; }
+    .log-cancelled .log-type { opacity: 0.5; text-decoration: line-through; }
+    .log-reason { font-size: 0.7rem; color: #94a3b8; flex: 1; text-align: right; }
+
+    .btn-cancel-punch {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      padding: 2px 8px; font-size: 0.675rem; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.12s; flex-shrink: 0;
+    }
+    .btn-cancel-punch:hover { border-color: var(--danger); color: var(--danger); }
+
+    /* ── Cancel Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center; z-index: 300;
+    }
+    .modal-box {
+      background: var(--surface); border-radius: 16px; padding: 24px;
+      width: 90%; max-width: 400px; box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+    }
+    .modal-title { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+    .modal-subtitle { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; }
+
+    .reason-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .reason-option {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+      border: 2px solid var(--border); border-radius: 10px; cursor: pointer;
+      font-size: 0.875rem; font-weight: 500; transition: border-color 0.15s;
+    }
+    .reason-option:hover { border-color: var(--primary); }
+    .reason-option.selected { border-color: var(--primary); background: #eff6ff; }
+    .reason-option input[type="radio"] { accent-color: var(--primary); }
+
+    .reason-input {
+      width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.875rem; margin-top: 8px; outline: none;
+    }
+    .reason-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
+
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+    .modal-btn {
+      padding: 8px 20px; border-radius: 8px; font-size: 0.875rem; font-weight: 600;
+      cursor: pointer; border: none; transition: all 0.15s;
+    }
+    .modal-btn-cancel { background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary); }
+    .modal-btn-cancel:hover { background: #f1f5f9; }
+    .modal-btn-confirm { background: var(--danger); color: #fff; }
+    .modal-btn-confirm:hover { background: #b91c1c; }
+    .modal-btn-confirm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── History Screen ── */
+    .history-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .history-filter { display: flex; gap: 8px; align-items: center; flex: 1; flex-wrap: wrap; }
+    .history-filter select {
+      padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.8rem; background: var(--surface); cursor: pointer;
+    }
+
+    .history-table {
+      width: 100%; border-collapse: collapse; font-size: 0.8rem;
+      background: var(--surface); border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .history-table th {
+      background: #f8fafc; padding: 10px 12px; text-align: left;
+      font-weight: 600; color: var(--text-secondary); font-size: 0.725rem;
+      border-bottom: 2px solid var(--border);
+    }
+    .history-table td {
+      padding: 8px 12px; border-bottom: 1px solid #f1f5f9;
+    }
+    .history-table tr:hover td { background: #fafbfc; }
+
+    .history-cancelled td { color: #94a3b8; }
+    .history-cancelled .log-time { text-decoration: line-through; }
+
+    .toast {
+      position: fixed; bottom: 32px; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #0f172a; color: #fff; padding: 14px 28px; border-radius: 14px;
+      font-size: 1rem; font-weight: 600; box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      opacity: 0; transition: transform 0.3s ease-out, opacity 0.3s ease-out;
+      z-index: 100; white-space: nowrap;
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+    .empty-state {
+      text-align: center; padding: 40px 16px; color: var(--text-secondary); font-size: 0.875rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="header-left">
+        <div>
+          <div class="header-title">打刻</div>
+          <div class="header-date" id="headerDate"></div>
+        </div>
+        <button class="btn-history" id="btnShowHistory">履歴</button>
+      </div>
+      <div class="header-clock" id="headerClock"></div>
+    </div>
+
+    <div class="screen active" id="screenList">
+      <div class="employee-grid" id="employeeGrid"></div>
+    </div>
+
+    <div class="screen" id="screenPunch">
+      <div class="punch-header">
+        <button class="btn-back" id="btnBack">← 戻る</button>
+        <div>
+          <div class="punch-employee-name" id="punchName"></div>
+          <div class="punch-employee-dept" id="punchDept"></div>
+        </div>
+      </div>
+      <div class="punch-buttons">
+        <button class="punch-btn btn-clockin" id="btnClockIn">
+          <span class="punch-btn-icon">▶</span>
+          <span class="punch-btn-label">出勤</span>
+        </button>
+        <button class="punch-btn btn-goout" id="btnGoOut">
+          <span class="punch-btn-icon">↗</span>
+          <span class="punch-btn-label">外出</span>
+        </button>
+        <button class="punch-btn btn-goreturn" id="btnGoReturn">
+          <span class="punch-btn-icon">↩</span>
+          <span class="punch-btn-label">戻り</span>
+        </button>
+        <button class="punch-btn btn-clockout" id="btnClockOut">
+          <span class="punch-btn-icon">■</span>
+          <span class="punch-btn-label">退勤</span>
+        </button>
+      </div>
+      <div class="today-log">
+        <div class="today-log-title">本日の打刻履歴</div>
+        <ul class="today-log-list" id="todayLog"></ul>
+      </div>
+    </div>
+
+    <div class="screen" id="screenHistory">
+      <div class="history-header">
+        <button class="btn-back" id="btnHistoryBack">← 戻る</button>
+        <div class="history-filter">
+          <select id="historyEmployee">
+            <option value="">全従業員</option>
+          </select>
+          <select id="historyDate"></select>
+        </div>
+      </div>
+      <table class="history-table" id="historyTable">
+        <thead>
+          <tr>
+            <th>従業員</th>
+            <th>種別</th>
+            <th>時刻</th>
+            <th>状態</th>
+            <th>備考</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const EMPLOYEES = [
+      { id: 1, name: '藤原 誠一', dept: '総務部', type: '役員', color: '#3b82f6' },
+      { id: 2, name: '中村 健太', dept: '営業部', type: '社員', color: '#ef4444' },
+      { id: 3, name: '山本 裕子', dept: '総務部', type: '役員', color: '#10b981' },
+      { id: 4, name: '高橋 大輔', dept: '技術部', type: '社員', color: '#f59e0b' },
+      { id: 5, name: '佐藤 俊介', dept: '営業部', type: '社員', color: '#8b5cf6' },
+      { id: 6, name: '伊藤 翔太', dept: '製造部', type: 'パート', color: '#ec4899' },
+      { id: 7, name: '渡辺 美咲', dept: '製造部', type: 'パート', color: '#06b6d4' },
+      { id: 8, name: '松田 浩二', dept: '倉庫部', type: 'パート', color: '#f97316' },
+    ];
+
+    const EMP_MAP = {};
+    EMPLOYEES.forEach(e => EMP_MAP[e.id] = e);
+
+    const PUNCH_TYPES = {
+      clockin:   { label: '出勤', cssClass: 'log-type-clockin' },
+      goout:     { label: '外出', cssClass: 'log-type-goout' },
+      goreturn:  { label: '戻り', cssClass: 'log-type-goreturn' },
+      clockout:  { label: '退勤', cssClass: 'log-type-clockout' },
+    };
+
+    const CANCEL_REASONS = ['入力間違い', '人違い', '誤動作'];
+
+    // { "empId-date": [ { type, time, cancelled, cancelReason, cancelTime } ] }
+    const punchRecords = {};
+    let selectedEmployee = null;
+
+    function todayKey() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function getRecords(empId, date) {
+      const key = `${empId}-${date || todayKey()}`;
+      if (!punchRecords[key]) punchRecords[key] = [];
+      return punchRecords[key];
+    }
+
+    function getAllRecords() {
+      const all = [];
+      for (const [key, recs] of Object.entries(punchRecords)) {
+        const [empId, ...dateParts] = key.split('-');
+        const date = dateParts.join('-');
+        recs.forEach(r => all.push({ ...r, empId: Number(empId), date }));
+      }
+      return all.sort((a, b) => {
+        if (a.date !== b.date) return b.date.localeCompare(a.date);
+        return a.time.localeCompare(b.time);
+      });
+    }
+
+    function getActiveRecords(empId) {
+      return getRecords(empId).filter(r => !r.cancelled);
+    }
+
+    function getStatus(empId) {
+      const recs = getActiveRecords(empId);
+      if (recs.length === 0) return 'out';
+      const last = recs[recs.length - 1].type;
+      if (last === 'clockout') return 'out';
+      if (last === 'goout') return 'goout';
+      return 'in';
+    }
+
+    function nowTimeStr() {
+      const d = new Date();
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    // ── Clock ──
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('headerClock').textContent =
+        `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+      const wd = ['日','月','火','水','木','金','土'];
+      document.getElementById('headerDate').textContent =
+        `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${wd[now.getDay()]}）`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // ── Toast ──
+    let toastTimer = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+    }
+
+    // ── Screens ──
+    function showScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+    }
+
+    // ── Employee Grid ──
+    function renderGrid() {
+      const grid = document.getElementById('employeeGrid');
+      grid.innerHTML = '';
+      EMPLOYEES.forEach(emp => {
+        const status = getStatus(emp.id);
+        const statusLabel = status === 'in' ? '出勤中' : status === 'goout' ? '外出中' : '未出勤';
+        const statusClass = status === 'in' ? 'status-in' : status === 'goout' ? 'status-goout' : 'status-out';
+        const card = document.createElement('div');
+        card.className = 'employee-card';
+        card.innerHTML = `
+          <div class="employee-avatar" style="background:${emp.color}">${emp.name[0]}</div>
+          <div class="employee-name">${emp.name}</div>
+          <div class="employee-dept">${emp.type} · ${emp.dept}</div>
+          <span class="employee-status ${statusClass}">${statusLabel}</span>
+        `;
+        card.onclick = () => openPunch(emp);
+        grid.appendChild(card);
+      });
+    }
+
+    // ── Punch ──
+    function openPunch(emp) {
+      selectedEmployee = emp;
+      document.getElementById('punchName').textContent = emp.name;
+      document.getElementById('punchDept').textContent = `${emp.type} · ${emp.dept}`;
+      showScreen('screenPunch');
+      updatePunchButtons();
+      renderLog();
+    }
+
+    function closePunch() {
+      clearTimeout(autoReturnTimer);
+      selectedEmployee = null;
+      showScreen('screenList');
+      renderGrid();
+    }
+
+    function updatePunchButtons() {
+      if (!selectedEmployee) return;
+      const status = getStatus(selectedEmployee.id);
+      const active = getActiveRecords(selectedEmployee.id);
+      const hasClockedIn = active.some(r => r.type === 'clockin');
+      document.getElementById('btnClockIn').disabled = hasClockedIn;
+      document.getElementById('btnGoOut').disabled = status !== 'in';
+      document.getElementById('btnGoReturn').disabled = status !== 'goout';
+      document.getElementById('btnClockOut').disabled = status !== 'in' && status !== 'goout';
+    }
+
+    let autoReturnTimer = null;
+
+    function showMessage(type) {
+      const messages = { clockin: '本日もよろしくお願いします', clockout: 'お疲れさまでした' };
+      const msg = messages[type];
+      if (!msg) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'msg-overlay';
+      const bubble = document.createElement('div');
+      bubble.className = `msg-bubble msg-${type}`;
+      bubble.textContent = msg;
+      overlay.appendChild(bubble);
+      document.body.appendChild(overlay);
+      setTimeout(() => overlay.remove(), 2600);
+    }
+
+    function doPunch(type) {
+      if (!selectedEmployee) return;
+      const recs = getRecords(selectedEmployee.id);
+      recs.push({ type, time: nowTimeStr(), cancelled: false, cancelReason: '', cancelTime: '' });
+      showToast(`${PUNCH_TYPES[type].label} ${nowTimeStr()}`);
+      showMessage(type);
+      updatePunchButtons();
+      renderLog();
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => closePunch(), 3000);
+    }
+
+    // ── Cancel Modal ──
+    let cancelTarget = null;
+
+    function showCancelModal(recIndex) {
+      cancelTarget = recIndex;
+      clearTimeout(autoReturnTimer);
+      const rec = getRecords(selectedEmployee.id)[recIndex];
+      const typeLabel = PUNCH_TYPES[rec.type]?.label ?? rec.type;
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.id = 'cancelModal';
+      overlay.innerHTML = `
+        <div class="modal-box">
+          <div class="modal-title">打刻取消</div>
+          <div class="modal-subtitle">${typeLabel} ${rec.time} を取り消します。理由を選択してください。</div>
+          <div class="reason-options" id="reasonOptions">
+            ${CANCEL_REASONS.map((r, i) => `
+              <label class="reason-option" data-idx="${i}">
+                <input type="radio" name="reason" value="${r}" />
+                ${r}
+              </label>
+            `).join('')}
+            <label class="reason-option" data-idx="other">
+              <input type="radio" name="reason" value="__other__" />
+              その他
+            </label>
+          </div>
+          <input type="text" class="reason-input" id="reasonCustom" placeholder="理由を入力..." style="display:none" />
+          <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" id="cancelModalClose">キャンセル</button>
+            <button class="modal-btn modal-btn-confirm" id="cancelModalConfirm" disabled>取り消す</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      let selectedReason = '';
+      const options = overlay.querySelectorAll('.reason-option');
+      const customInput = overlay.querySelector('#reasonCustom');
+      const confirmBtn = overlay.querySelector('#cancelModalConfirm');
+
+      options.forEach(opt => {
+        opt.onclick = () => {
+          options.forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+          opt.querySelector('input').checked = true;
+          const val = opt.querySelector('input').value;
+          if (val === '__other__') {
+            customInput.style.display = 'block';
+            customInput.focus();
+            selectedReason = customInput.value.trim();
+            confirmBtn.disabled = !selectedReason;
+          } else {
+            customInput.style.display = 'none';
+            selectedReason = val;
+            confirmBtn.disabled = false;
+          }
+        };
+      });
+
+      customInput.oninput = () => {
+        selectedReason = customInput.value.trim();
+        confirmBtn.disabled = !selectedReason;
+      };
+
+      overlay.querySelector('#cancelModalClose').onclick = () => overlay.remove();
+      overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+
+      confirmBtn.onclick = () => {
+        const recs = getRecords(selectedEmployee.id);
+        recs[cancelTarget].cancelled = true;
+        recs[cancelTarget].cancelReason = selectedReason;
+        recs[cancelTarget].cancelTime = nowTimeStr();
+        overlay.remove();
+        showToast(`${typeLabel}を取り消しました`);
+        updatePunchButtons();
+        renderLog();
+      };
+    }
+
+    // ── Log ──
+    function renderLog() {
+      if (!selectedEmployee) return;
+      const recs = getRecords(selectedEmployee.id);
+      const list = document.getElementById('todayLog');
+      if (recs.length === 0) {
+        list.innerHTML = '<li class="today-log-item"><span class="empty-state">打刻履歴はありません</span></li>';
+        return;
+      }
+      list.innerHTML = recs.map((r, i) => {
+        const cls = r.cancelled ? 'today-log-item log-cancelled' : 'today-log-item';
+        const typeClass = r.cancelled ? 'log-type log-type-cancel' : `log-type ${PUNCH_TYPES[r.type].cssClass}`;
+        const cancelBtn = !r.cancelled
+          ? `<button class="btn-cancel-punch" data-idx="${i}">取消</button>`
+          : `<span class="log-reason">取消: ${r.cancelReason}</span>`;
+        return `<li class="${cls}">
+          <span class="${typeClass}">${PUNCH_TYPES[r.type].label}</span>
+          <span class="log-time">${r.time}</span>
+          ${cancelBtn}
+        </li>`;
+      }).join('');
+
+      list.querySelectorAll('.btn-cancel-punch').forEach(btn => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          showCancelModal(Number(btn.dataset.idx));
+        };
+      });
+    }
+
+    // ── History Screen ──
+    function openHistory() {
+      showScreen('screenHistory');
+      const empSelect = document.getElementById('historyEmployee');
+      empSelect.innerHTML = '<option value="">全従業員</option>' +
+        EMPLOYEES.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
+
+      const dateSelect = document.getElementById('historyDate');
+      const dates = new Set();
+      for (const key of Object.keys(punchRecords)) {
+        const parts = key.split('-');
+        dates.add(parts.slice(1).join('-'));
+      }
+      const sorted = [...dates].sort().reverse();
+      if (sorted.length === 0) sorted.push(todayKey());
+      dateSelect.innerHTML = sorted.map(d => `<option value="${d}">${d}</option>`).join('');
+
+      renderHistory();
+    }
+
+    function renderHistory() {
+      const empFilter = document.getElementById('historyEmployee').value;
+      const dateFilter = document.getElementById('historyDate').value;
+      const body = document.getElementById('historyBody');
+
+      const all = getAllRecords().filter(r => {
+        if (empFilter && r.empId !== Number(empFilter)) return false;
+        if (dateFilter && r.date !== dateFilter) return false;
+        return true;
+      });
+
+      if (all.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" class="empty-state">履歴はありません</td></tr>';
+        return;
+      }
+
+      body.innerHTML = all.map(r => {
+        const emp = EMP_MAP[r.empId];
+        const rowClass = r.cancelled ? 'history-cancelled' : '';
+        const status = r.cancelled ? `<span class="log-type log-type-cancel">取消済</span>` : '<span style="color:#16a34a;font-weight:600;font-size:0.75rem">有効</span>';
+        const note = r.cancelled ? `${r.cancelReason}（${r.cancelTime}）` : '';
+        return `<tr class="${rowClass}">
+          <td>${emp?.name ?? '---'}</td>
+          <td><span class="log-type ${PUNCH_TYPES[r.type].cssClass}">${PUNCH_TYPES[r.type].label}</span></td>
+          <td class="log-time">${r.time}</td>
+          <td>${status}</td>
+          <td style="font-size:0.75rem;color:#64748b">${note}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // ── Events ──
+    document.getElementById('btnBack').onclick = closePunch;
+    document.getElementById('btnClockIn').onclick = () => doPunch('clockin');
+    document.getElementById('btnGoOut').onclick = () => doPunch('goout');
+    document.getElementById('btnGoReturn').onclick = () => doPunch('goreturn');
+    document.getElementById('btnClockOut').onclick = () => doPunch('clockout');
+    document.getElementById('btnShowHistory').onclick = openHistory;
+    document.getElementById('btnHistoryBack').onclick = () => { showScreen('screenList'); renderGrid(); };
+    document.getElementById('historyEmployee').onchange = renderHistory;
+    document.getElementById('historyDate').onchange = renderHistory;
+
+    renderGrid();
+  </script>
+</body>
+</html>
