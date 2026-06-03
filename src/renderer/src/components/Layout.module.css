@@ -106,7 +106,7 @@
   flex: 1;
   padding: 24px;
   min-width: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 @media print {

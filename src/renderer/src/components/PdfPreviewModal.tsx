@@ -11,7 +11,13 @@ interface PdfPreviewModalProps {
   payslip: MockPayslip
   year: number
   month: number
+  paymentDate?: string
   onClose: () => void
+}
+
+function formatPayDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-')
+  return `${y}年${Number(m)}月${Number(d)}日`
 }
 
 export function PdfPreviewModal({
@@ -19,6 +25,7 @@ export function PdfPreviewModal({
   payslip,
   year,
   month,
+  paymentDate,
   onClose,
 }: PdfPreviewModalProps): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
@@ -45,7 +52,10 @@ export function PdfPreviewModal({
           <div className={styles.page}>
             {/* タイトル */}
             <div className={styles.docTitle}>給 与 明 細 書</div>
-            <div className={styles.docPeriod}>{year}年{month}月分</div>
+            <div className={styles.docPeriod}>
+              {year}年{month}月分
+              {paymentDate && <span className={styles.docPayDate}>支給日: {formatPayDate(paymentDate)}</span>}
+            </div>
 
             {/* 従業員情報 */}
             <div className={styles.empInfo}>

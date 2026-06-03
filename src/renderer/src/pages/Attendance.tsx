@@ -150,6 +150,10 @@ export function Attendance(): ReactElement {
   )
 
   const holidayLabel = useMemo(() => {
+    const mode = selectedEmployee?.holidayMode ?? 'calendar'
+    if (mode === 'calendar') {
+      return '会社カレンダー'
+    }
     const dayNames = ['日', '月', '火', '水', '木', '金', '土']
     const days = selectedEmployee?.holidayDays ?? [0, 6]
     return days.map((d) => dayNames[d]).join('・')
@@ -159,12 +163,13 @@ export function Attendance(): ReactElement {
     const workDays = editData.filter((d) => !d.isHoliday && d.workMinutes > 0).length
     const totalWork = editData.reduce((s, d) => s + d.workMinutes, 0)
     const totalOvertime = editData.reduce((s, d) => s + d.overtimeMinutes, 0)
+    const totalEarlyOvertime = editData.reduce((s, d) => s + d.earlyOvertimeMinutes, 0)
     const earlyCount = editData.filter((d) => d.stampIn === '早出').length
     const lateCount = editData.filter((d) => d.stampIn === '遅刻').length
     const leaveEarlyCount = editData.filter((d) => d.stampOut === '早退').length
     const outsideCount = editData.filter((d) => d.goOut !== null).length
     const holidayWorkCount = editData.filter((d) => d.isHolidayWork).length
-    return { workDays, totalWork, totalOvertime, earlyCount, lateCount, leaveEarlyCount, outsideCount, holidayWorkCount }
+    return { workDays, totalWork, totalOvertime, totalEarlyOvertime, earlyCount, lateCount, leaveEarlyCount, outsideCount, holidayWorkCount }
   }, [editData])
 
   return (
@@ -243,6 +248,11 @@ export function Attendance(): ReactElement {
                 <span className={styles.scheduleBadge}>
                   定時 {selectedEmployee.scheduledStart}〜{selectedEmployee.scheduledEnd}
                 </span>
+                {selectedEmployee.earlyWorkStart && selectedEmployee.earlyWorkEnd && (
+                  <span className={styles.scheduleBadge}>
+                    早出 {selectedEmployee.earlyWorkStart}〜{selectedEmployee.earlyWorkEnd}
+                  </span>
+                )}
                 <span className={styles.holidayBadge}>
                   休日 {holidayLabel}
                 </span>
@@ -260,6 +270,7 @@ export function Attendance(): ReactElement {
                       <th>種別</th>
                       <th>退勤</th>
                       <th>労働時間</th>
+                      <th>早出</th>
                       <th>残業時間</th>
                       <th>データ元</th>
                     </tr>
@@ -367,6 +378,11 @@ export function Attendance(): ReactElement {
                               : <span className={styles.cellMuted}>-</span>}
                           </td>
                           <td>
+                            {day.earlyOvertimeMinutes > 0
+                              ? formatMinutes(day.earlyOvertimeMinutes)
+                              : <span className={styles.cellMuted}>-</span>}
+                          </td>
+                          <td>
                             {day.overtimeMinutes > 0
                               ? formatMinutes(day.overtimeMinutes)
                               : <span className={styles.cellMuted}>-</span>}
@@ -397,12 +413,13 @@ export function Attendance(): ReactElement {
                       <td></td>
                       <td></td>
                       <td>{formatMinutes(summary.totalWork)}</td>
+                      <td>{formatMinutes(summary.totalEarlyOvertime)}</td>
                       <td>{formatMinutes(summary.totalOvertime)}</td>
                       <td></td>
                     </tr>
                     {(summary.earlyCount > 0 || summary.lateCount > 0 || summary.leaveEarlyCount > 0 || summary.outsideCount > 0 || summary.holidayWorkCount > 0) && (
                       <tr className={styles.stampSummaryRow}>
-                        <td colSpan={11}>
+                        <td colSpan={12}>
                           <div className={styles.stampSummary}>
                             {summary.earlyCount > 0 && (
                               <span className={styles.stampSummaryItem}>

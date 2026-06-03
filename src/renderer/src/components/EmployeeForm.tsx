@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
-import type { MockEmployee } from '@/lib/mock-data'
+import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calculateInsurancePremiums, calcAge, INSURANCE_RATES } from '@/lib/mock-data'
 import styles from './EmployeeForm.module.css'
 
@@ -40,6 +40,9 @@ const emptyEmployee: MockEmployee = {
   scheduledStart: '09:00',
   scheduledEnd: '18:00',
   holidayDays: [0, 6],
+  holidayMode: 'calendar' as HolidayMode,
+  earlyWorkStart: null,
+  earlyWorkEnd: null,
 }
 
 function yen(amount: number): string {
@@ -199,27 +202,77 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     onChange={(e) => handleChange('scheduledEnd', e.target.value)}
                   />
                 </div>
+                <div className={styles.field}>
+                  <label>早出開始時刻</label>
+                  <input
+                    type="time"
+                    value={form.earlyWorkStart ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        earlyWorkStart: e.target.value || null,
+                      }))
+                    }
+                    placeholder="未設定"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>早出終了時刻</label>
+                  <input
+                    type="time"
+                    value={form.earlyWorkEnd ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        earlyWorkEnd: e.target.value || null,
+                      }))
+                    }
+                    placeholder="未設定"
+                  />
+                </div>
                 <div className={styles.fieldWide}>
                   <label>休日設定</label>
-                  <div className={styles.holidayDaysPicker}>
-                    {['日', '月', '火', '水', '木', '金', '土'].map((label, idx) => (
-                      <label key={idx} className={styles.holidayDayItem}>
-                        <input
-                          type="checkbox"
-                          checked={form.holidayDays.includes(idx)}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...form.holidayDays, idx].sort()
-                              : form.holidayDays.filter((d) => d !== idx)
-                            setForm((prev) => ({ ...prev, holidayDays: next }))
-                          }}
-                        />
-                        <span className={`${styles.holidayDayLabel} ${form.holidayDays.includes(idx) ? styles.holidayDayLabelActive : ''}`}>
-                          {label}
-                        </span>
-                      </label>
-                    ))}
+                  <div className={styles.holidayModePicker}>
+                    <label className={styles.holidayModeItem}>
+                      <input
+                        type="radio"
+                        name="holidayMode"
+                        checked={form.holidayMode === 'calendar'}
+                        onChange={() => setForm((prev) => ({ ...prev, holidayMode: 'calendar' }))}
+                      />
+                      <span>会社カレンダーに従う</span>
+                    </label>
+                    <label className={styles.holidayModeItem}>
+                      <input
+                        type="radio"
+                        name="holidayMode"
+                        checked={form.holidayMode === 'individual'}
+                        onChange={() => setForm((prev) => ({ ...prev, holidayMode: 'individual' }))}
+                      />
+                      <span>個別設定（曜日指定）</span>
+                    </label>
                   </div>
+                  {form.holidayMode === 'individual' && (
+                    <div className={styles.holidayDaysPicker}>
+                      {['日', '月', '火', '水', '木', '金', '土'].map((label, idx) => (
+                        <label key={idx} className={styles.holidayDayItem}>
+                          <input
+                            type="checkbox"
+                            checked={form.holidayDays.includes(idx)}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...form.holidayDays, idx].sort()
+                                : form.holidayDays.filter((d) => d !== idx)
+                              setForm((prev) => ({ ...prev, holidayDays: next }))
+                            }}
+                          />
+                          <span className={`${styles.holidayDayLabel} ${form.holidayDays.includes(idx) ? styles.holidayDayLabelActive : ''}`}>
+                            {label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

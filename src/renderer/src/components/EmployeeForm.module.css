@@ -280,3 +280,22 @@
   border-color: #ec4899;
   color: #be185d;
 }
+
+.holidayModePicker {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.holidayModeItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.holidayModeItem input[type="radio"] {
+  accent-color: var(--color-primary);
+}

@@ -9,8 +9,9 @@ import {
 import { PayrollReportModal } from '@/components/PayrollReportModal'
 import styles from './PayslipHistory.module.css'
 
-function yen(amount: number): string {
-  return `¥${amount.toLocaleString('ja-JP')}`
+function num(amount: number): string {
+  if (amount === 0) return '0'
+  return amount.toLocaleString('ja-JP')
 }
 
 interface EditablePayslip extends MockPayslip {
@@ -18,6 +19,40 @@ interface EditablePayslip extends MockPayslip {
   employeeType: string
   displayOrder: number
 }
+
+type PayField = keyof MockPayslip
+
+interface Column {
+  key: PayField
+  label: string
+  editable: boolean
+}
+
+const PAY_COLUMNS: Column[] = [
+  { key: 'basicSalary', label: '基本給', editable: true },
+  { key: 'overtimePay', label: '残業手当', editable: true },
+  { key: 'familyAllowance', label: '家族手当', editable: true },
+  { key: 'specialAllowance', label: '特別手当', editable: true },
+  { key: 'positionAllowance', label: '役職手当', editable: true },
+  { key: 'transportAllowance', label: '交通費', editable: true },
+  { key: 'salesAllowance', label: '営業手当', editable: true },
+  { key: 'dangerAllowance', label: '危険手当', editable: true },
+  { key: 'totalPayment', label: '支払合計', editable: false },
+]
+
+const DEDUCT_COLUMNS: Column[] = [
+  { key: 'healthInsurance', label: '健康保険', editable: true },
+  { key: 'nursingInsurance', label: '介護保険', editable: true },
+  { key: 'welfarePension', label: '厚生年金', editable: true },
+  { key: 'employmentInsurance', label: '雇用保険', editable: true },
+  { key: 'incomeTax', label: '所得税', editable: true },
+  { key: 'residentTax', label: '住民税', editable: true },
+  { key: 'savingsDeduction', label: '積立', editable: true },
+  { key: 'loanDeduction', label: '貸付', editable: true },
+  { key: 'totalDeduction', label: '控除合計', editable: false },
+]
+
+const ALL_COLUMNS: Column[] = [...PAY_COLUMNS, ...DEDUCT_COLUMNS]
 
 export function PayslipHistory(): ReactElement {
   const [selectedYear, setSelectedYear] = useState(2026)
@@ -52,7 +87,7 @@ export function PayslipHistory(): ReactElement {
   })
 
   const handleChange = useCallback(
-    (idx: number, field: keyof MockPayslip, value: number): void => {
+    (idx: number, field: PayField, value: number): void => {
       setEditData((prev) => {
         const updated = [...prev]
         const row = { ...updated[idx], [field]: value }
@@ -88,39 +123,6 @@ export function PayslipHistory(): ReactElement {
     [],
   )
 
-  const columns: {
-    key: keyof MockPayslip
-    label: string
-    editable: boolean
-    group: string
-  }[] = [
-    { key: 'workDays', label: '労働日数', editable: true, group: '勤怠' },
-    { key: 'workHours', label: '労働時間', editable: true, group: '勤怠' },
-    { key: 'overtimeHours', label: '残業時間', editable: true, group: '勤怠' },
-    { key: 'holidayWorkDays', label: '休日出勤', editable: true, group: '勤怠' },
-    { key: 'basicSalary', label: '基本給', editable: true, group: '支給' },
-    { key: 'overtimePay', label: '残業手当', editable: true, group: '支給' },
-    { key: 'transportAllowance', label: '通勤手当', editable: true, group: '支給' },
-    { key: 'positionAllowance', label: '役職手当', editable: true, group: '支給' },
-    { key: 'familyAllowance', label: '家族手当', editable: true, group: '支給' },
-    { key: 'specialAllowance', label: '特別手当', editable: true, group: '支給' },
-    { key: 'dangerAllowance', label: '危険手当', editable: true, group: '支給' },
-    { key: 'salesAllowance', label: '営業手当', editable: true, group: '支給' },
-    { key: 'otherAllowance', label: 'その他手当', editable: true, group: '支給' },
-    { key: 'totalPayment', label: '支給合計', editable: false, group: '支給' },
-    { key: 'healthInsurance', label: '健康保険', editable: true, group: '控除' },
-    { key: 'nursingInsurance', label: '介護保険', editable: true, group: '控除' },
-    { key: 'welfarePension', label: '厚生年金', editable: true, group: '控除' },
-    { key: 'employmentInsurance', label: '雇用保険', editable: true, group: '控除' },
-    { key: 'incomeTax', label: '所得税', editable: true, group: '控除' },
-    { key: 'residentTax', label: '住民税', editable: true, group: '控除' },
-    { key: 'savingsDeduction', label: '積立金', editable: true, group: '控除' },
-    { key: 'loanDeduction', label: '貸付', editable: true, group: '控除' },
-    { key: 'otherDeduction', label: 'その他', editable: true, group: '控除' },
-    { key: 'totalDeduction', label: '控除合計', editable: false, group: '控除' },
-    { key: 'netPayment', label: '差引支給額', editable: false, group: '合計' },
-  ]
-
   const created = useMemo(
     () => isPayslipsCreated(selectedYear, selectedMonth),
     [selectedYear, selectedMonth],
@@ -143,23 +145,33 @@ export function PayslipHistory(): ReactElement {
     [],
   )
 
-  const payGroups = ['勤怠', '支給', '控除', '合計'] as const
-  const groupCounts = payGroups.map(
-    (g) => columns.filter((c) => c.group === g).length,
-  )
+  const totals = useMemo(() => {
+    const t = {
+      workDays: 0, netPayment: 0,
+      basicSalary: 0, overtimePay: 0, familyAllowance: 0, specialAllowance: 0,
+      positionAllowance: 0, transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0,
+      totalPayment: 0,
+      healthInsurance: 0, nursingInsurance: 0, welfarePension: 0, employmentInsurance: 0,
+      incomeTax: 0, residentTax: 0, savingsDeduction: 0, loanDeduction: 0,
+      totalDeduction: 0,
+    }
+    for (const r of editData) {
+      for (const k of Object.keys(t) as (keyof typeof t)[]) {
+        (t[k] as number) += r[k]
+      }
+    }
+    return t
+  }, [editData])
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <h1 className={styles.title}>給与一括編集</h1>
           <div className={styles.periodSelector}>
             <select
               className={styles.select}
               value={selectedYear}
-              onChange={(e) => {
-                setSelectedYear(Number(e.target.value))
-              }}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
               {[2024, 2025, 2026].map((y) => (
                 <option key={y} value={y}>{y}年</option>
@@ -168,9 +180,7 @@ export function PayslipHistory(): ReactElement {
             <select
               className={styles.select}
               value={selectedMonth}
-              onChange={(e) => {
-                setSelectedMonth(Number(e.target.value))
-              }}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
             >
               {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                 <option key={m} value={m}>{m}月</option>
@@ -215,36 +225,17 @@ export function PayslipHistory(): ReactElement {
           <table className={styles.table}>
             <thead>
               <tr className={styles.groupRow}>
-                <th
-                  rowSpan={2}
-                  style={{ position: 'sticky', left: 0, top: 0, zIndex: 31, background: '#f8fafc', minWidth: 120, borderBottom: '2px solid var(--color-border)', padding: '6px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}
-                >
-                  氏名
-                </th>
-                <th
-                  rowSpan={2}
-                  style={{ position: 'sticky', left: 120, top: 0, zIndex: 31, background: '#f8fafc', minWidth: 64, borderBottom: '2px solid var(--color-border)', padding: '6px 14px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: 'var(--color-text-secondary)', boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }}
-                >
-                  区分
-                </th>
-                {payGroups.map((g, i) => (
-                  <th
-                    key={g}
-                    colSpan={groupCounts[i]}
-                    className={`${styles.groupHeader} ${styles[`group${g}`]}`}
-                  >
-                    {g}
-                  </th>
-                ))}
+                <th rowSpan={2} className={styles.thName}>氏名</th>
+                <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
+                <th rowSpan={2} className={styles.thNetPay}>振込額</th>
+                <th colSpan={PAY_COLUMNS.length} className={styles.thGroupPay}>支　払</th>
+                <th colSpan={DEDUCT_COLUMNS.length} className={styles.thGroupDeduct}>控　除</th>
               </tr>
               <tr>
-                {columns.map((col) => {
-                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction' || col.key === 'netPayment'
+                {ALL_COLUMNS.map((col) => {
+                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
                   return (
-                    <th
-                      key={col.key}
-                      className={`${styles.th} ${isTotal ? styles.thTotal : ''}`}
-                    >
+                    <th key={col.key} className={`${styles.th} ${isTotal ? styles.thTotal : ''}`}>
                       {col.label}
                     </th>
                   )
@@ -254,17 +245,27 @@ export function PayslipHistory(): ReactElement {
             <tbody>
               {editData.map((row, rowIdx) => (
                 <tr key={row.employeeId} className={styles.bodyRow}>
-                  <td style={{ position: 'sticky', left: 0, zIndex: 10, background: 'var(--color-surface)', minWidth: 120, padding: '6px 14px', borderBottom: '1px solid var(--color-border)' }}>
+                  <td className={styles.tdName}>
                     <span className={styles.empName}>{row.employeeName}</span>
                   </td>
-                  <td style={{ position: 'sticky', left: 120, zIndex: 10, background: 'var(--color-surface)', minWidth: 64, padding: '6px 10px', borderBottom: '1px solid var(--color-border)', boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }}>
-                    <span className={`${styles.badge} ${styles[`badge${row.employeeType}`]}`}>
-                      {row.employeeType}
-                    </span>
+                  <td className={styles.tdNum}>
+                    <input
+                      type="number"
+                      className={styles.cellInputSmall}
+                      value={row.workDays}
+                      data-row={rowIdx}
+                      data-col={-1}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                        handleChange(rowIdx, 'workDays', Number(e.target.value))
+                      }
+                      onKeyDown={(e) => handleKeyDown(e, rowIdx, -1)}
+                      min={0}
+                    />
                   </td>
-                  {columns.map((col, colIdx) => {
+                  <td className={styles.tdNetPay}>{num(row.netPayment)}</td>
+                  {ALL_COLUMNS.map((col, colIdx) => {
                     const val = row[col.key] as number
-                    const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction' || col.key === 'netPayment'
+                    const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
                     if (col.editable) {
                       return (
                         <td key={col.key} className={styles.tdEditable}>
@@ -284,11 +285,8 @@ export function PayslipHistory(): ReactElement {
                       )
                     }
                     return (
-                      <td
-                        key={col.key}
-                        className={`${styles.tdReadonly} ${isTotal ? styles.tdTotal : ''}`}
-                      >
-                        {yen(val)}
+                      <td key={col.key} className={`${styles.tdReadonly} ${isTotal ? styles.tdTotal : ''}`}>
+                        {num(val)}
                       </td>
                     )
                   })}
@@ -296,21 +294,16 @@ export function PayslipHistory(): ReactElement {
               ))}
             </tbody>
             <tfoot>
-              <tr className={styles.footRow}>
-                <td style={{ position: 'sticky', left: 0, zIndex: 16, background: '#f1f5f9', minWidth: 120, padding: '8px 14px', borderTop: '2px solid var(--color-border)', fontWeight: 700, fontSize: '0.8125rem', textAlign: 'left' as const }}>
-                  合計
-                </td>
-                <td style={{ position: 'sticky', left: 120, zIndex: 16, background: '#f1f5f9', minWidth: 64, padding: '8px 10px', borderTop: '2px solid var(--color-border)', boxShadow: '2px 0 4px rgba(0,0,0,0.08)' }}>
-                </td>
-                {columns.map((col) => {
-                  const sum = editData.reduce(
-                    (s, row) => s + (row[col.key] as number),
-                    0,
-                  )
-                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction' || col.key === 'netPayment'
+              <tr className={styles.totalRow}>
+                <td className={styles.tdNameFoot}>合計</td>
+                <td className={styles.tdNumFoot}></td>
+                <td className={styles.tdNetPayFoot}>{num(totals.netPayment)}</td>
+                {ALL_COLUMNS.map((col) => {
+                  const val = totals[col.key as keyof typeof totals] as number | undefined
+                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
                   return (
-                    <td key={col.key} className={`${styles.tdFooter} ${isTotal ? styles.tdFooterTotal : ''}`}>
-                      {yen(Math.round(sum))}
+                    <td key={col.key} className={`${styles.tdFoot} ${isTotal ? styles.tdFootTotal : ''}`}>
+                      {val !== undefined ? num(Math.round(val)) : ''}
                     </td>
                   )
                 })}

@@ -108,6 +108,14 @@
   margin-bottom: 20px;
 }
 
+.docPayDate {
+  display: inline-block;
+  margin-left: 16px;
+  font-size: 11px;
+  color: #374151;
+  font-weight: 500;
+}
+
 /* 従業員情報 */
 .empInfo {
   margin-bottom: 16px;

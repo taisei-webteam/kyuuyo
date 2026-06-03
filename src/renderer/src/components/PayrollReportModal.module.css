@@ -100,6 +100,12 @@
   letter-spacing: 0.05em;
 }
 
+.reportDate {
+  font-size: 11px;
+  font-weight: 500;
+  color: #374151;
+}
+
 /* テーブル */
 .table {
   width: 100%;

@@ -54,6 +54,8 @@ export function calculateInsurancePremiums(
   return { healthInsurance, nursingInsurance, welfarePension, employmentInsurance }
 }
 
+export type HolidayMode = 'calendar' | 'individual'
+
 export interface MockEmployee {
   id: number
   name: string
@@ -84,6 +86,9 @@ export interface MockEmployee {
   scheduledStart: string
   scheduledEnd: string
   holidayDays: number[]
+  holidayMode: HolidayMode
+  earlyWorkStart: string | null
+  earlyWorkEnd: string | null
 }
 
 export type StampInType = '出勤' | '早出' | '遅刻'
@@ -99,6 +104,7 @@ export interface MockAttendanceDay {
   goReturn: string | null
   workMinutes: number
   overtimeMinutes: number
+  earlyOvertimeMinutes: number
   isHoliday: boolean
   isHolidayWork: boolean
   dataSource: 'ipad' | 'manual'
@@ -167,6 +173,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
   {
     id: 2,
@@ -198,6 +207,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
   {
     id: 3,
@@ -229,6 +241,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
   {
     id: 4,
@@ -260,6 +275,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '08:30',
     scheduledEnd: '17:30',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: '07:30',
+    earlyWorkEnd: '08:15',
   },
   {
     id: 5,
@@ -291,6 +309,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: '08:00',
+    earlyWorkEnd: '08:45',
   },
   {
     id: 6,
@@ -322,6 +343,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '10:00',
     scheduledEnd: '16:00',
     holidayDays: [0, 3, 6],
+    holidayMode: 'individual',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
   {
     id: 7,
@@ -353,6 +377,9 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '15:00',
     holidayDays: [0, 6],
+    holidayMode: 'calendar',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
   {
     id: 8,
@@ -384,19 +411,132 @@ const employees: MockEmployee[] = [
     scheduledStart: '09:00',
     scheduledEnd: '16:00',
     holidayDays: [0, 4, 6],
+    holidayMode: 'individual',
+    earlyWorkStart: null,
+    earlyWorkEnd: null,
   },
 ]
+
+// ========================================
+// 会社カレンダーストア
+// ========================================
+
+import { getHolidaysForYear } from './holidays-jp'
+import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
+import type { ClockInConfig } from './time-rounding'
+import { getSettings } from './settings-store'
+
+export interface CalendarDay {
+  isHoliday: boolean
+  holidayName: string | null
+  isNationalHoliday: boolean
+}
+
+const calendarStore = new Map<string, CalendarDay>()
+
+export function initCalendarYear(year: number): void {
+  const daysInYear = new Date(year, 11, 31).getDate() === 31 ? 365 + (isLeapYear(year) ? 1 : 0) : 365
+  const holidays = getHolidaysForYear(year)
+  const holidayMap = new Map(holidays.map((h) => [h.date, h.name]))
+
+  const start = new Date(year, 0, 1)
+  for (let i = 0; i < (isLeapYear(year) ? 366 : 365); i++) {
+    const d = new Date(start)
+    d.setDate(d.getDate() + i)
+    const key = formatDateKey(d)
+    const dow = d.getDay()
+    const nationalHolidayName = holidayMap.get(key) ?? null
+    const isSunday = dow === 0
+
+    if (!calendarStore.has(key)) {
+      calendarStore.set(key, {
+        isHoliday: isSunday || nationalHolidayName !== null,
+        holidayName: nationalHolidayName,
+        isNationalHoliday: nationalHolidayName !== null,
+      })
+    }
+  }
+}
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+}
+
+function formatDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function getCalendarDay(date: string): CalendarDay | undefined {
+  return calendarStore.get(date)
+}
+
+export function setCalendarDay(date: string, isHoliday: boolean, holidayName?: string): void {
+  const existing = calendarStore.get(date)
+  calendarStore.set(date, {
+    isHoliday,
+    holidayName: holidayName ?? existing?.holidayName ?? null,
+    isNationalHoliday: existing?.isNationalHoliday ?? false,
+  })
+}
+
+export function getCalendarYear(year: number): Map<string, CalendarDay> {
+  initCalendarYear(year)
+  const result = new Map<string, CalendarDay>()
+  for (const [key, val] of calendarStore) {
+    if (key.startsWith(`${year}-`)) {
+      result.set(key, val)
+    }
+  }
+  return result
+}
+
+export function loadNationalHolidays(year: number): void {
+  const holidays = getHolidaysForYear(year)
+  const daysInYear = isLeapYear(year) ? 366 : 365
+  const start = new Date(year, 0, 1)
+  const holidayMap = new Map(holidays.map((h) => [h.date, h.name]))
+
+  for (let i = 0; i < daysInYear; i++) {
+    const d = new Date(start)
+    d.setDate(d.getDate() + i)
+    const key = formatDateKey(d)
+    const nationalName = holidayMap.get(key) ?? null
+    const isSunday = d.getDay() === 0
+    const existing = calendarStore.get(key)
+
+    calendarStore.set(key, {
+      isHoliday: isSunday || nationalName !== null || (existing?.isHoliday ?? false),
+      holidayName: nationalName ?? existing?.holidayName ?? null,
+      isNationalHoliday: nationalName !== null,
+    })
+  }
+}
+
+export function resetCalendarYear(year: number): void {
+  for (const key of [...calendarStore.keys()]) {
+    if (key.startsWith(`${year}-`)) {
+      calendarStore.delete(key)
+    }
+  }
+}
+
+function isCalendarHoliday(dateStr: string, year: number): boolean {
+  if (!calendarStore.has(`${year}-01-01`)) {
+    initCalendarYear(year)
+  }
+  return calendarStore.get(dateStr)?.isHoliday ?? false
+}
+
+// ========================================
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number)
   return h * 60 + m
 }
 
-function detectStampIn(clockIn: string, scheduledStart: string): StampInType {
-  const inMin = timeToMinutes(clockIn)
-  const startMin = timeToMinutes(scheduledStart)
-  if (inMin < startMin) return '早出'
-  if (inMin > startMin) return '遅刻'
+function clockInTypeToStampIn(type: 'early' | 'normal' | 'late'): StampInType {
+  if (type === 'early') return '早出'
+  if (type === 'late') return '遅刻'
   return '出勤'
 }
 
@@ -408,9 +548,19 @@ function detectStampOut(clockOut: string, scheduledEnd: string): StampOutType {
 }
 
 function generateAttendance(employeeId: number, year: number, month: number): MockAttendanceDay[] {
-  const emp = employees.find((e) => e.id === employeeId)
+  const emp = employeeData.find((e) => e.id === employeeId)
   const scheduledStart = emp?.scheduledStart ?? '09:00'
   const scheduledEnd = emp?.scheduledEnd ?? '18:00'
+  const holidayMode = emp?.holidayMode ?? 'calendar'
+  const settings = getSettings()
+
+  const clockInConfig: ClockInConfig = {
+    scheduledStart,
+    earlyWorkStart: emp?.earlyWorkStart ?? null,
+    earlyWorkEnd: emp?.earlyWorkEnd ?? null,
+    roundingUnit: settings.roundingUnit,
+    gracePeriod: settings.gracePeriod,
+  }
 
   const days: MockAttendanceDay[] = []
   const daysInMonth = new Date(year, month, 0).getDate()
@@ -420,8 +570,10 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day)
     const dow = date.getDay()
-    const isHoliday = holidayDays.includes(dow)
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const isHoliday = holidayMode === 'calendar'
+      ? isCalendarHoliday(dateStr, year)
+      : holidayDays.includes(dow)
 
     if (isHoliday) {
       days.push({
@@ -434,6 +586,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
         goReturn: null,
         workMinutes: 0,
         overtimeMinutes: 0,
+        earlyOvertimeMinutes: 0,
         isHoliday: true,
         isHolidayWork: false,
         dataSource: 'ipad',
@@ -446,8 +599,18 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const baseOutHour = 17
     const baseOutMin = 30 + ((employeeId * 5 + day * 11) % 45)
 
-    const clockIn = `${String(baseInHour).padStart(2, '0')}:${String(baseInMin).padStart(2, '0')}`
-    const clockOut = `${String(baseOutHour).padStart(2, '0')}:${String(baseOutMin).padStart(2, '0')}`
+    const rawClockIn = `${String(baseInHour).padStart(2, '0')}:${String(baseInMin).padStart(2, '0')}`
+    const rawClockOut = `${String(baseOutHour).padStart(2, '0')}:${String(baseOutMin).padStart(2, '0')}`
+
+    const clockInResult = roundClockIn(rawClockIn, clockInConfig)
+    const clockIn = clockInResult.time
+    const clockOut = roundClockOut(rawClockOut, settings.roundingUnit)
+
+    const earlyOvertimeMinutes = calcEarlyOvertime(
+      clockIn,
+      clockInResult.type,
+      emp?.earlyWorkEnd ?? null,
+    )
 
     const hasGoOut = (employeeId + day) % 7 === 0
     let goOut: string | null = null
@@ -464,23 +627,24 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
       goOutMinutes = (returnHour * 60 + returnMinRemainder) - (goOutHour * 60 + goOutMin)
     }
 
-    const workStart = baseInHour * 60 + baseInMin
-    const workEnd = baseOutHour * 60 + baseOutMin
-    const breakMinutes = 60
-    const totalWork = Math.max(0, workEnd - workStart - breakMinutes - goOutMinutes)
-    const standardMinutes = 480
-    const overtime = Math.max(0, totalWork - standardMinutes)
+    const workStartMin = timeToMinutes(clockIn)
+    const workEndMin = timeToMinutes(clockOut)
+    const breakMinutes = settings.defaultBreakMinutes
+    const totalWork = Math.max(0, workEndMin - workStartMin - breakMinutes - goOutMinutes)
+    const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - breakMinutes
+    const overtime = Math.max(0, totalWork - scheduledMinutes)
 
     days.push({
       date: dateStr,
       clockIn,
       clockOut,
-      stampIn: detectStampIn(clockIn, scheduledStart),
+      stampIn: clockInTypeToStampIn(clockInResult.type),
       stampOut: detectStampOut(clockOut, scheduledEnd),
       goOut,
       goReturn,
       workMinutes: totalWork,
       overtimeMinutes: overtime,
+      earlyOvertimeMinutes,
       isHoliday: false,
       isHolidayWork: false,
       dataSource: day % 5 === 0 ? 'manual' : 'ipad',

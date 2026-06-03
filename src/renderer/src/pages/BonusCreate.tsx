@@ -108,6 +108,7 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
 export function BonusCreate(): React.ReactElement {
   const [selectedYear, setSelectedYear] = useState(2026)
   const [selectedSeason, setSelectedSeason] = useState<'夏季' | '冬季'>('夏季')
+  const [paymentDate, setPaymentDate] = useState('')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [showBulkEmail, setShowBulkEmail] = useState(false)
@@ -191,6 +192,15 @@ export function BonusCreate(): React.ReactElement {
               <option value="夏季">夏季</option>
               <option value="冬季">冬季</option>
             </select>
+            <label className={styles.paymentDateLabel}>
+              支給日
+              <input
+                type="date"
+                className={styles.paymentDateInput}
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </label>
           </div>
         </div>
         <div className={styles.headerActions}>
@@ -240,6 +250,7 @@ export function BonusCreate(): React.ReactElement {
               bonus={selectedBonus}
               year={selectedYear}
               season={selectedSeason}
+              paymentDate={paymentDate}
             />
           ) : (
             <div className={styles.emptyState}>従業員を選択してください</div>
@@ -265,6 +276,7 @@ export function BonusCreate(): React.ReactElement {
           payslip={bonusToPayslipShape(selectedBonus)}
           year={selectedYear}
           month={selectedSeason === '夏季' ? 7 : 12}
+          paymentDate={paymentDate}
           onClose={() => setShowPdfPreview(false)}
         />
       )}
@@ -274,6 +286,7 @@ export function BonusCreate(): React.ReactElement {
           bonuses={bonuses}
           year={selectedYear}
           season={selectedSeason}
+          paymentDate={paymentDate}
           onClose={() => setShowReport(false)}
         />
       )}
@@ -281,16 +294,24 @@ export function BonusCreate(): React.ReactElement {
   )
 }
 
+function formatPaymentDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-')
+  return `${y}年${Number(m)}月${Number(d)}日`
+}
+
 function BonusDetail({
   employee,
   bonus,
   year,
   season,
+  paymentDate,
 }: {
   employee: MockEmployee
   bonus: MockBonus
   year: number
   season: string
+  paymentDate: string
 }): React.ReactElement {
   return (
     <div className={styles.detailCard}>
@@ -299,6 +320,7 @@ function BonusDetail({
         <span className={styles.detailBadge}>{employee.employeeType}</span>
         <span className={styles.detailPeriod}>
           {year}年 {season} 賞与明細
+          {paymentDate && <span className={styles.detailPayDate}>（支給日: {formatPaymentDate(paymentDate)}）</span>}
         </span>
       </div>
 

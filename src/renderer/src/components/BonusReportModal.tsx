@@ -55,13 +55,20 @@ interface BonusReportModalProps {
   bonuses: BonusRow[]
   year: number
   season: string
+  paymentDate?: string
   onClose: () => void
+}
+
+function formatPayDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-')
+  return `${y}年${Number(m)}月${Number(d)}日`
 }
 
 export function BonusReportModal({
   bonuses,
   year,
   season,
+  paymentDate,
   onClose,
 }: BonusReportModalProps): ReactElement {
   const employees = useMemo(() => getEmployees(), [])
@@ -136,6 +143,7 @@ export function BonusReportModal({
           <div className={styles.page}>
             <div className={styles.reportHeader}>
               <span className={styles.reportTitle}>{year}年 {season} 賞与一覧</span>
+              {paymentDate && <span className={styles.reportDate}>支給日: {formatPayDate(paymentDate)}</span>}
             </div>
 
             <table className={styles.table}>
