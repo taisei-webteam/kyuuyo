@@ -1,0 +1,35 @@
+/* 印刷共通スタイル */
+
+@media print {
+  html,
+  body {
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* モーダル印刷: 対象エリアのみ表示 */
+  body.is-printing-modal * {
+    visibility: hidden;
+  }
+
+  body.is-printing-modal .printScope,
+  body.is-printing-modal .printScope * {
+    visibility: visible;
+  }
+
+  body.is-printing-modal .printScope {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    z-index: 99999;
+  }
+
+  .noPrint {
+    display: none !important;
+  }
+}

@@ -7,6 +7,7 @@ import {
   type MockPayslip,
 } from '@/lib/mock-data'
 import { PayrollReportModal } from '@/components/PayrollReportModal'
+import { triggerPrint } from '@/lib/print'
 import styles from './PayslipHistory.module.css'
 
 function num(amount: number): string {
@@ -202,7 +203,7 @@ export function PayslipHistory(): ReactElement {
             </button>
             <button
               className={styles.btnSecondary}
-              onClick={() => window.print()}
+              onClick={() => triggerPrint({ orientation: 'landscape', mode: 'page' })}
             >
               印刷
             </button>

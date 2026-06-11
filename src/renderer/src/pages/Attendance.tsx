@@ -3,10 +3,14 @@ import type { ReactElement, ChangeEvent } from 'react'
 import {
   getEmployees,
   getAttendance,
+  getCalendarDay,
+  initCalendarYear,
   type MockAttendanceDay,
   type StampInType,
   type StampOutType,
 } from '@/lib/mock-data'
+import { syncAttendanceMonth, type SyncWarning } from '@/lib/attendance-sync'
+import { isSupabaseConfigured } from '@/lib/supabase'
 import styles from './Attendance.module.css'
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
@@ -54,9 +58,13 @@ function stampOutClass(stamp: StampOutType | null): string {
 
 export function Attendance(): ReactElement {
   const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState(5)
+  const [selectedMonth, setSelectedMonth] = useState(6)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
+  const [syncWarnings, setSyncWarnings] = useState<SyncWarning[]>([])
+  const [syncedKeys, setSyncedKeys] = useState<Set<string>>(new Set())
 
   const employees = useMemo(() => getEmployees(), [])
 
@@ -87,6 +95,63 @@ export function Attendance(): ReactElement {
     setEditData(rawAttendance.map((d) => ({ ...d })))
     setEditKey(currentKey)
   }
+
+  const isSynced = syncedKeys.has(currentKey)
+
+  const handleSync = useCallback(async () => {
+    if (!selectedEmployee) return
+    setSyncing(true)
+    setSyncStatus(null)
+    setSyncWarnings([])
+
+    try {
+      initCalendarYear(selectedYear)
+      const isHolidayFn = (dateStr: string): boolean => {
+        const emp = selectedEmployee
+        if (emp.holidayMode === 'calendar') {
+          return getCalendarDay(dateStr)?.isHoliday ?? false
+        }
+        const dow = new Date(dateStr).getDay()
+        return emp.holidayDays.includes(dow)
+      }
+
+      const result = await syncAttendanceMonth(
+        selectedEmployeeId,
+        selectedEmployee,
+        selectedYear,
+        selectedMonth,
+        isHolidayFn,
+      )
+
+      if (!result.success) {
+        setSyncStatus({ type: 'error', message: result.error ?? '同期に失敗しました' })
+        return
+      }
+
+      setEditData(result.days)
+      setSyncWarnings(result.warnings)
+      setSyncedKeys((prev) => new Set(prev).add(currentKey))
+
+      if (result.warnings.length > 0) {
+        setSyncStatus({
+          type: 'warning',
+          message: `${result.synced}件の打刻データを同期しました（警告 ${result.warnings.length}件）`,
+        })
+      } else {
+        setSyncStatus({
+          type: 'success',
+          message: `${result.synced}件の打刻データを同期しました`,
+        })
+      }
+    } catch (err) {
+      setSyncStatus({
+        type: 'error',
+        message: `同期エラー: ${err instanceof Error ? err.message : '不明なエラー'}`,
+      })
+    } finally {
+      setSyncing(false)
+    }
+  }, [selectedEmployee, selectedEmployeeId, selectedYear, selectedMonth, currentKey])
 
   const handleTimeChange = useCallback(
     (idx: number, field: 'clockIn' | 'clockOut' | 'goOut' | 'goReturn', value: string): void => {
@@ -195,11 +260,16 @@ export function Attendance(): ReactElement {
           </select>
         </div>
         <div className={styles.headerSpacer} />
+        {isSynced && (
+          <span className={styles.syncedBadge}>同期済み</span>
+        )}
         <button
           className={styles.syncButton}
-          onClick={() => alert('iPad打刻データと同期します（モック）')}
+          onClick={handleSync}
+          disabled={syncing || !isSupabaseConfigured()}
+          title={!isSupabaseConfigured() ? 'Supabase が未設定です' : undefined}
         >
-          同期
+          {syncing ? '同期中...' : 'iPad同期'}
         </button>
       </div>
 
@@ -237,6 +307,26 @@ export function Attendance(): ReactElement {
         </aside>
 
         <div className={styles.content}>
+          {syncStatus && (
+            <div className={
+              syncStatus.type === 'success' ? styles.syncSuccess
+                : syncStatus.type === 'warning' ? styles.syncWarning
+                  : styles.syncError
+            }>
+              <span>{syncStatus.message}</span>
+              <button className={styles.syncDismiss} onClick={() => setSyncStatus(null)}>×</button>
+            </div>
+          )}
+          {syncWarnings.length > 0 && (
+            <details className={styles.warningDetails}>
+              <summary>警告一覧（{syncWarnings.length}件）</summary>
+              <ul className={styles.warningList}>
+                {syncWarnings.map((w, i) => (
+                  <li key={i}>{w.message}</li>
+                ))}
+              </ul>
+            </details>
+          )}
           {selectedEmployee ? (
             <>
               <div className={styles.contentHeader}>
@@ -264,11 +354,11 @@ export function Attendance(): ReactElement {
                       <th>日付</th>
                       <th>休出</th>
                       <th>種別</th>
-                      <th>出勤</th>
+                      <th className={styles.thClockIn}>出勤</th>
                       <th>外出</th>
                       <th>戻り</th>
                       <th>種別</th>
-                      <th>退勤</th>
+                      <th className={styles.thClockOut}>退勤</th>
                       <th>労働時間</th>
                       <th>早出</th>
                       <th>残業時間</th>

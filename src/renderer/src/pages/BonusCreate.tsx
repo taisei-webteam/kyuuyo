@@ -7,7 +7,7 @@ import {
   type MockPayslip,
 } from '@/lib/mock-data'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
-import { PdfPreviewModal } from '@/components/PdfPreviewModal'
+import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
 import styles from './BonusCreate.module.css'
 
@@ -112,7 +112,7 @@ export function BonusCreate(): React.ReactElement {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [showBulkEmail, setShowBulkEmail] = useState(false)
-  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
 
@@ -169,6 +169,15 @@ export function BonusCreate(): React.ReactElement {
     setEmailRefresh((k) => k + 1)
   }, [])
 
+  const handlePrint = useCallback((): void => {
+    if (!selectedEmployee || !selectedBonus) return
+    setPrinting(true)
+  }, [selectedEmployee, selectedBonus])
+
+  const handlePrintDone = useCallback((): void => {
+    setPrinting(false)
+  }, [])
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -207,7 +216,7 @@ export function BonusCreate(): React.ReactElement {
           <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
           <button className={styles.btnSecondary} onClick={() => setShowBulkEmail(true)}>一括送信</button>
           <button className={styles.btnSecondary} onClick={handleEmailSend}>個別送信</button>
-          <button className={styles.btnPrimary} onClick={() => setShowPdfPreview(true)}>PDFプレビュー</button>
+          <button className={styles.btnPrimary} onClick={handlePrint}>印刷</button>
         </div>
       </div>
 
@@ -270,14 +279,14 @@ export function BonusCreate(): React.ReactElement {
         />
       )}
 
-      {showPdfPreview && selectedEmployee && selectedBonus && (
-        <PdfPreviewModal
+      {printing && selectedEmployee && selectedBonus && (
+        <PayslipDirectPrint
           employee={selectedEmployee}
           payslip={bonusToPayslipShape(selectedBonus)}
           year={selectedYear}
           month={selectedSeason === '夏季' ? 7 : 12}
           paymentDate={paymentDate}
-          onClose={() => setShowPdfPreview(false)}
+          onDone={handlePrintDone}
         />
       )}
 

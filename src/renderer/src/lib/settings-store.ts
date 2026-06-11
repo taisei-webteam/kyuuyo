@@ -16,6 +16,14 @@ export interface AppSettings {
   gracePeriod: number
   defaultBreakMinutes: number
   clockOutRounding: 'down'
+
+  emailSenderName: string
+  emailSenderAddress: string
+  payslipEmailSubject: string
+  payslipEmailBody: string
+  bonusEmailSubject: string
+  bonusEmailBody: string
+  emailIncludeStub: boolean
 }
 
 const defaultSettings: AppSettings = {
@@ -30,6 +38,26 @@ const defaultSettings: AppSettings = {
   gracePeriod: 10,
   defaultBreakMinutes: 60,
   clockOutRounding: 'down',
+
+  emailSenderName: 'チクホーシーリング',
+  emailSenderAddress: 'payroll@example.co.jp',
+  payslipEmailSubject: '{year}年{month}月分 給与明細のお知らせ',
+  payslipEmailBody:
+    '{employeeName} 様\n\n' +
+    'いつもお世話になっております。\n' +
+    '{companyName}です。\n\n' +
+    '{year}年{month}月分の給与明細を添付いたします。\n' +
+    'ご確認をお願いいたします。\n\n' +
+    '※本メールに返信いただいても対応できません。',
+  bonusEmailSubject: '{year}年 {season} 賞与明細のお知らせ',
+  bonusEmailBody:
+    '{employeeName} 様\n\n' +
+    'いつもお世話になっております。\n' +
+    '{companyName}です。\n\n' +
+    '{year}年 {season} の賞与明細を添付いたします。\n' +
+    'ご確認をお願いいたします。\n\n' +
+    '※本メールに返信いただいても対応できません。',
+  emailIncludeStub: false,
 }
 
 let current: AppSettings = { ...defaultSettings }

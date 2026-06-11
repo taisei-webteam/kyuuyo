@@ -201,10 +201,6 @@
     max-width: none;
   }
 
-  .modalHeader {
-    display: none;
-  }
-
   .previewArea {
     background: none;
     padding: 0;
@@ -215,9 +211,38 @@
   .page {
     box-shadow: none;
     padding: 0;
+    min-width: 0;
+    width: 100%;
   }
 
   .table {
-    font-size: 9px;
+    font-size: 8px;
+    page-break-inside: auto;
+  }
+
+  .table tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  .table thead {
+    display: table-header-group;
+  }
+
+  .table tfoot {
+    display: table-footer-group;
+  }
+
+  .table th,
+  .table td {
+    border-color: #64748b;
+  }
+
+  .table thead th,
+  .totalRow td,
+  .tdAmountTotal,
+  .thAmountTotal {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

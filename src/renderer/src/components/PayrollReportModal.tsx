@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { ReactElement } from 'react'
 import { getEmployees, type MockEmployee, type MockPayslip } from '@/lib/mock-data'
+import { triggerPrint } from '@/lib/print'
 import styles from './PayrollReportModal.module.css'
 
 function num(amount: number): string {
@@ -104,13 +105,13 @@ export function PayrollReportModal({
   }
 
   function handlePrint(): void {
-    window.print()
+    triggerPrint({ orientation: 'landscape', mode: 'modal' })
   }
 
   return (
-    <div className={styles.overlay} onClick={handleOverlayClick}>
+    <div className={`${styles.overlay} printScope`} onClick={handleOverlayClick}>
       <div className={styles.modal}>
-        <div className={styles.modalHeader}>
+        <div className={`${styles.modalHeader} noPrint`}>
           <h2>給与一覧表</h2>
           <div className={styles.headerActions}>
             <button className={styles.printButton} onClick={handlePrint}>印刷</button>

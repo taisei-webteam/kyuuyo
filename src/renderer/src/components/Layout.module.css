@@ -111,7 +111,7 @@
 
 @media print {
   .sidebar {
-    display: none;
+    display: none !important;
   }
 
   .main {
@@ -120,7 +120,7 @@
   }
 
   .header {
-    display: none;
+    display: none !important;
   }
 
   .content {

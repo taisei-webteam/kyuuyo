@@ -12,7 +12,9 @@ import {
   type MockPayslip,
 } from '@/lib/mock-data'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
-import { PdfPreviewModal } from '@/components/PdfPreviewModal'
+import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
+import { buildPayslipEmail } from '@/lib/email-template'
+import { getSettings } from '@/lib/settings-store'
 import styles from './PayslipCreate.module.css'
 
 function yen(amount: number): string {
@@ -62,7 +64,7 @@ export function PayslipCreate(): ReactElement {
   const [refreshKey, setRefreshKey] = useState(0)
   const [editPayslips, setEditPayslips] = useState<MockPayslip[]>([])
   const [showBulkEmail, setShowBulkEmail] = useState(false)
-  const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [printing, setPrinting] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
 
   const employees = useMemo(() => getEmployees(), [])
@@ -141,6 +143,15 @@ export function PayslipCreate(): ReactElement {
     setEmailRefresh((k) => k + 1)
   }, [])
 
+  const handlePrint = useCallback((): void => {
+    if (!selectedEmployee || !selectedPayslip) return
+    setPrinting(true)
+  }, [selectedEmployee, selectedPayslip])
+
+  const handlePrintDone = useCallback((): void => {
+    setPrinting(false)
+  }, [])
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -194,7 +205,7 @@ export function PayslipCreate(): ReactElement {
             {distributeMode === 'pdf' ? (
               <>
                 <button className={styles.btnSecondary} onClick={() => alert('一括印刷します（モック）')}>一括印刷</button>
-                <button className={styles.btnPrimary} onClick={() => setShowPdfPreview(true)}>PDFプレビュー</button>
+                <button className={styles.btnPrimary} onClick={handlePrint}>印刷</button>
               </>
             ) : (
               <>
@@ -269,13 +280,13 @@ export function PayslipCreate(): ReactElement {
         />
       )}
 
-      {showPdfPreview && selectedEmployee && selectedPayslip && (
-        <PdfPreviewModal
+      {printing && selectedEmployee && selectedPayslip && (
+        <PayslipDirectPrint
           employee={selectedEmployee}
           payslip={selectedPayslip}
           year={selectedYear}
           month={selectedMonth}
-          onClose={() => setShowPdfPreview(false)}
+          onDone={handlePrintDone}
         />
       )}
     </div>
@@ -299,6 +310,13 @@ function PayslipDetail({
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
   const regularHours = Math.max(0, payslip.workHours - payslip.overtimeHours)
+  const settings = getSettings()
+  const emailPreview = buildPayslipEmail({
+    employeeName: employee.name,
+    year,
+    month,
+    companyName: settings.companyName,
+  })
 
   const handleChange = useCallback(
     (field: keyof MockPayslip) =>
@@ -322,8 +340,16 @@ function PayslipDetail({
 
       {distributeMode === 'email' && employee.email && (
         <div className={styles.emailInfo}>
-          送信先: {employee.email}
-          <span className={styles.emailNote}>（控え部分は含まれません）</span>
+          <div>送信先: {employee.email}</div>
+          <div className={styles.emailPreview}>
+            <div className={styles.emailPreviewSubject}>件名: {emailPreview.subject}</div>
+            <pre className={styles.emailPreviewBody}>{emailPreview.body}</pre>
+          </div>
+          <span className={styles.emailNote}>
+            {settings.emailIncludeStub
+              ? '添付: 給与明細書＋明細控え'
+              : '添付: 給与明細書のみ（控えなし）'}
+          </span>
         </div>
       )}
       {distributeMode === 'email' && !employee.email && (

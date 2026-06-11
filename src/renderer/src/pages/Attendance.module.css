@@ -74,12 +74,102 @@
   transition: background 0.15s, transform 0.1s;
 }
 
-.syncButton:hover {
+.syncButton:hover:not(:disabled) {
   background: var(--color-primary-hover);
 }
 
-.syncButton:active {
+.syncButton:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+.syncButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.syncedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.syncSuccess {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #dcfce7;
+  color: #15803d;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  margin: 8px 16px 0;
+}
+
+.syncWarning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  margin: 8px 16px 0;
+}
+
+.syncError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  margin: 8px 16px 0;
+}
+
+.syncDismiss {
+  background: none;
+  border: none;
+  font-size: 1.125rem;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 4px;
+}
+
+.syncDismiss:hover {
+  opacity: 1;
+}
+
+.warningDetails {
+  margin: 4px 16px 0;
+  font-size: 0.8125rem;
+  color: #92400e;
+}
+
+.warningDetails summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px 0;
+}
+
+.warningList {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  list-style: disc;
+}
+
+.warningList li {
+  padding: 2px 0;
 }
 
 /* ── Body (sidebar + table) ── */
@@ -240,6 +330,16 @@
 
 .table th:not(:first-child) {
   text-align: center;
+}
+
+.table th.thClockIn {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.table th.thClockOut {
+  color: #dc2626;
+  font-weight: 700;
 }
 
 .table td {

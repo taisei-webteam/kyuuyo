@@ -334,12 +334,35 @@
   border-radius: 8px;
   font-size: 0.8125rem;
   color: #1e40af;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emailPreview {
+  background: #fff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+
+.emailPreviewSubject {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.emailPreviewBody {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: #374151;
+  white-space: pre-wrap;
+  font-family: inherit;
 }
 
 .emailNote {
   font-size: 0.75rem;
   color: #6b7280;
-  margin-left: 8px;
 }
 
 .emailWarning {

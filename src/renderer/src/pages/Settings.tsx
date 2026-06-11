@@ -2,15 +2,19 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { getSettings, updateSettings } from '../lib/settings-store'
 import type { AppSettings } from '../lib/settings-store'
+import { renderEmailTemplate } from '../lib/email-template'
 import { CompanyCalendar } from './CompanyCalendar'
 import styles from './Settings.module.css'
 
-type SettingsTab = 'general' | 'calendar'
+type SettingsTab = 'general' | 'email' | 'calendar'
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: 'general', label: '基本設定', icon: '⚙️' },
+  { key: 'email', label: 'メール設定', icon: '✉️' },
   { key: 'calendar', label: '休日カレンダー', icon: '📅' },
 ]
+
+const EMAIL_PLACEHOLDERS = '{employeeName} {year} {month} {season} {companyName}'
 
 const ROUNDING_OPTIONS = [
   { value: 5, label: '5分' },
@@ -29,11 +33,41 @@ export default function Settings(): ReactElement {
   }, [])
 
   const handleChange = useCallback(
-    (key: keyof AppSettings, value: string | number) => {
+    (key: keyof AppSettings, value: string | number | boolean) => {
       setForm((prev) => ({ ...prev, [key]: value }))
     },
     [],
   )
+
+  const payslipPreview = {
+    subject: renderEmailTemplate(form.payslipEmailSubject, {
+      employeeName: '山田 太郎',
+      year: 2026,
+      month: 5,
+      companyName: form.companyName || '会社名',
+    }),
+    body: renderEmailTemplate(form.payslipEmailBody, {
+      employeeName: '山田 太郎',
+      year: 2026,
+      month: 5,
+      companyName: form.companyName || '会社名',
+    }),
+  }
+
+  const bonusPreview = {
+    subject: renderEmailTemplate(form.bonusEmailSubject, {
+      employeeName: '山田 太郎',
+      year: 2026,
+      season: '夏季',
+      companyName: form.companyName || '会社名',
+    }),
+    body: renderEmailTemplate(form.bonusEmailBody, {
+      employeeName: '山田 太郎',
+      year: 2026,
+      season: '夏季',
+      companyName: form.companyName || '会社名',
+    }),
+  }
 
   const handleSave = useCallback(() => {
     updateSettings(form)
@@ -189,6 +223,125 @@ export default function Settings(): ReactElement {
           </div>
 
           {/* フッター */}
+          <div className={styles.footer}>
+            <button className={styles.btnSecondary} onClick={handleReset}>
+              元に戻す
+            </button>
+            <button className={styles.btnPrimary} onClick={handleSave}>
+              保存
+            </button>
+          </div>
+
+          {saved && <div className={styles.toast}>設定を保存しました</div>}
+        </div>
+      )}
+
+      {/* メール設定タブ */}
+      {activeTab === 'email' && (
+        <div className={styles.container}>
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>📤</span>
+              <span className={styles.sectionTitle}>送信元</span>
+            </div>
+            <div className={styles.sectionBody}>
+              <div className={styles.field}>
+                <label className={styles.label}>送信者名</label>
+                <input
+                  className={styles.input}
+                  value={form.emailSenderName}
+                  onChange={(e) => handleChange('emailSenderName', e.target.value)}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label}>送信元メールアドレス</label>
+                <input
+                  type="email"
+                  className={styles.input}
+                  value={form.emailSenderAddress}
+                  onChange={(e) => handleChange('emailSenderAddress', e.target.value)}
+                />
+              </div>
+              <div className={`${styles.field} ${styles.fieldWide}`}>
+                <label className={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={form.emailIncludeStub}
+                    onChange={(e) => handleChange('emailIncludeStub', e.target.checked)}
+                  />
+                  明細控えをメール添付に含める
+                </label>
+                <p className={styles.fieldHint}>
+                  オフの場合、添付PDFは「給与明細書」のみ（控えなし）です。
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>💰</span>
+              <span className={styles.sectionTitle}>給与明細メール</span>
+            </div>
+            <div className={styles.sectionBodySingle}>
+              <p className={styles.placeholderHelp}>使用できる置換文字: {EMAIL_PLACEHOLDERS}</p>
+              <div className={styles.field}>
+                <label className={styles.label}>件名</label>
+                <input
+                  className={styles.input}
+                  value={form.payslipEmailSubject}
+                  onChange={(e) => handleChange('payslipEmailSubject', e.target.value)}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label}>本文</label>
+                <textarea
+                  className={styles.textarea}
+                  rows={8}
+                  value={form.payslipEmailBody}
+                  onChange={(e) => handleChange('payslipEmailBody', e.target.value)}
+                />
+              </div>
+              <div className={styles.previewBox}>
+                <div className={styles.previewTitle}>プレビュー（給与）</div>
+                <div className={styles.previewSubject}>件名: {payslipPreview.subject}</div>
+                <pre className={styles.previewBody}>{payslipPreview.body}</pre>
+              </div>
+            </div>
+          </div>
+
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>🎁</span>
+              <span className={styles.sectionTitle}>賞与明細メール</span>
+            </div>
+            <div className={styles.sectionBodySingle}>
+              <p className={styles.placeholderHelp}>使用できる置換文字: {EMAIL_PLACEHOLDERS}</p>
+              <div className={styles.field}>
+                <label className={styles.label}>件名</label>
+                <input
+                  className={styles.input}
+                  value={form.bonusEmailSubject}
+                  onChange={(e) => handleChange('bonusEmailSubject', e.target.value)}
+                />
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label}>本文</label>
+                <textarea
+                  className={styles.textarea}
+                  rows={8}
+                  value={form.bonusEmailBody}
+                  onChange={(e) => handleChange('bonusEmailBody', e.target.value)}
+                />
+              </div>
+              <div className={styles.previewBox}>
+                <div className={styles.previewTitle}>プレビュー（賞与）</div>
+                <div className={styles.previewSubject}>件名: {bonusPreview.subject}</div>
+                <pre className={styles.previewBody}>{bonusPreview.body}</pre>
+              </div>
+            </div>
+          </div>
+
           <div className={styles.footer}>
             <button className={styles.btnSecondary} onClick={handleReset}>
               元に戻す

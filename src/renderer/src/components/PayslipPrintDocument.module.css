@@ -1,0 +1,296 @@
+.printLayer {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 595px;
+  pointer-events: none;
+  opacity: 0;
+}
+
+.page {
+  background: #fff;
+  width: 100%;
+  max-width: 595px;
+  height: 842px;
+  padding: 10px 20px;
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", sans-serif;
+  font-size: 10px;
+  color: #1a1a1a;
+  line-height: 1.5;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 16px minmax(0, 1fr);
+}
+
+.halfPage {
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.halfHeader {
+  flex-shrink: 0;
+}
+
+.halfBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.halfFooter {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: 6px;
+  background: #fff;
+  position: relative;
+  z-index: 1;
+}
+
+.cutLine {
+  align-self: stretch;
+  border-top: 1px dashed #94a3b8;
+  position: relative;
+  height: 16px;
+  margin: 0;
+}
+
+.cutLineLabel {
+  position: absolute;
+  left: 50%;
+  top: -9px;
+  transform: translateX(-50%);
+  background: #fff;
+  padding: 0 10px;
+  font-size: 8px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.docTitle {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.docTitleText {
+  letter-spacing: 0.2em;
+}
+
+.docPeriodInline {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.docPayDateLine {
+  text-align: center;
+  font-size: 10px;
+  color: #374151;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.empInfo {
+  margin-bottom: 0;
+}
+
+.infoTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+
+.infoTable th {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  width: 68px;
+  white-space: nowrap;
+}
+
+.infoTable td {
+  border: 1px solid #d1d5db;
+  padding: 8px 10px;
+}
+
+.empName {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.15em;
+  margin: 0 0 4px;
+  padding: 6px 0;
+  border-bottom: 2px solid #374151;
+}
+
+.dataTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+  margin-bottom: 0;
+}
+
+.dataTable th,
+.dataTable td {
+  border: 1px solid #d1d5db;
+  padding: 7px 10px;
+  line-height: 1.6;
+}
+
+.dataTable tbody tr {
+  height: 28px;
+}
+
+.dataTable th {
+  background: #f9fafb;
+  text-align: left;
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.dataTable thead th {
+  text-align: center;
+  font-weight: 600;
+  background: #f3f4f6;
+  padding: 8px 10px;
+}
+
+.dataTable thead + tbody td {
+  text-align: center;
+  padding: 8px 10px;
+}
+
+.amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.totalRow th,
+.totalRow td {
+  background: #f3f4f6;
+  font-weight: 700;
+  border-top: 2px solid #9ca3af;
+  padding: 8px 10px;
+}
+
+.twoColumn {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  min-height: 0;
+}
+
+.twoColumn > div {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.netPayment {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: #1e293b;
+  color: #fff;
+  border-radius: 3px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.netAmount {
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.docFooter {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 9px;
+  color: #9ca3af;
+}
+
+@media print {
+  .printLayer {
+    position: static;
+    left: auto;
+    opacity: 1;
+    width: 100%;
+  }
+
+  .page {
+    box-shadow: none;
+    max-width: none;
+    width: 100%;
+    height: 281mm;
+    padding: 4mm 7mm;
+    page-break-after: avoid;
+    page-break-inside: avoid;
+    grid-template-rows: minmax(0, 1fr) 4mm minmax(0, 1fr);
+  }
+
+  .halfPage {
+    max-height: 100%;
+    overflow: hidden;
+  }
+
+  .halfFooter {
+    background: #fff;
+  }
+
+  .infoTable th,
+  .infoTable td {
+    padding: 6px 8px;
+  }
+
+  .dataTable th,
+  .dataTable td {
+    padding: 5px 8px;
+  }
+
+  .dataTable tbody tr {
+    height: auto;
+  }
+
+  .dataTable thead th,
+  .dataTable thead + tbody td,
+  .totalRow th,
+  .totalRow td {
+    padding: 6px 8px;
+  }
+
+  .cutLine {
+    height: 4mm;
+  }
+
+  .cutLineLabel {
+    font-size: 7pt;
+  }
+
+  .netPayment {
+    background: #1e293b !important;
+    color: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .infoTable th,
+  .dataTable th,
+  .totalRow th,
+  .totalRow td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

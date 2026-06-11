@@ -418,17 +418,31 @@
     font-size: 14pt;
     font-weight: 700;
     text-align: center;
-    padding: 8px 0 12px;
+    padding: 0 0 8px;
+    letter-spacing: 0.05em;
   }
 
   .tableWrapper {
     overflow: visible;
-    border: 1px solid #94a3b8;
+    border: 1px solid #64748b;
     flex: none;
   }
 
   .table {
-    font-size: 9px;
+    font-size: 8px;
+    page-break-inside: auto;
+  }
+
+  .table tr {
+    page-break-inside: avoid;
+  }
+
+  .table thead {
+    display: table-header-group;
+  }
+
+  .table tfoot {
+    display: table-footer-group;
   }
 
   .groupRow th,
@@ -441,13 +455,23 @@
     position: static;
   }
 
+  .groupRow th,
+  .thGroupPay,
+  .thGroupDeduct,
+  .thTotal,
+  .tdTotal,
+  .tdNameFoot {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .cellInput,
   .cellInputSmall {
     border: none;
     padding: 0 2px;
     box-shadow: none;
     background: transparent;
-    font-size: 9px;
+    font-size: 8px;
   }
 
   .notCreated {
