@@ -10,6 +10,7 @@ export const IPC = {
     LIST: 'payslips:list',
     GET: 'payslips:get',
     CREATE: 'payslips:create',
+    CREATE_BULK: 'payslips:create-bulk',
     UPDATE: 'payslips:update',
     DELETE: 'payslips:delete',
   },
@@ -20,10 +21,18 @@ export const IPC = {
     UPSERT: 'attendance:upsert',
     SYNC_EMPLOYEES: 'attendance:sync-employees',
     VALIDATE: 'attendance:validate',
+    RAW_LIST: 'attendance:raw-list',
+    ROUND_ALL: 'attendance:round-all',
+    ROUND_ONE: 'attendance:round-one',
   },
   COMPANY: {
     GET: 'company:get',
     UPDATE: 'company:update',
+  },
+  CALENDAR: {
+    LIST: 'calendar:list',
+    SET: 'calendar:set',
+    INIT_YEAR: 'calendar:init-year',
   },
   EXPORT: {
     PDF: 'export:pdf',

@@ -3,15 +3,14 @@ import type { ReactElement, ChangeEvent } from 'react'
 import {
   getEmployees,
   getAttendance,
-  getCalendarDay,
-  initCalendarYear,
   type MockAttendanceDay,
   type StampInType,
   type StampOutType,
 } from '@/lib/mock-data'
-import { syncAttendanceMonth, type SyncWarning } from '@/lib/attendance-sync'
-import { isSupabaseConfigured } from '@/lib/supabase'
+import { RawPunchModal } from '@/components/RawPunchModal'
 import styles from './Attendance.module.css'
+
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
 const BREAK_MINUTES = 60
@@ -58,13 +57,14 @@ function stampOutClass(stamp: StampOutType | null): string {
 
 export function Attendance(): ReactElement {
   const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState(6)
+  const [selectedMonth, setSelectedMonth] = useState(5)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
-  const [syncStatus, setSyncStatus] = useState<{ type: 'success' | 'error' | 'warning'; message: string } | null>(null)
-  const [syncWarnings, setSyncWarnings] = useState<SyncWarning[]>([])
-  const [syncedKeys, setSyncedKeys] = useState<Set<string>>(new Set())
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  const [rounding, setRounding] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [showRawPunch, setShowRawPunch] = useState(false)
 
   const employees = useMemo(() => getEmployees(), [])
 
@@ -95,63 +95,6 @@ export function Attendance(): ReactElement {
     setEditData(rawAttendance.map((d) => ({ ...d })))
     setEditKey(currentKey)
   }
-
-  const isSynced = syncedKeys.has(currentKey)
-
-  const handleSync = useCallback(async () => {
-    if (!selectedEmployee) return
-    setSyncing(true)
-    setSyncStatus(null)
-    setSyncWarnings([])
-
-    try {
-      initCalendarYear(selectedYear)
-      const isHolidayFn = (dateStr: string): boolean => {
-        const emp = selectedEmployee
-        if (emp.holidayMode === 'calendar') {
-          return getCalendarDay(dateStr)?.isHoliday ?? false
-        }
-        const dow = new Date(dateStr).getDay()
-        return emp.holidayDays.includes(dow)
-      }
-
-      const result = await syncAttendanceMonth(
-        selectedEmployeeId,
-        selectedEmployee,
-        selectedYear,
-        selectedMonth,
-        isHolidayFn,
-      )
-
-      if (!result.success) {
-        setSyncStatus({ type: 'error', message: result.error ?? '同期に失敗しました' })
-        return
-      }
-
-      setEditData(result.days)
-      setSyncWarnings(result.warnings)
-      setSyncedKeys((prev) => new Set(prev).add(currentKey))
-
-      if (result.warnings.length > 0) {
-        setSyncStatus({
-          type: 'warning',
-          message: `${result.synced}件の打刻データを同期しました（警告 ${result.warnings.length}件）`,
-        })
-      } else {
-        setSyncStatus({
-          type: 'success',
-          message: `${result.synced}件の打刻データを同期しました`,
-        })
-      }
-    } catch (err) {
-      setSyncStatus({
-        type: 'error',
-        message: `同期エラー: ${err instanceof Error ? err.message : '不明なエラー'}`,
-      })
-    } finally {
-      setSyncing(false)
-    }
-  }, [selectedEmployee, selectedEmployeeId, selectedYear, selectedMonth, currentKey])
 
   const handleTimeChange = useCallback(
     (idx: number, field: 'clockIn' | 'clockOut' | 'goOut' | 'goReturn', value: string): void => {
@@ -260,17 +203,109 @@ export function Attendance(): ReactElement {
           </select>
         </div>
         <div className={styles.headerSpacer} />
-        {isSynced && (
-          <span className={styles.syncedBadge}>同期済み</span>
+        <div className={styles.headerButtons}>
+          <button
+            className={styles.syncButton}
+            disabled={syncing}
+            onClick={async () => {
+              if (hasElectronApi) {
+                setSyncing(true)
+                setSyncMessage(null)
+                try {
+                const result = await window.api.attendance.sync(selectedYear, selectedMonth)
+                if (result.success) {
+                  setSyncMessage(`${result.data.synced}件の打刻データを取り込みました`)
+                } else {
+                  setSyncMessage(`同期エラー: ${result.error}`)
+                }
+                } catch (err) {
+                  setSyncMessage(`同期に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+                } finally {
+                  setSyncing(false)
+                }
+              } else {
+                setSyncMessage('Electron モードで起動してください（Vite単体では同期不可）')
+              }
+            }}
+          >
+            {syncing ? '同期中...' : '打刻同期'}
+          </button>
+          <button
+            className={styles.roundButton}
+            disabled={rounding}
+            onClick={async () => {
+              if (hasElectronApi) {
+                setRounding(true)
+                setSyncMessage(null)
+                try {
+                  const result = await window.api.attendance.roundAll(selectedYear, selectedMonth)
+                  if (result.success) {
+                    setSyncMessage(`${result.data.processed}件の丸め処理を実行しました`)
+                  } else {
+                    setSyncMessage(`丸めエラー: ${result.error}`)
+                  }
+                } catch (err) {
+                  setSyncMessage(`丸めに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+                } finally {
+                  setRounding(false)
+                }
+              } else {
+                setSyncMessage('Electron モードで起動してください')
+              }
+            }}
+          >
+            {rounding ? '処理中...' : '一括丸め'}
+          </button>
+          <button
+            className={styles.rawPunchButton}
+            onClick={() => setShowRawPunch(true)}
+          >
+            実打刻一覧
+          </button>
+          <button
+            className={styles.saveButton}
+            disabled={saving}
+            onClick={async () => {
+              if (!hasElectronApi) {
+                setSyncMessage('Electron モードで起動してください')
+                return
+              }
+              setSaving(true)
+              setSyncMessage(null)
+              try {
+                let savedCount = 0
+                for (const day of editData) {
+                  if (!day.clockIn && !day.clockOut && !day.isHolidayWork) continue
+                  await window.api.attendance.upsert({
+                    employeeId: selectedEmployeeId,
+                    date: day.date,
+                    clockIn: day.clockIn,
+                    clockOut: day.clockOut,
+                    workMinutes: day.workMinutes,
+                    overtimeMinutes: day.overtimeMinutes,
+                    earlyOvertimeMinutes: day.earlyOvertimeMinutes,
+                    breakMinutes: BREAK_MINUTES,
+                    isHoliday: day.isHoliday,
+                    isHolidayWork: day.isHolidayWork,
+                    dataSource: day.dataSource,
+                    note: null,
+                  })
+                  savedCount++
+                }
+                setSyncMessage(`${savedCount}件の勤怠データを保存しました`)
+              } catch (err) {
+                setSyncMessage(`保存に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+              } finally {
+                setSaving(false)
+              }
+            }}
+          >
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+        {syncMessage && (
+          <div className={styles.syncMessage}>{syncMessage}</div>
         )}
-        <button
-          className={styles.syncButton}
-          onClick={handleSync}
-          disabled={syncing || !isSupabaseConfigured()}
-          title={!isSupabaseConfigured() ? 'Supabase が未設定です' : undefined}
-        >
-          {syncing ? '同期中...' : 'iPad同期'}
-        </button>
       </div>
 
       <div className={styles.body}>
@@ -307,26 +342,6 @@ export function Attendance(): ReactElement {
         </aside>
 
         <div className={styles.content}>
-          {syncStatus && (
-            <div className={
-              syncStatus.type === 'success' ? styles.syncSuccess
-                : syncStatus.type === 'warning' ? styles.syncWarning
-                  : styles.syncError
-            }>
-              <span>{syncStatus.message}</span>
-              <button className={styles.syncDismiss} onClick={() => setSyncStatus(null)}>×</button>
-            </div>
-          )}
-          {syncWarnings.length > 0 && (
-            <details className={styles.warningDetails}>
-              <summary>警告一覧（{syncWarnings.length}件）</summary>
-              <ul className={styles.warningList}>
-                {syncWarnings.map((w, i) => (
-                  <li key={i}>{w.message}</li>
-                ))}
-              </ul>
-            </details>
-          )}
           {selectedEmployee ? (
             <>
               <div className={styles.contentHeader}>
@@ -354,11 +369,11 @@ export function Attendance(): ReactElement {
                       <th>日付</th>
                       <th>休出</th>
                       <th>種別</th>
-                      <th className={styles.thClockIn}>出勤</th>
+                      <th>出勤</th>
                       <th>外出</th>
                       <th>戻り</th>
                       <th>種別</th>
-                      <th className={styles.thClockOut}>退勤</th>
+                      <th>退勤</th>
                       <th>労働時間</th>
                       <th>早出</th>
                       <th>残業時間</th>
@@ -375,6 +390,10 @@ export function Attendance(): ReactElement {
                         dow === 0 ? styles.weekdaySun
                           : dow === 6 ? styles.weekdaySat
                             : styles.weekdayNormal
+
+                      const isWorkday = !day.isHoliday || day.isHolidayWork
+                      const missingClockOut = isWorkday && !!day.clockIn && !day.clockOut
+                      const missingClockIn = isWorkday && !day.clockIn && !!day.clockOut
 
                       return (
                         <tr
@@ -409,7 +428,7 @@ export function Attendance(): ReactElement {
                               ))}
                             </select>
                           </td>
-                          <td>
+                          <td className={missingClockIn ? styles.cellError : undefined}>
                             <input
                               type="time"
                               className={styles.editableCell}
@@ -452,7 +471,7 @@ export function Attendance(): ReactElement {
                               ))}
                             </select>
                           </td>
-                          <td>
+                          <td className={missingClockOut ? styles.cellError : undefined}>
                             <input
                               type="time"
                               className={styles.editableCell}
@@ -549,6 +568,13 @@ export function Attendance(): ReactElement {
           )}
         </div>
       </div>
+      {showRawPunch && (
+        <RawPunchModal
+          year={selectedYear}
+          month={selectedMonth}
+          onClose={() => setShowRawPunch(false)}
+        />
+      )}
     </div>
   )
 }

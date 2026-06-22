@@ -1,0 +1,475 @@
+/* ===== モーダル外枠 ===== */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--color-surface);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  width: 100%;
+  max-width: 780px;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHeader h2 {
+  font-size: 0.9375rem;
+  font-weight: 700;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.printButton {
+  padding: 6px 16px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.printButton:hover { background: var(--color-primary-hover); }
+
+.closeButton {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.closeButton:hover { background: var(--color-bg); }
+
+/* ===== プレビューエリア ===== */
+
+.previewArea {
+  padding: 20px;
+  background: #b0b5bd;
+  max-height: 85vh;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+}
+
+/* A4 用紙 210×297mm を画面内でシミュレート */
+.page {
+  background: #fff;
+  width: 210mm;
+  min-height: 297mm;
+  padding: 8mm 12mm;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.2);
+  font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", "Meiryo", sans-serif;
+  font-size: 8.5px;
+  color: #1a1a1a;
+  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+/* ===== 上下 Half (本人用 / 控え) ===== */
+
+.half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 4mm 2mm;
+  position: relative;
+  min-height: 0;
+}
+
+.halfLabel {
+  position: absolute;
+  top: 2mm;
+  right: 2mm;
+  font-size: 7px;
+  color: #9ca3af;
+  border: 1px solid #d1d5db;
+  border-radius: 2px;
+  padding: 0 4px;
+  line-height: 1.6;
+}
+
+/* ===== 切り取り線 ===== */
+
+.cutLine {
+  border-top: 1px dashed #94a3b8;
+  margin: 0 -2mm;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.cutText {
+  position: absolute;
+  top: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #fff;
+  padding: 0 8px;
+  font-size: 7px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+
+/* ===== ドキュメントヘッダー ===== */
+
+.docHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 3mm;
+  padding-bottom: 2mm;
+  border-bottom: 2px double #374151;
+}
+
+.docHeaderLeft { display: flex; flex-direction: column; }
+
+.docTitle {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  color: #111827;
+}
+
+.docPeriod {
+  font-size: 9px;
+  color: #4b5563;
+  margin-top: 1px;
+}
+
+.docHeaderRight {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+}
+
+.companyName {
+  font-size: 10px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.paymentDate {
+  font-size: 8px;
+  color: #4b5563;
+}
+
+/* ===== 従業員情報テーブル ===== */
+
+.empTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 2mm;
+  font-size: 8.5px;
+}
+
+.empTable th {
+  background: #f1f5f9;
+  border: 1px solid #94a3b8;
+  padding: 2px 5px;
+  text-align: center;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
+  width: 48px;
+}
+
+.empTable td {
+  border: 1px solid #94a3b8;
+  padding: 2px 6px;
+}
+
+.empNameCell {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+/* ===== セクションバー ===== */
+
+.sectionBar {
+  background: #334155;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  padding: 2px 8px;
+  margin-top: 2mm;
+}
+
+/* ===== 勤怠テーブル ===== */
+
+.attendTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8px;
+  margin-bottom: 1mm;
+}
+
+.attendTable th {
+  background: #f1f5f9;
+  border: 1px solid #94a3b8;
+  padding: 2px 4px;
+  text-align: center;
+  font-weight: 600;
+  color: #334155;
+}
+
+.attendTable td {
+  border: 1px solid #94a3b8;
+  padding: 2px 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== 2カラム (支給・控除) ===== */
+
+.twoColumn {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+
+.payTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8px;
+}
+
+.payTable th,
+.payTable td {
+  border: 1px solid #94a3b8;
+  padding: 1.5px 6px;
+}
+
+.payTable tbody th {
+  background: #f8fafc;
+  text-align: left;
+  font-weight: 500;
+  color: #475569;
+  width: 52%;
+}
+
+.payTable tbody td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  width: 48%;
+}
+
+.payTable tfoot th {
+  background: #e2e8f0;
+  text-align: left;
+  font-weight: 700;
+  color: #1e293b;
+  border-top: 1.5px solid #64748b;
+}
+
+.payTable tfoot td {
+  background: #e2e8f0;
+  text-align: right;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #1e293b;
+  border-top: 1.5px solid #64748b;
+  font-size: 9px;
+}
+
+/* ===== 差引支給額 ===== */
+
+.netRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2mm;
+  padding: 3px 10px;
+  background: #1e293b;
+  color: #fff;
+  border-radius: 2px;
+}
+
+.netLabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.netAmount {
+  font-size: 15px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== フッター ===== */
+
+.docFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 2mm;
+}
+
+.footerNote {
+  font-size: 7px;
+  color: #9ca3af;
+}
+
+.stampArea {
+  display: flex;
+  gap: 4px;
+}
+
+.stampBox {
+  width: 36px;
+  height: 36px;
+  border: 1px solid #94a3b8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.stampBox span {
+  font-size: 6.5px;
+  color: #94a3b8;
+  margin-top: 1px;
+}
+
+/* ============================================
+   印刷用スタイル
+   ============================================ */
+
+@media print {
+  /* アプリ全体を非表示にし、印刷対象のみ表示 */
+  body > *:not(.overlay) {
+    display: none !important;
+  }
+
+  .overlay {
+    position: static;
+    background: none;
+    padding: 0;
+    overflow: visible;
+    display: block;
+  }
+
+  .modal {
+    box-shadow: none;
+    border-radius: 0;
+    max-width: none;
+    background: none;
+  }
+
+  .modalHeader {
+    display: none !important;
+  }
+
+  .previewArea {
+    background: none;
+    padding: 0;
+    max-height: none;
+    overflow: visible;
+    display: block;
+  }
+
+  .page {
+    box-shadow: none;
+    width: 100%;
+    min-height: auto;
+    height: 100vh;
+    padding: 5mm 10mm;
+    margin: 0;
+    font-size: 8.5px;
+  }
+
+  .half {
+    height: calc(50vh - 8mm);
+    overflow: hidden;
+    padding: 3mm 2mm;
+  }
+
+  .halfLabel {
+    font-size: 6.5px;
+  }
+
+  .cutLine {
+    border-top: 1px dashed #999;
+    margin: 0;
+  }
+
+  .cutText {
+    font-size: 6.5px;
+    color: #999;
+  }
+
+  .docTitle {
+    font-size: 12px;
+  }
+
+  .netLabel {
+    font-size: 9px;
+  }
+
+  .netAmount {
+    font-size: 13px;
+  }
+
+  .netRow {
+    padding: 2px 8px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .sectionBar {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .stampBox {
+    width: 30px;
+    height: 30px;
+  }
+
+  /* 色の印刷を強制 */
+  .empTable th,
+  .attendTable th,
+  .payTable tbody th,
+  .payTable tfoot th,
+  .payTable tfoot td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}

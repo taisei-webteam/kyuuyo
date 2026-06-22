@@ -41,3 +41,14 @@ button {
   font-family: inherit;
   cursor: pointer;
 }
+
+@media print {
+  body > #root > *:not([class*="overlay"]) {
+    display: none !important;
+  }
+}
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}

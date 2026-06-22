@@ -17,6 +17,10 @@ export const companies = sqliteTable('companies', {
   address: text('address'),
   phone: text('phone'),
   insuranceNumber: text('insurance_number'),
+  roundingUnit: integer('rounding_unit').notNull().default(15),
+  gracePeriod: integer('grace_period').notNull().default(10),
+  defaultBreakMinutes: integer('default_break_minutes').notNull().default(60),
+  clockOutRounding: text('clock_out_rounding').notNull().default('down'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
 });
@@ -29,6 +33,8 @@ export const employees = sqliteTable('employees', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   nameKana: text('name_kana').notNull().default(''),
+  email: text('email').notNull().default(''),
+  birthDate: text('birth_date'),
   employeeType: text('employee_type').notNull().default('社員'),
   departmentName: text('department_name').notNull().default(''),
   jobTitle: text('job_title').notNull().default(''),
@@ -36,6 +42,8 @@ export const employees = sqliteTable('employees', {
   resignDate: text('resign_date'),
   displayOrder: integer('display_order').notNull().default(0),
   basicSalary: integer('basic_salary').notNull().default(0),
+  hourlyRate: integer('hourly_rate').notNull().default(0),
+  standardMonthlyRemuneration: integer('standard_monthly_remuneration').notNull().default(0),
   transportAllowance: integer('transport_allowance').notNull().default(0),
   positionAllowance: integer('position_allowance').notNull().default(0),
   familyAllowance: integer('family_allowance').notNull().default(0),
@@ -48,13 +56,35 @@ export const employees = sqliteTable('employees', {
   savingsDeduction: integer('savings_deduction').notNull().default(0),
   loanDeduction: integer('loan_deduction').notNull().default(0),
   dependents: integer('dependents').notNull().default(0),
+  scheduledStart: text('scheduled_start').notNull().default('09:00'),
+  scheduledEnd: text('scheduled_end').notNull().default('18:00'),
+  holidayMode: text('holiday_mode').notNull().default('calendar'),
+  earlyWorkStart: text('early_work_start'),
+  earlyWorkEnd: text('early_work_end'),
+  overtimeAllowed: integer('overtime_allowed', { mode: 'boolean' }).notNull().default(true),
+  overtimeStart: text('overtime_start'),
+  overtimeEnd: text('overtime_end'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
 });
 
 // ========================================
-// 勤怠レコード (日次)
+// 実打刻データ (Supabase同期の生データ)
+// ========================================
+
+export const rawPunches = sqliteTable('raw_punches', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  employeeId: integer('employee_id').notNull().references(() => employees.id),
+  date: text('date').notNull(),
+  rawClockIn: text('raw_clock_in'),
+  rawClockOut: text('raw_clock_out'),
+  dataSource: text('data_source').notNull().default('ipad'),
+  syncedAt: text('synced_at').notNull().default(sql`(datetime('now','localtime'))`),
+});
+
+// ========================================
+// 勤怠レコード (日次・丸め後)
 // ========================================
 
 export const attendanceRecords = sqliteTable('attendance_records', {
@@ -65,6 +95,7 @@ export const attendanceRecords = sqliteTable('attendance_records', {
   clockOut: text('clock_out'),
   workMinutes: integer('work_minutes').notNull().default(0),
   overtimeMinutes: integer('overtime_minutes').notNull().default(0),
+  earlyOvertimeMinutes: integer('early_overtime_minutes').notNull().default(0),
   breakMinutes: integer('break_minutes').notNull().default(60),
   isHoliday: integer('is_holiday', { mode: 'boolean' }).notNull().default(false),
   isHolidayWork: integer('is_holiday_work', { mode: 'boolean' }).notNull().default(false),

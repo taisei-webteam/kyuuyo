@@ -299,3 +299,26 @@
 .holidayModeItem input[type="radio"] {
   accent-color: var(--color-primary);
 }
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  color: var(--color-text) !important;
+  cursor: pointer;
+  padding-top: 8px;
+}
+
+.checkboxLabel input[type="checkbox"] {
+  accent-color: #ef4444;
+  width: 16px;
+  height: 16px;
+}
+
+.field input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: var(--color-bg);
+}

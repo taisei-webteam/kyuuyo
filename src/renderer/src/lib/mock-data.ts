@@ -89,6 +89,9 @@ export interface MockEmployee {
   holidayMode: HolidayMode
   earlyWorkStart: string | null
   earlyWorkEnd: string | null
+  overtimeAllowed: boolean
+  overtimeStart: string | null
+  overtimeEnd: string | null
 }
 
 export type StampInType = '出勤' | '早出' | '遅刻'
@@ -176,6 +179,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: true,
+    overtimeStart: '18:00',
+    overtimeEnd: '22:00',
   },
   {
     id: 2,
@@ -210,6 +216,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: true,
+    overtimeStart: '18:00',
+    overtimeEnd: '22:00',
   },
   {
     id: 3,
@@ -244,6 +253,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: true,
+    overtimeStart: '18:00',
+    overtimeEnd: '22:00',
   },
   {
     id: 4,
@@ -278,6 +290,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: '07:30',
     earlyWorkEnd: '08:15',
+    overtimeAllowed: true,
+    overtimeStart: '17:30',
+    overtimeEnd: '22:00',
   },
   {
     id: 5,
@@ -312,6 +327,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: '08:00',
     earlyWorkEnd: '08:45',
+    overtimeAllowed: true,
+    overtimeStart: '18:00',
+    overtimeEnd: '22:00',
   },
   {
     id: 6,
@@ -346,6 +364,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'individual',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: false,
+    overtimeStart: null,
+    overtimeEnd: null,
   },
   {
     id: 7,
@@ -380,6 +401,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: false,
+    overtimeStart: null,
+    overtimeEnd: null,
   },
   {
     id: 8,
@@ -414,6 +438,9 @@ const employees: MockEmployee[] = [
     holidayMode: 'individual',
     earlyWorkStart: null,
     earlyWorkEnd: null,
+    overtimeAllowed: false,
+    overtimeStart: null,
+    overtimeEnd: null,
   },
 ]
 
@@ -628,11 +655,38 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     }
 
     const workStartMin = timeToMinutes(clockIn)
-    const workEndMin = timeToMinutes(clockOut)
+    let workEndMin = timeToMinutes(clockOut)
+
+    const overtimeAllowed = emp?.overtimeAllowed ?? true
+    const overtimeStart = emp?.overtimeStart ?? null
+    const overtimeEnd = emp?.overtimeEnd ?? null
+
+    // 残業不可の場合: 退勤を定時終了で切り捨て
+    if (!overtimeAllowed) {
+      const scheduledEndMin = timeToMinutes(scheduledEnd)
+      workEndMin = Math.min(workEndMin, scheduledEndMin)
+    }
+    // 残業終了時刻が設定されている場合: 退勤をその時刻で上限クリップ
+    else if (overtimeEnd) {
+      const otEndMin = timeToMinutes(overtimeEnd)
+      workEndMin = Math.min(workEndMin, otEndMin)
+    }
+
     const breakMinutes = settings.defaultBreakMinutes
     const totalWork = Math.max(0, workEndMin - workStartMin - breakMinutes - goOutMinutes)
     const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - breakMinutes
-    const overtime = Math.max(0, totalWork - scheduledMinutes)
+
+    let overtime = 0
+    if (!overtimeAllowed) {
+      overtime = 0
+    } else if (overtimeStart) {
+      const otStartMin = timeToMinutes(overtimeStart)
+      const clippedEnd = timeToMinutes(clockOut)
+      const effectiveEnd = overtimeEnd ? Math.min(clippedEnd, timeToMinutes(overtimeEnd)) : clippedEnd
+      overtime = Math.max(0, effectiveEnd - otStartMin)
+    } else {
+      overtime = Math.max(0, totalWork - scheduledMinutes)
+    }
 
     days.push({
       date: dateStr,

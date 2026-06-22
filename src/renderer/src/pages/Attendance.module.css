@@ -59,6 +59,12 @@
   flex: 1;
 }
 
+.headerButtons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .syncButton {
   display: inline-flex;
   align-items: center;
@@ -74,102 +80,106 @@
   transition: background 0.15s, transform 0.1s;
 }
 
-.syncButton:hover:not(:disabled) {
+.syncButton:hover {
   background: var(--color-primary-hover);
 }
 
-.syncButton:active:not(:disabled) {
+.syncButton:active {
   transform: scale(0.97);
 }
 
 .syncButton:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
-  transform: none;
 }
 
-.syncedBadge {
+.roundButton {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  background: #dcfce7;
-  color: #15803d;
-  border-radius: 6px;
-  font-size: 0.75rem;
+  gap: 6px;
+  padding: 8px 16px;
+  background: #059669;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
 }
 
-.syncSuccess {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: #dcfce7;
-  color: #15803d;
-  border-radius: 8px;
-  font-size: 0.8125rem;
-  margin: 8px 16px 0;
+.roundButton:hover {
+  background: #047857;
 }
 
-.syncWarning {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: #fef3c7;
-  color: #92400e;
-  border-radius: 8px;
-  font-size: 0.8125rem;
-  margin: 8px 16px 0;
+.roundButton:active {
+  transform: scale(0.97);
 }
 
-.syncError {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: #fee2e2;
-  color: #991b1b;
-  border-radius: 8px;
-  font-size: 0.8125rem;
-  margin: 8px 16px 0;
-}
-
-.syncDismiss {
-  background: none;
-  border: none;
-  font-size: 1.125rem;
-  cursor: pointer;
-  color: inherit;
+.roundButton:disabled {
   opacity: 0.6;
-  padding: 0 4px;
+  cursor: not-allowed;
 }
 
-.syncDismiss:hover {
-  opacity: 1;
-}
-
-.warningDetails {
-  margin: 4px 16px 0;
-  font-size: 0.8125rem;
-  color: #92400e;
-}
-
-.warningDetails summary {
+.rawPunchButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
   cursor: pointer;
+  font-size: 0.8125rem;
   font-weight: 600;
-  padding: 4px 0;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
 }
 
-.warningList {
-  margin: 4px 0 0 16px;
-  padding: 0;
-  list-style: disc;
+.rawPunchButton:hover {
+  background: var(--color-hover);
 }
 
-.warningList li {
-  padding: 2px 0;
+.saveButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.saveButton:hover {
+  background: #1d4ed8;
+}
+
+.saveButton:active {
+  transform: scale(0.97);
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.syncMessage {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  padding: 4px 8px;
+  background: var(--color-surface);
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  white-space: pre-line;
+  max-width: 400px;
 }
 
 /* ── Body (sidebar + table) ── */
@@ -330,16 +340,6 @@
 
 .table th:not(:first-child) {
   text-align: center;
-}
-
-.table th.thClockIn {
-  color: #15803d;
-  font-weight: 700;
-}
-
-.table th.thClockOut {
-  color: #dc2626;
-  font-weight: 700;
 }
 
 .table td {
@@ -679,6 +679,12 @@
   font-weight: 700;
   background: #f0fdf4;
   color: #16a34a;
+}
+
+/* ── エラーセル（出勤ありで退勤なし等） ── */
+
+.cellError {
+  background: red !important;
 }
 
 /* ── Empty state ── */

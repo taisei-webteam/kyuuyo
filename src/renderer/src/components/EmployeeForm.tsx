@@ -43,6 +43,9 @@ const emptyEmployee: MockEmployee = {
   holidayMode: 'calendar' as HolidayMode,
   earlyWorkStart: null,
   earlyWorkEnd: null,
+  overtimeAllowed: true,
+  overtimeStart: '18:00',
+  overtimeEnd: '22:00',
 }
 
 function yen(amount: number): string {
@@ -227,6 +230,53 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         earlyWorkEnd: e.target.value || null,
                       }))
                     }
+                    placeholder="未設定"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={!form.overtimeAllowed}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          overtimeAllowed: !e.target.checked,
+                          overtimeStart: e.target.checked ? null : (prev.overtimeStart ?? prev.scheduledEnd),
+                          overtimeEnd: e.target.checked ? null : (prev.overtimeEnd ?? '22:00'),
+                        }))
+                      }
+                    />
+                    残業不可
+                  </label>
+                </div>
+                <div className={styles.field}>
+                  <label>残業開始時刻</label>
+                  <input
+                    type="time"
+                    value={form.overtimeStart ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        overtimeStart: e.target.value || null,
+                      }))
+                    }
+                    disabled={!form.overtimeAllowed}
+                    placeholder="未設定"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>残業終了時刻</label>
+                  <input
+                    type="time"
+                    value={form.overtimeEnd ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        overtimeEnd: e.target.value || null,
+                      }))
+                    }
+                    disabled={!form.overtimeAllowed}
                     placeholder="未設定"
                   />
                 </div>

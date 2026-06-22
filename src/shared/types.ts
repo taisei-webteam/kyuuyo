@@ -11,18 +11,23 @@ export type IpcResult<T> =
 // ========================================
 
 export type EmployeeType = '社員' | '役員' | 'パート';
+export type HolidayMode = 'calendar' | 'individual';
 
 export interface Employee {
   id: number;
   name: string;
   nameKana: string;
+  email: string;
+  birthDate: string | null;
   employeeType: EmployeeType;
   departmentName: string;
   jobTitle: string;
-  hireDate: string;
+  hireDate: string | null;
   resignDate: string | null;
   displayOrder: number;
   basicSalary: number;
+  hourlyRate: number;
+  standardMonthlyRemuneration: number;
   transportAllowance: number;
   positionAllowance: number;
   familyAllowance: number;
@@ -34,9 +39,35 @@ export interface Employee {
   residentTax: number;
   savingsDeduction: number;
   loanDeduction: number;
+  dependents: number;
+  scheduledStart: string;
+  scheduledEnd: string;
+  holidayMode: HolidayMode;
+  earlyWorkStart: string | null;
+  earlyWorkEnd: string | null;
+  overtimeAllowed: boolean;
+  overtimeStart: string | null;
+  overtimeEnd: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type EmployeeCreate = Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>;
+export type EmployeeUpdate = Partial<EmployeeCreate> & { id: number };
+
+// ========================================
+// 実打刻データ
+// ========================================
+
+export interface RawPunch {
+  id: number;
+  employeeId: number;
+  date: string;
+  rawClockIn: string | null;
+  rawClockOut: string | null;
+  dataSource: string;
+  syncedAt: string;
 }
 
 // ========================================
@@ -53,11 +84,17 @@ export interface AttendanceRecord {
   clockOut: string | null;
   workMinutes: number;
   overtimeMinutes: number;
+  earlyOvertimeMinutes: number;
+  breakMinutes: number;
   isHoliday: boolean;
+  isHolidayWork: boolean;
   dataSource: DataSource;
+  note: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+export type AttendanceUpsert = Omit<AttendanceRecord, 'id' | 'createdAt' | 'updatedAt'>;
 
 export interface AttendanceSyncResult {
   synced: number;
@@ -82,7 +119,7 @@ export interface Payslip {
   employeeId: number;
   year: number;
   month: number;
-  paymentDate: string;
+  paymentDate: string | null;
   payslipType: 'salary' | 'bonus';
   bonusSeason: string | null;
   workDays: number;
@@ -112,4 +149,37 @@ export interface Payslip {
   netPayment: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type PayslipCreate = Omit<Payslip, 'id' | 'createdAt' | 'updatedAt'>;
+
+// ========================================
+// 会社設定
+// ========================================
+
+export interface CompanySettings {
+  id: number;
+  name: string;
+  representativeName: string | null;
+  postalCode: string | null;
+  address: string | null;
+  phone: string | null;
+  insuranceNumber: string | null;
+  roundingUnit: number;
+  gracePeriod: number;
+  defaultBreakMinutes: number;
+  clockOutRounding: string;
+}
+
+export type CompanySettingsUpdate = Partial<Omit<CompanySettings, 'id'>>;
+
+// ========================================
+// 会社カレンダー
+// ========================================
+
+export interface CalendarEntry {
+  id: number;
+  date: string;
+  isHoliday: boolean;
+  holidayName: string | null;
 }

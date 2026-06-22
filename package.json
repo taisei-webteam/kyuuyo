@@ -1,0 +1,33 @@
+{
+  "name": "rakuraku-kyuuyo-alpha",
+  "version": "0.1.0",
+  "description": "らくらく給与明細α — 中小企業向け給与計算・明細発行デスクトップアプリ",
+  "private": true,
+  "main": "dist/main/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run dev:renderer",
+    "dev:renderer": "cd src/renderer && npx vite",
+    "dev:electron": "tsc -p tsconfig.main.json && electron .",
+    "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --outfile=dist/preload.cjs --format=cjs --external:electron",
+    "build:main": "tsc -p tsconfig.main.json && npm run build:preload",
+    "build:renderer": "cd src/renderer && npx vite build",
+    "build": "npm run build:main && npm run build:renderer && electron-builder",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit",
+    "typecheck:renderer": "cd src/renderer && npx tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.38.0",
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "drizzle-kit": "^0.30.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.7.0"
+  }
+}
