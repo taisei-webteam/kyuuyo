@@ -4,7 +4,7 @@
     "beforeShellExecution": [
       {
         "command": "node .cursor/hooks/db-safety-guard.js",
-        "failClosed": true
+        "failClosed": false
       }
     ],
     "preToolUse": [

@@ -71,6 +71,8 @@ function initTables(): void {
       grace_period INTEGER NOT NULL DEFAULT 10,
       default_break_minutes INTEGER NOT NULL DEFAULT 60,
       clock_out_rounding TEXT NOT NULL DEFAULT 'down',
+      early_rounding_unit INTEGER NOT NULL DEFAULT 15,
+      overtime_rounding_unit INTEGER NOT NULL DEFAULT 15,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
@@ -260,6 +262,8 @@ function runMigrations(raw: Database.Database): void {
   addColumn('companies', 'grace_period', 'INTEGER NOT NULL DEFAULT 10');
   addColumn('companies', 'default_break_minutes', 'INTEGER NOT NULL DEFAULT 60');
   addColumn('companies', 'clock_out_rounding', "TEXT NOT NULL DEFAULT 'down'");
+  addColumn('companies', 'early_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
+  addColumn('companies', 'overtime_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
 }
 
 /**

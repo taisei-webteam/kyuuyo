@@ -71,12 +71,27 @@ interface ElectronAttendanceApi {
   }>;
 }
 
+interface ElectronExportApi {
+  pdf(params?: {
+    fileName?: string;
+    pageSize?: 'A4' | 'A3';
+    landscape?: boolean;
+  }): Promise<{
+    success: true;
+    data: { path: string };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: Record<string, (...args: unknown[]) => Promise<unknown>>;
   payslips: Record<string, (...args: unknown[]) => Promise<unknown>>;
   company: Record<string, (...args: unknown[]) => Promise<unknown>>;
   calendar: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  export: ElectronExportApi;
 }
 
 interface Window {

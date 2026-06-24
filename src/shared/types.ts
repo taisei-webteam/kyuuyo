@@ -169,6 +169,8 @@ export interface CompanySettings {
   gracePeriod: number;
   defaultBreakMinutes: number;
   clockOutRounding: string;
+  earlyRoundingUnit: number;
+  overtimeRoundingUnit: number;
 }
 
 export type CompanySettingsUpdate = Partial<Omit<CompanySettings, 'id'>>;

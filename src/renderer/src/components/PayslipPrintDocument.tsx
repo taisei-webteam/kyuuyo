@@ -1,9 +1,10 @@
 import type { ReactElement } from 'react'
 import type { MockEmployee, MockPayslip } from '@/lib/mock-data'
+import { getSettings } from '@/lib/settings-store'
 import styles from './PayslipPrintDocument.module.css'
 
-function yen(amount: number): string {
-  return `¥${amount.toLocaleString('ja-JP')}`
+function num(amount: number): string {
+  return amount.toLocaleString('ja-JP')
 }
 
 export interface PayslipPrintDocumentProps {
@@ -12,217 +13,160 @@ export interface PayslipPrintDocumentProps {
   year: number
   month: number
   paymentDate?: string
+  /** タイトル文言（既定: 給 与 明 細 書）。賞与では「賞 与 明 細 書」を渡す */
+  titleLabel?: string
+  /** 期間文言（既定: ○年○月分）。賞与では「○年 夏季賞与」等を渡す */
+  periodLabel?: string
+  /** 給与 or 賞与。賞与は共済掛金欄を省略する */
+  variant?: 'salary' | 'bonus'
 }
 
-interface PayslipHalfProps {
-  title: string
+interface BlockProps {
   employee: MockEmployee
   payslip: MockPayslip
-  year: number
-  month: number
-  paymentDate?: string
-  isPartTime: boolean
-  regularHours: number
+  title: string
+  period: string
+  companyName: string
+  variant: 'salary' | 'bonus'
 }
 
-function formatPayDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-')
-  return `${y}年${Number(m)}月${Number(d)}日`
-}
-
-function toFullWidth(str: string): string {
-  return str.replace(/[0-9]/g, (d) => String.fromCharCode(d.charCodeAt(0) + 0xfee0))
-}
-
-function formatPeriod(year: number, month: number): string {
-  return toFullWidth(`${year}年${month}月`)
-}
-
-function PayslipHalf({
-  title,
+function PayslipBlock({
   employee,
   payslip,
-  year,
-  month,
-  paymentDate,
-  isPartTime,
-  regularHours,
-}: PayslipHalfProps): ReactElement {
+  title,
+  period,
+  companyName,
+  variant,
+}: BlockProps): ReactElement {
   return (
-    <div className={styles.halfPage}>
-      <div className={styles.halfHeader}>
-        <div className={styles.docTitle}>
-          <span className={styles.docTitleText}>{title}</span>
-          <span className={styles.docPeriodInline}>（{formatPeriod(year, month)}）</span>
-        </div>
-        {paymentDate && (
-          <div className={styles.docPayDateLine}>支給日: {formatPayDate(paymentDate)}</div>
-        )}
+    <div className={styles.block}>
+      <div className={styles.titleBar}>
+        <span className={styles.titleText}>{title}</span>
+        <span className={styles.titlePeriod}>{period}</span>
       </div>
 
-      <div className={styles.halfBody}>
-        <div className={styles.empInfo}>
-          <table className={styles.infoTable}>
-            <tbody>
-              <tr>
-                <th>氏名</th>
-                <td className={styles.empName}>{employee.name}</td>
-                <th>所属</th>
-                <td>{employee.departmentName}</td>
-              </tr>
-              <tr>
-                <th>社員番号</th>
-                <td>{String(employee.id).padStart(4, '0')}</td>
-                <th>区分</th>
-                <td>{employee.employeeType}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div className={styles.sectionLabel}>勤 怠</div>
-        <table className={styles.dataTable}>
-          <thead>
-            <tr>
-              <th>出勤日数</th>
-              <th>労働時間</th>
-              <th>残業時間</th>
-              <th>休日出勤</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>{payslip.workDays}日</td>
-              <td>{payslip.workHours}h</td>
-              <td>{payslip.overtimeHours}h</td>
-              <td>{payslip.holidayWorkDays}日</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div className={styles.twoColumn}>
-          <div>
-            <div className={styles.sectionLabel}>支 給</div>
-            <table className={styles.dataTable}>
-              <tbody>
-                <tr>
-                  <th>
-                    {isPartTime
-                      ? `基本給（¥${employee.hourlyRate} × ${regularHours}h）`
-                      : '基本給'}
-                  </th>
-                  <td className={styles.amount}>{yen(payslip.basicSalary)}</td>
-                </tr>
-                <tr>
-                  <th>残業手当</th>
-                  <td className={styles.amount}>{yen(payslip.overtimePay)}</td>
-                </tr>
-                <tr>
-                  <th>通勤手当</th>
-                  <td className={styles.amount}>{yen(payslip.transportAllowance)}</td>
-                </tr>
-                <tr>
-                  <th>役職手当</th>
-                  <td className={styles.amount}>{yen(payslip.positionAllowance)}</td>
-                </tr>
-                <tr>
-                  <th>家族手当</th>
-                  <td className={styles.amount}>{yen(payslip.familyAllowance)}</td>
-                </tr>
-                {payslip.specialAllowance > 0 && (
-                  <tr>
-                    <th>特別手当</th>
-                    <td className={styles.amount}>{yen(payslip.specialAllowance)}</td>
-                  </tr>
-                )}
-                {payslip.dangerAllowance > 0 && (
-                  <tr>
-                    <th>危険手当</th>
-                    <td className={styles.amount}>{yen(payslip.dangerAllowance)}</td>
-                  </tr>
-                )}
-                {payslip.salesAllowance > 0 && (
-                  <tr>
-                    <th>営業手当</th>
-                    <td className={styles.amount}>{yen(payslip.salesAllowance)}</td>
-                  </tr>
-                )}
-                {payslip.otherAllowance > 0 && (
-                  <tr>
-                    <th>その他手当</th>
-                    <td className={styles.amount}>{yen(payslip.otherAllowance)}</td>
-                  </tr>
-                )}
-                <tr className={styles.totalRow}>
-                  <th>総支給額</th>
-                  <td className={styles.amount}>{yen(payslip.totalPayment)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div>
-            <div className={styles.sectionLabel}>控 除</div>
-            <table className={styles.dataTable}>
-              <tbody>
-                <tr>
-                  <th>健康保険料</th>
-                  <td className={styles.amount}>{yen(payslip.healthInsurance)}</td>
-                </tr>
-                <tr>
-                  <th>介護保険料</th>
-                  <td className={styles.amount}>{yen(payslip.nursingInsurance)}</td>
-                </tr>
-                <tr>
-                  <th>厚生年金保険料</th>
-                  <td className={styles.amount}>{yen(payslip.welfarePension)}</td>
-                </tr>
-                <tr>
-                  <th>雇用保険料</th>
-                  <td className={styles.amount}>{yen(payslip.employmentInsurance)}</td>
-                </tr>
-                <tr>
-                  <th>所得税</th>
-                  <td className={styles.amount}>{yen(payslip.incomeTax)}</td>
-                </tr>
-                <tr>
-                  <th>住民税</th>
-                  <td className={styles.amount}>{yen(payslip.residentTax)}</td>
-                </tr>
-                {payslip.savingsDeduction > 0 && (
-                  <tr>
-                    <th>積立金</th>
-                    <td className={styles.amount}>{yen(payslip.savingsDeduction)}</td>
-                  </tr>
-                )}
-                {payslip.loanDeduction > 0 && (
-                  <tr>
-                    <th>貸付返済</th>
-                    <td className={styles.amount}>{yen(payslip.loanDeduction)}</td>
-                  </tr>
-                )}
-                {payslip.otherDeduction > 0 && (
-                  <tr>
-                    <th>その他控除</th>
-                    <td className={styles.amount}>{yen(payslip.otherDeduction)}</td>
-                  </tr>
-                )}
-                <tr className={styles.totalRow}>
-                  <th>控除合計</th>
-                  <td className={styles.amount}>{yen(payslip.totalDeduction)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <div className={styles.nameRow}>
+        <span className={styles.nameField}>
+          <span className={styles.empName}>{employee.name}</span>
+          <span className={styles.sama}>様</span>
+        </span>
+        <span className={styles.companyName}>{companyName}</span>
       </div>
 
-      <div className={styles.halfFooter}>
-        <div className={styles.netPayment}>
-          <span>差引支給額</span>
-          <span className={styles.netAmount}>{yen(payslip.netPayment)}</span>
+      <table className={styles.grid}>
+        <tbody>
+          {/* 支給額 */}
+          <tr>
+            <th rowSpan={2} className={styles.rowLabel}>支給額</th>
+            <th className={styles.colHead}>基本給</th>
+            <th className={styles.colHead}>時間外賃金</th>
+            <th className={styles.colHead}>家族手当</th>
+            <th className={styles.colHead}>役職手当</th>
+            <th className={styles.colHead}>特別手当</th>
+            <th className={styles.colHead}>営業手当</th>
+            <th className={styles.colHead}>危険手当</th>
+            <th className={styles.colHead}>交通費</th>
+            <th className={styles.colHead}>{payslip.otherAllowance > 0 ? 'その他' : ''}</th>
+          </tr>
+          <tr>
+            <td className={styles.val}>{num(payslip.basicSalary)}</td>
+            <td className={styles.val}>{num(payslip.overtimePay)}</td>
+            <td className={styles.val}>{num(payslip.familyAllowance)}</td>
+            <td className={styles.val}>{num(payslip.positionAllowance)}</td>
+            <td className={styles.val}>{num(payslip.specialAllowance)}</td>
+            <td className={styles.val}>{num(payslip.salesAllowance)}</td>
+            <td className={styles.val}>{num(payslip.dangerAllowance)}</td>
+            <td className={styles.val}>{num(payslip.transportAllowance)}</td>
+            <td className={styles.val}>
+              {payslip.otherAllowance > 0 ? num(payslip.otherAllowance) : ''}
+            </td>
+          </tr>
+
+          {/* 控除額 */}
+          <tr>
+            <th rowSpan={2} className={styles.rowLabel}>控除額</th>
+            <th className={styles.colHead}>雇用保険</th>
+            <th className={styles.colHead}>厚生年金</th>
+            <th className={styles.colHead}>介護保険</th>
+            <th className={styles.colHead}>健康保険</th>
+            <th className={styles.colHead}>積立</th>
+            <th className={styles.colHead}>所得税</th>
+            <th className={styles.colHead}>住民税</th>
+            <th className={styles.colHead}>未払</th>
+            <th className={styles.colHead}>{variant === 'bonus' ? '' : '共済掛金'}</th>
+          </tr>
+          <tr>
+            <td className={styles.val}>{num(payslip.employmentInsurance)}</td>
+            <td className={styles.val}>{num(payslip.welfarePension)}</td>
+            <td className={styles.val}>{num(payslip.nursingInsurance)}</td>
+            <td className={styles.val}>{num(payslip.healthInsurance)}</td>
+            <td className={styles.val}>{num(payslip.savingsDeduction)}</td>
+            <td className={styles.val}>{num(payslip.incomeTax)}</td>
+            <td className={styles.val}>{num(payslip.residentTax)}</td>
+            <td className={styles.val}>{num(payslip.otherDeduction)}</td>
+            <td className={styles.val}>
+              {variant === 'bonus' ? '' : num(payslip.loanDeduction)}
+            </td>
+          </tr>
+
+          {/* 記事 + 担当者印 */}
+          <tr>
+            <th className={styles.rowLabel}>記事</th>
+            <td colSpan={9} className={styles.kijiCell}>
+              <div className={styles.kijiWrap}>
+                <table className={styles.kijiTable}>
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} className={styles.kijiHead}>
+                        勤務日数
+                        <br />
+                        (有給含む)
+                      </th>
+                      <th rowSpan={2} className={styles.kijiHead}>勤務時間数</th>
+                      <th colSpan={2} className={styles.kijiHead}>時間外勤務時間</th>
+                      <th rowSpan={2} className={styles.kijiHead}>有給</th>
+                      <th rowSpan={2} className={styles.kijiFiller} />
+                    </tr>
+                    <tr>
+                      <th className={styles.kijiHead}>普通</th>
+                      <th className={styles.kijiHead}>休日</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>{payslip.workDays}</td>
+                      <td>{payslip.workHours.toFixed(1)}</td>
+                      <td>{payslip.overtimeHours.toFixed(1)}</td>
+                      <td>{payslip.holidayWorkDays}</td>
+                      <td>-</td>
+                      <td className={styles.kijiFiller} />
+                    </tr>
+                  </tbody>
+                </table>
+                <div className={styles.stampBox}>
+                  <div className={styles.stampLabel}>担当者印</div>
+                  <div className={styles.stampSpace} />
+                </div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className={styles.totals}>
+        <div className={styles.totalBox}>
+          <div className={styles.totalLabel}>支給額合計</div>
+          <div className={styles.totalValue}>{num(payslip.totalPayment)}</div>
         </div>
-        <div className={styles.docFooter}>上記の通り支給いたします。</div>
+        <div className={styles.totalBox}>
+          <div className={styles.totalLabel}>控除額合計</div>
+          <div className={styles.totalValue}>{num(payslip.totalDeduction)}</div>
+        </div>
+        <div className={styles.totalSpacer} />
+        <div className={styles.totalBoxNet}>
+          <div className={styles.totalLabel}>銀行振込額</div>
+          <div className={styles.totalValueNet}>¥{num(payslip.netPayment)}</div>
+        </div>
       </div>
     </div>
   )
@@ -233,28 +177,23 @@ export function PayslipPrintDocument({
   payslip,
   year,
   month,
-  paymentDate,
+  titleLabel,
+  periodLabel,
+  variant = 'salary',
 }: PayslipPrintDocumentProps): ReactElement {
-  const isPartTime = employee.employeeType === 'パート'
-  const regularHours = Math.max(0, payslip.workHours - payslip.overtimeHours)
+  const companyName = getSettings().companyName
+  const title = titleLabel ?? '給 与 明 細 書'
+  const period = periodLabel ?? `${year}年${String(month).padStart(2, '0')}月分`
 
-  const halfProps = {
-    employee,
-    payslip,
-    year,
-    month,
-    paymentDate,
-    isPartTime,
-    regularHours,
-  }
+  const blockProps = { employee, payslip, companyName, variant }
 
   return (
     <div className={styles.page}>
-      <PayslipHalf title="給 与 明 細 書" {...halfProps} />
+      <PayslipBlock {...blockProps} title={title} period={period} />
       <div className={styles.cutLine}>
         <span className={styles.cutLineLabel}>切り取り線</span>
       </div>
-      <PayslipHalf title="給 与 明 細 控 え" {...halfProps} />
+      <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
     </div>
   )
 }

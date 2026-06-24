@@ -1,12 +1,28 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import { getEmployees, type MockEmployee, type MockPayslip } from '@/lib/mock-data'
+import { getSettings } from '@/lib/settings-store'
 import { triggerPrint } from '@/lib/print'
 import styles from './PayrollReportModal.module.css'
 
 function num(amount: number): string {
   if (amount === 0) return '0'
   return amount.toLocaleString('ja-JP')
+}
+
+function formatPayDate(dateStr: string): string {
+  if (!dateStr) return ''
+  const [y, m, d] = dateStr.split('-')
+  return `${y}年${Number(m)}月${Number(d)}日`
+}
+
+/** 給与支給日の既定値（対象月の翌月10日） */
+function defaultPayDate(year: number, month: number): string {
+  const d = new Date(year, month, 10)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}-10`
 }
 
 interface ReportRow {
@@ -30,6 +46,7 @@ interface ReportRow {
   residentTax: number
   savingsDeduction: number
   loanDeduction: number
+  otherDeduction: number
   totalDeduction: number
 }
 
@@ -47,6 +64,9 @@ export function PayrollReportModal({
   onClose,
 }: PayrollReportModalProps): ReactElement {
   const employees = useMemo(() => getEmployees(), [])
+  const companyName = useMemo(() => getSettings().companyName, [])
+  const [paymentDate, setPaymentDate] = useState(() => defaultPayDate(year, month))
+  const [busy, setBusy] = useState(false)
 
   const rows: ReportRow[] = useMemo(() => {
     const empMap = new Map<number, MockEmployee>()
@@ -77,6 +97,7 @@ export function PayrollReportModal({
           residentTax: ps.residentTax,
           savingsDeduction: ps.savingsDeduction,
           loanDeduction: ps.loanDeduction,
+          otherDeduction: ps.otherDeduction,
           totalDeduction: ps.totalDeduction,
         }
       })
@@ -90,7 +111,7 @@ export function PayrollReportModal({
       transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0, totalPayment: 0,
       healthInsurance: 0, nursingInsurance: 0, welfarePension: 0,
       employmentInsurance: 0, incomeTax: 0, residentTax: 0,
-      savingsDeduction: 0, loanDeduction: 0, totalDeduction: 0,
+      savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0, totalDeduction: 0,
     }
     for (const r of rows) {
       for (const k of Object.keys(t) as (keyof typeof t)[]) {
@@ -104,17 +125,48 @@ export function PayrollReportModal({
     if (e.target === e.currentTarget) onClose()
   }
 
-  function handlePrint(): void {
-    triggerPrint({ orientation: 'landscape', mode: 'modal' })
+  async function handlePrint(): Promise<void> {
+    const exportPdf = window.api?.export?.pdf
+    if (typeof exportPdf !== 'function') {
+      // ブラウザ(Vite単体) または preload未更新時は従来の印刷ダイアログにフォールバック
+      triggerPrint({ orientation: 'landscape', mode: 'modal', size: 'A3' })
+      return
+    }
+
+    const fileName = `給与一覧表_${year}年${String(month).padStart(2, '0')}月`
+    setBusy(true)
+    document.body.classList.add('is-printing-modal')
+    try {
+      const result = await exportPdf({ fileName, pageSize: 'A3', landscape: true })
+      if (!result.success) {
+        alert(`PDF出力に失敗しました: ${result.error}`)
+      }
+    } catch (err) {
+      alert(`PDF出力に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      document.body.classList.remove('is-printing-modal')
+      setBusy(false)
+    }
   }
 
-  return (
+  return createPortal(
     <div className={`${styles.overlay} printScope`} onClick={handleOverlayClick}>
       <div className={styles.modal}>
         <div className={`${styles.modalHeader} noPrint`}>
-          <h2>給与一覧表</h2>
+          <h2>給与一覧表（A3横）印刷プレビュー</h2>
           <div className={styles.headerActions}>
-            <button className={styles.printButton} onClick={handlePrint}>印刷</button>
+            <label className={styles.payDateField}>
+              支給日
+              <input
+                type="date"
+                className={styles.payDateInput}
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </label>
+            <button className={styles.printButton} onClick={handlePrint} disabled={busy}>
+              {busy ? 'PDF生成中...' : 'PDF出力 / 印刷'}
+            </button>
             <button className={styles.closeButton} onClick={onClose} type="button">×</button>
           </div>
         </div>
@@ -123,6 +175,8 @@ export function PayrollReportModal({
           <div className={styles.page}>
             <div className={styles.reportHeader}>
               <span className={styles.reportTitle}>{year}年{String(month).padStart(2, '0')}月分　給与一覧表</span>
+              <span className={styles.reportDate}>{formatPayDate(paymentDate)}　支給</span>
+              <span className={styles.reportCompany}>{companyName}</span>
             </div>
 
             <table className={styles.table}>
@@ -130,20 +184,20 @@ export function PayrollReportModal({
                 <tr>
                   <th rowSpan={2} className={styles.thName}>氏名</th>
                   <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
-                  <th rowSpan={2} className={styles.thAmount}>振込額</th>
+                  <th rowSpan={2} className={styles.thAmount}>銀行<br />振込額</th>
                   <th colSpan={9} className={styles.thGroup}>支　払</th>
-                  <th colSpan={9} className={styles.thGroup}>控　除</th>
+                  <th colSpan={10} className={styles.thGroup}>控　除</th>
                 </tr>
                 <tr>
                   <th className={styles.thAmount}>基本給</th>
-                  <th className={styles.thAmount}>残業手当</th>
+                  <th className={styles.thAmount}>前月時間外<br />賃金</th>
                   <th className={styles.thAmount}>家族手当</th>
                   <th className={styles.thAmount}>特別手当</th>
                   <th className={styles.thAmount}>役職手当</th>
                   <th className={styles.thAmount}>交通費</th>
                   <th className={styles.thAmount}>営業手当</th>
                   <th className={styles.thAmount}>危険手当</th>
-                  <th className={styles.thAmountTotal}>支払合計</th>
+                  <th className={styles.thAmountTotal}>支払額<br />合計</th>
                   <th className={styles.thAmount}>健康保険</th>
                   <th className={styles.thAmount}>介護保険</th>
                   <th className={styles.thAmount}>厚生年金</th>
@@ -152,7 +206,8 @@ export function PayrollReportModal({
                   <th className={styles.thAmount}>住民税</th>
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
-                  <th className={styles.thAmountTotal}>控除合計</th>
+                  <th className={styles.thAmount}>共済掛金</th>
+                  <th className={styles.thAmountTotal}>控除額<br />合計</th>
                 </tr>
               </thead>
               <tbody>
@@ -178,6 +233,7 @@ export function PayrollReportModal({
                     <td className={styles.tdAmount}>{num(r.residentTax)}</td>
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
+                    <td className={styles.tdAmount}>{num(r.otherDeduction)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -204,6 +260,7 @@ export function PayrollReportModal({
                   <td className={styles.tdAmount}>{num(totals.residentTax)}</td>
                   <td className={styles.tdAmount}>{num(totals.savingsDeduction)}</td>
                   <td className={styles.tdAmount}>{num(totals.loanDeduction)}</td>
+                  <td className={styles.tdAmount}>{num(totals.otherDeduction)}</td>
                   <td className={styles.tdAmountTotal}>{num(totals.totalDeduction)}</td>
                 </tr>
               </tfoot>
@@ -211,6 +268,7 @@ export function PayrollReportModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

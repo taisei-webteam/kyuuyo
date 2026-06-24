@@ -410,7 +410,7 @@ function PayslipDetail({
               <EditableRow label="住民税" value={payslip.residentTax} onChange={handleChange('residentTax')} />
               <EditableRow label="積立金" value={payslip.savingsDeduction} onChange={handleChange('savingsDeduction')} />
               <EditableRow label="貸付返済" value={payslip.loanDeduction} onChange={handleChange('loanDeduction')} />
-              <EditableRow label="その他" value={payslip.otherDeduction} onChange={handleChange('otherDeduction')} />
+              <EditableRow label="共済掛金" value={payslip.otherDeduction} onChange={handleChange('otherDeduction')} />
             </div>
             <div className={styles.sectionTotal}>
               <span>控除合計</span>

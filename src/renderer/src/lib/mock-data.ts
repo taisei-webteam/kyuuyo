@@ -99,6 +99,8 @@ export type StampOutType = '退勤' | '早退'
 
 export interface MockAttendanceDay {
   date: string
+  rawClockIn: string | null
+  rawClockOut: string | null
   clockIn: string | null
   clockOut: string | null
   stampIn: StampInType | null
@@ -605,6 +607,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     if (isHoliday) {
       days.push({
         date: dateStr,
+        rawClockIn: null,
+        rawClockOut: null,
         clockIn: null,
         clockOut: null,
         stampIn: null,
@@ -634,9 +638,10 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const clockOut = roundClockOut(rawClockOut, settings.roundingUnit)
 
     const earlyOvertimeMinutes = calcEarlyOvertime(
-      clockIn,
-      clockInResult.type,
+      rawClockIn,
+      emp?.earlyWorkStart ?? null,
       emp?.earlyWorkEnd ?? null,
+      settings.earlyRoundingUnit,
     )
 
     const hasGoOut = (employeeId + day) % 7 === 0
@@ -690,6 +695,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
 
     days.push({
       date: dateStr,
+      rawClockIn,
+      rawClockOut,
       clockIn,
       clockOut,
       stampIn: clockInTypeToStampIn(clockInResult.type),

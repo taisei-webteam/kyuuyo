@@ -21,6 +21,8 @@ export const companies = sqliteTable('companies', {
   gracePeriod: integer('grace_period').notNull().default(10),
   defaultBreakMinutes: integer('default_break_minutes').notNull().default(60),
   clockOutRounding: text('clock_out_rounding').notNull().default('down'),
+  earlyRoundingUnit: integer('early_rounding_unit').notNull().default(15),
+  overtimeRoundingUnit: integer('overtime_rounding_unit').notNull().default(15),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
 });

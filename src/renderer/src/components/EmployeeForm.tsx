@@ -205,33 +205,35 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     onChange={(e) => handleChange('scheduledEnd', e.target.value)}
                   />
                 </div>
-                <div className={styles.field}>
-                  <label>早出開始時刻</label>
-                  <input
-                    type="time"
-                    value={form.earlyWorkStart ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        earlyWorkStart: e.target.value || null,
-                      }))
-                    }
-                    placeholder="未設定"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label>早出終了時刻</label>
-                  <input
-                    type="time"
-                    value={form.earlyWorkEnd ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        earlyWorkEnd: e.target.value || null,
-                      }))
-                    }
-                    placeholder="未設定"
-                  />
+                <div className={styles.timePair}>
+                  <div className={styles.field}>
+                    <label>早出開始時刻</label>
+                    <input
+                      type="time"
+                      value={form.earlyWorkStart ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          earlyWorkStart: e.target.value || null,
+                        }))
+                      }
+                      placeholder="未設定"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label>早出終了時刻</label>
+                    <input
+                      type="time"
+                      value={form.earlyWorkEnd ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          earlyWorkEnd: e.target.value || null,
+                        }))
+                      }
+                      placeholder="未設定"
+                    />
+                  </div>
                 </div>
                 <div className={styles.field}>
                   <label className={styles.checkboxLabel}>

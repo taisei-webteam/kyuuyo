@@ -8,6 +8,8 @@ import {
   type StampOutType,
 } from '@/lib/mock-data'
 import { RawPunchModal } from '@/components/RawPunchModal'
+import { getSettings } from '@/lib/settings-store'
+import { floorToUnit } from '@/lib/time-rounding'
 import styles from './Attendance.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -64,6 +66,8 @@ export function Attendance(): ReactElement {
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [rounding, setRounding] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [dirty, setDirty] = useState(false)
   const [showRawPunch, setShowRawPunch] = useState(false)
 
   const employees = useMemo(() => getEmployees(), [])
@@ -94,6 +98,7 @@ export function Attendance(): ReactElement {
   if (editKey !== currentKey) {
     setEditData(rawAttendance.map((d) => ({ ...d })))
     setEditKey(currentKey)
+    setDirty(false)
   }
 
   const handleTimeChange = useCallback(
@@ -120,6 +125,7 @@ export function Attendance(): ReactElement {
         updated[idx] = row
         return updated
       })
+      setDirty(true)
     },
     [],
   )
@@ -131,6 +137,7 @@ export function Attendance(): ReactElement {
         updated[idx] = { ...updated[idx], stampIn: value }
         return updated
       })
+      setDirty(true)
     },
     [],
   )
@@ -142,6 +149,7 @@ export function Attendance(): ReactElement {
         updated[idx] = { ...updated[idx], stampOut: value }
         return updated
       })
+      setDirty(true)
     },
     [],
   )
@@ -153,6 +161,7 @@ export function Attendance(): ReactElement {
         updated[idx] = { ...updated[idx], isHolidayWork: checked }
         return updated
       })
+      setDirty(true)
     },
     [],
   )
@@ -170,7 +179,9 @@ export function Attendance(): ReactElement {
   const summary = useMemo(() => {
     const workDays = editData.filter((d) => !d.isHoliday && d.workMinutes > 0).length
     const totalWork = editData.reduce((s, d) => s + d.workMinutes, 0)
-    const totalOvertime = editData.reduce((s, d) => s + d.overtimeMinutes, 0)
+    const totalOvertimeRaw = editData.reduce((s, d) => s + d.overtimeMinutes, 0)
+    const overtimeUnit = getSettings().overtimeRoundingUnit
+    const totalOvertime = floorToUnit(totalOvertimeRaw, overtimeUnit)
     const totalEarlyOvertime = editData.reduce((s, d) => s + d.earlyOvertimeMinutes, 0)
     const earlyCount = editData.filter((d) => d.stampIn === '早出').length
     const lateCount = editData.filter((d) => d.stampIn === '遅刻').length
@@ -263,45 +274,54 @@ export function Attendance(): ReactElement {
             実打刻一覧
           </button>
           <button
-            className={styles.saveButton}
-            disabled={saving}
-            onClick={async () => {
-              if (!hasElectronApi) {
-                setSyncMessage('Electron モードで起動してください')
-                return
-              }
-              setSaving(true)
-              setSyncMessage(null)
-              try {
-                let savedCount = 0
-                for (const day of editData) {
-                  if (!day.clockIn && !day.clockOut && !day.isHolidayWork) continue
-                  await window.api.attendance.upsert({
-                    employeeId: selectedEmployeeId,
-                    date: day.date,
-                    clockIn: day.clockIn,
-                    clockOut: day.clockOut,
-                    workMinutes: day.workMinutes,
-                    overtimeMinutes: day.overtimeMinutes,
-                    earlyOvertimeMinutes: day.earlyOvertimeMinutes,
-                    breakMinutes: BREAK_MINUTES,
-                    isHoliday: day.isHoliday,
-                    isHolidayWork: day.isHolidayWork,
-                    dataSource: day.dataSource,
-                    note: null,
-                  })
-                  savedCount++
-                }
-                setSyncMessage(`${savedCount}件の勤怠データを保存しました`)
-              } catch (err) {
-                setSyncMessage(`保存に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
-              } finally {
-                setSaving(false)
-              }
-            }}
+            className={editing ? styles.editButtonActive : styles.editButton}
+            onClick={() => setEditing((v) => !v)}
           >
-            {saving ? '保存中...' : '保存'}
+            {editing ? '編集を終了' : '丸め時間を編集'}
           </button>
+          {dirty && (
+            <button
+              className={styles.saveButton}
+              disabled={saving}
+              onClick={async () => {
+                if (!hasElectronApi) {
+                  setSyncMessage('Electron モードで起動してください')
+                  return
+                }
+                setSaving(true)
+                setSyncMessage(null)
+                try {
+                  let savedCount = 0
+                  for (const day of editData) {
+                    if (!day.clockIn && !day.clockOut && !day.isHolidayWork) continue
+                    await window.api.attendance.upsert({
+                      employeeId: selectedEmployeeId,
+                      date: day.date,
+                      clockIn: day.clockIn,
+                      clockOut: day.clockOut,
+                      workMinutes: day.workMinutes,
+                      overtimeMinutes: day.overtimeMinutes,
+                      earlyOvertimeMinutes: day.earlyOvertimeMinutes,
+                      breakMinutes: BREAK_MINUTES,
+                      isHoliday: day.isHoliday,
+                      isHolidayWork: day.isHolidayWork,
+                      dataSource: day.dataSource,
+                      note: null,
+                    })
+                    savedCount++
+                  }
+                  setDirty(false)
+                  setSyncMessage(`${savedCount}件の勤怠データを保存しました`)
+                } catch (err) {
+                  setSyncMessage(`保存に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              {saving ? '保存中...' : '保存'}
+            </button>
+          )}
         </div>
         {syncMessage && (
           <div className={styles.syncMessage}>{syncMessage}</div>
@@ -362,6 +382,11 @@ export function Attendance(): ReactElement {
                   休日 {holidayLabel}
                 </span>
               </div>
+              <div className={styles.legend}>
+                出勤・退勤欄は<span className={styles.legendRaw}>上段=実打刻（編集不可）</span>／
+                <span className={styles.legendRounded}>下段=丸め時間</span>。
+                {editing ? '「下段」のみ修正できます。' : '「丸め時間を編集」で下段を修正できます。'}
+              </div>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
                   <thead>
@@ -411,6 +436,7 @@ export function Attendance(): ReactElement {
                               <input
                                 type="checkbox"
                                 checked={day.isHolidayWork}
+                                disabled={!editing}
                                 onChange={(e) => handleHolidayWorkChange(idx, e.target.checked)}
                               />
                             </label>
@@ -419,6 +445,7 @@ export function Attendance(): ReactElement {
                             <select
                               className={`${styles.stampSelect} ${stampInClass(day.stampIn)}`}
                               value={day.stampIn ?? '出勤'}
+                              disabled={!editing}
                               onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                                 handleStampInChange(idx, e.target.value as StampInType)
                               }
@@ -429,39 +456,67 @@ export function Attendance(): ReactElement {
                             </select>
                           </td>
                           <td className={missingClockIn ? styles.cellError : undefined}>
-                            <input
-                              type="time"
-                              className={styles.editableCell}
-                              value={day.clockIn ?? ''}
-                              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                handleTimeChange(idx, 'clockIn', e.target.value)
-                              }
-                            />
+                            <div className={styles.twoTier}>
+                              <span className={styles.rawTime} title="実打刻（編集不可）">
+                                {day.rawClockIn ?? '−'}
+                              </span>
+                              {editing ? (
+                                <input
+                                  type="time"
+                                  className={styles.editableCell}
+                                  value={day.clockIn ?? ''}
+                                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    handleTimeChange(idx, 'clockIn', e.target.value)
+                                  }
+                                />
+                              ) : (
+                                <span className={styles.roundedTime}>{day.clockIn ?? '−'}</span>
+                              )}
+                            </div>
                           </td>
                           <td>
-                            <input
-                              type="time"
-                              className={`${styles.editableCell} ${day.goOut ? styles.editableCellGoOut : ''}`}
-                              value={day.goOut ?? ''}
-                              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                handleTimeChange(idx, 'goOut', e.target.value)
-                              }
-                            />
+                            <div className={styles.twoTier}>
+                              <span className={styles.rawTimeEmpty}>−</span>
+                              {editing ? (
+                                <input
+                                  type="time"
+                                  className={`${styles.editableCell} ${day.goOut ? styles.editableCellGoOut : ''}`}
+                                  value={day.goOut ?? ''}
+                                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    handleTimeChange(idx, 'goOut', e.target.value)
+                                  }
+                                />
+                              ) : (
+                                <span className={`${styles.roundedTime} ${day.goOut ? styles.editableCellGoOut : ''}`}>
+                                  {day.goOut ?? '−'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td>
-                            <input
-                              type="time"
-                              className={`${styles.editableCell} ${day.goReturn ? styles.editableCellGoReturn : ''}`}
-                              value={day.goReturn ?? ''}
-                              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                handleTimeChange(idx, 'goReturn', e.target.value)
-                              }
-                            />
+                            <div className={styles.twoTier}>
+                              <span className={styles.rawTimeEmpty}>−</span>
+                              {editing ? (
+                                <input
+                                  type="time"
+                                  className={`${styles.editableCell} ${day.goReturn ? styles.editableCellGoReturn : ''}`}
+                                  value={day.goReturn ?? ''}
+                                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    handleTimeChange(idx, 'goReturn', e.target.value)
+                                  }
+                                />
+                              ) : (
+                                <span className={`${styles.roundedTime} ${day.goReturn ? styles.editableCellGoReturn : ''}`}>
+                                  {day.goReturn ?? '−'}
+                                </span>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <select
                               className={`${styles.stampSelect} ${stampOutClass(day.stampOut)}`}
                               value={day.stampOut ?? '退勤'}
+                              disabled={!editing}
                               onChange={(e: ChangeEvent<HTMLSelectElement>) =>
                                 handleStampOutChange(idx, e.target.value as StampOutType)
                               }
@@ -472,14 +527,23 @@ export function Attendance(): ReactElement {
                             </select>
                           </td>
                           <td className={missingClockOut ? styles.cellError : undefined}>
-                            <input
-                              type="time"
-                              className={styles.editableCell}
-                              value={day.clockOut ?? ''}
-                              onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                                handleTimeChange(idx, 'clockOut', e.target.value)
-                              }
-                            />
+                            <div className={styles.twoTier}>
+                              <span className={styles.rawTime} title="実打刻（編集不可）">
+                                {day.rawClockOut ?? '−'}
+                              </span>
+                              {editing ? (
+                                <input
+                                  type="time"
+                                  className={styles.editableCell}
+                                  value={day.clockOut ?? ''}
+                                  onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                                    handleTimeChange(idx, 'clockOut', e.target.value)
+                                  }
+                                />
+                              ) : (
+                                <span className={styles.roundedTime}>{day.clockOut ?? '−'}</span>
+                              )}
+                            </div>
                           </td>
                           <td>
                             {day.workMinutes > 0

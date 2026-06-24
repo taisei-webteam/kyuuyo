@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import { getEmployees, type MockEmployee } from '@/lib/mock-data'
 import { triggerPrint } from '@/lib/print'
 import styles from './PayrollReportModal.module.css'
@@ -73,6 +74,7 @@ export function BonusReportModal({
   onClose,
 }: BonusReportModalProps): ReactElement {
   const employees = useMemo(() => getEmployees(), [])
+  const [busy, setBusy] = useState(false)
 
   const rows: ReportRow[] = useMemo(() => {
     const empMap = new Map<number, MockEmployee>()
@@ -129,17 +131,39 @@ export function BonusReportModal({
     if (e.target === e.currentTarget) onClose()
   }
 
-  function handlePrint(): void {
-    triggerPrint({ orientation: 'landscape', mode: 'modal' })
+  async function handlePrint(): Promise<void> {
+    const exportPdf = window.api?.export?.pdf
+    if (typeof exportPdf !== 'function') {
+      // ブラウザ(Vite単体) または preload未更新時は従来の印刷ダイアログにフォールバック
+      triggerPrint({ orientation: 'landscape', mode: 'modal', size: 'A3' })
+      return
+    }
+
+    const fileName = `賞与一覧表_${year}年_${season}`
+    setBusy(true)
+    document.body.classList.add('is-printing-modal')
+    try {
+      const result = await exportPdf({ fileName, pageSize: 'A3', landscape: true })
+      if (!result.success) {
+        alert(`PDF出力に失敗しました: ${result.error}`)
+      }
+    } catch (err) {
+      alert(`PDF出力に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      document.body.classList.remove('is-printing-modal')
+      setBusy(false)
+    }
   }
 
-  return (
+  return createPortal(
     <div className={`${styles.overlay} printScope`} onClick={handleOverlayClick}>
       <div className={styles.modal}>
         <div className={`${styles.modalHeader} noPrint`}>
-          <h2>賞与一覧表</h2>
+          <h2>賞与一覧表（A3横）印刷プレビュー</h2>
           <div className={styles.headerActions}>
-            <button className={styles.printButton} onClick={handlePrint}>印刷</button>
+            <button className={styles.printButton} onClick={handlePrint} disabled={busy}>
+              {busy ? 'PDF生成中...' : 'PDF出力 / 印刷'}
+            </button>
             <button className={styles.closeButton} onClick={onClose} type="button">×</button>
           </div>
         </div>
@@ -237,6 +261,7 @@ export function BonusReportModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

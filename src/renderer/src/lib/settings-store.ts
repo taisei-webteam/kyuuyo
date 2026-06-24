@@ -16,6 +16,8 @@ export interface AppSettings {
   gracePeriod: number
   defaultBreakMinutes: number
   clockOutRounding: 'down'
+  earlyRoundingUnit: number
+  overtimeRoundingUnit: number
 
   emailSenderName: string
   emailSenderAddress: string
@@ -38,6 +40,8 @@ const defaultSettings: AppSettings = {
   gracePeriod: 10,
   defaultBreakMinutes: 60,
   clockOutRounding: 'down',
+  earlyRoundingUnit: 15,
+  overtimeRoundingUnit: 15,
 
   emailSenderName: 'チクホーシーリング',
   emailSenderAddress: 'payroll@example.co.jp',

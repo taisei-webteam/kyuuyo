@@ -7,7 +7,7 @@ import {
   type MockPayslip,
 } from '@/lib/mock-data'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
-import { PdfPreviewModal } from '@/components/PdfPreviewModal'
+import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
 import styles from './BonusCreate.module.css'
 
@@ -271,14 +271,16 @@ export function BonusCreate(): React.ReactElement {
       )}
 
       {showPdfPreview && selectedEmployee && selectedBonus && (
-        <PdfPreviewModal
+        <PayslipDirectPrint
           employee={selectedEmployee}
           payslip={bonusToPayslipShape(selectedBonus)}
           year={selectedYear}
           month={selectedSeason === '夏季' ? 7 : 12}
           paymentDate={paymentDate}
-          onClose={() => setShowPdfPreview(false)}
-          title="賞 与 明 細 書"
+          titleLabel="賞 与 明 細 書"
+          periodLabel={`${selectedYear}年 ${selectedSeason}賞与`}
+          variant="bonus"
+          onDone={() => setShowPdfPreview(false)}
         />
       )}
 

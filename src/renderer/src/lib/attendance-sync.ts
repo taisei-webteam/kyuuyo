@@ -152,6 +152,8 @@ function pairToAttendanceDay(
   if (!pair.clockIn && !pair.clockOut) {
     return {
       date: pair.date,
+      rawClockIn: null,
+      rawClockOut: null,
       clockIn: null,
       clockOut: null,
       stampIn: null,
@@ -188,9 +190,10 @@ function pairToAttendanceDay(
     clockIn = result.time
     stampIn = clockInTypeToStampIn(result.type)
     earlyOvertimeMinutes = calcEarlyOvertime(
-      result.time,
-      result.type,
+      rawIn,
+      employee.earlyWorkStart,
       employee.earlyWorkEnd,
+      settings.earlyRoundingUnit,
     )
   }
 
@@ -217,6 +220,8 @@ function pairToAttendanceDay(
 
   return {
     date: pair.date,
+    rawClockIn: rawIn,
+    rawClockOut: rawOut,
     clockIn,
     clockOut,
     stampIn,
@@ -293,6 +298,8 @@ export async function syncAttendanceMonth(
     } else {
       days.push({
         date: dateStr,
+        rawClockIn: null,
+        rawClockOut: null,
         clockIn: null,
         clockOut: null,
         stampIn: null,

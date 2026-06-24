@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "npm run dev:renderer",
     "dev:renderer": "cd src/renderer && npx vite",
-    "dev:electron": "tsc -p tsconfig.main.json && electron .",
+    "dev:electron": "npm run build:preload && tsc -p tsconfig.main.json && electron .",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --outfile=dist/preload.cjs --format=cjs --external:electron",
     "build:main": "tsc -p tsconfig.main.json && npm run build:preload",
     "build:renderer": "cd src/renderer && npx vite build",

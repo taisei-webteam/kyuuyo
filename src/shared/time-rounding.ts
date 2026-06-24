@@ -31,7 +31,8 @@ export function fromMinutes(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
-function floorToUnit(minutes: number, unit: number): number {
+export function floorToUnit(minutes: number, unit: number): number {
+  if (unit <= 0) return minutes
   return Math.floor(minutes / unit) * unit
 }
 
@@ -93,18 +94,34 @@ export function roundClockOut(rawTime: string, roundingUnit: number): string {
 }
 
 /**
- * 早出残業時間を計算（分）
+ * 早出時間を計算（分）
  *
- * 出勤(丸め後)～早出終了時間 の勤務時間を返す。
- * 早出設定がない場合や通常出勤の場合は 0。
+ * 「実打刻」を基準に、早出終了までの時間を早出丸め単位で切り捨てて返す。
+ *
+ * - 実打刻 < 早出開始        → 0（早出開始前の打刻は早出として数えない）
+ * - 早出開始 ≤ 実打刻 < 早出終了 → (早出終了 − 実打刻) を earlyRoundingUnit で切り捨て
+ * - 実打刻 ≥ 早出終了        → 0（早出時間帯を過ぎた出社）
+ *
+ * 早出設定（開始・終了）が無い場合は 0。
  */
 export function calcEarlyOvertime(
-  clockInRounded: string,
-  clockInType: ClockInType,
+  rawClockIn: string,
+  earlyWorkStart: string | null,
   earlyWorkEnd: string | null,
+  earlyRoundingUnit: number,
 ): number {
-  if (clockInType !== 'early' || !earlyWorkEnd) return 0
-  const inMin = toMinutes(clockInRounded)
-  const endMin = toMinutes(earlyWorkEnd)
-  return Math.max(0, endMin - inMin)
+  if (!earlyWorkStart || !earlyWorkEnd) return 0
+  const raw = toMinutes(rawClockIn)
+  const earlyStart = toMinutes(earlyWorkStart)
+  const earlyEnd = toMinutes(earlyWorkEnd)
+  if (raw < earlyStart) return 0
+  if (raw >= earlyEnd) return 0
+  return floorToUnit(earlyEnd - raw, earlyRoundingUnit)
+}
+
+/**
+ * 残業時間を丸める（月合計に対して残業丸め単位で切り捨て）
+ */
+export function roundOvertimeMinutes(totalOvertimeMinutes: number, overtimeRoundingUnit: number): number {
+  return floorToUnit(Math.max(0, totalOvertimeMinutes), overtimeRoundingUnit)
 }

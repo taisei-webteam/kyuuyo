@@ -8,25 +8,24 @@
     print-color-adjust: exact;
   }
 
-  /* モーダル印刷: 対象エリアのみ表示 */
-  body.is-printing-modal * {
-    visibility: hidden;
-  }
-
-  body.is-printing-modal .printScope,
-  body.is-printing-modal .printScope * {
-    visibility: visible;
+  /* モーダル印刷:
+     モーダルは body 直下にポータル描画されている。
+     印刷時はアプリ本体(#root)を完全に隠し、印刷対象(.printScope)のみを
+     通常フローで出力する。これにより親要素の overflow / position の影響を受けず
+     確実にPDF化できる。 */
+  body.is-printing-modal #root {
+    display: none !important;
   }
 
   body.is-printing-modal .printScope {
-    position: absolute;
-    inset: 0;
-    width: 100%;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
     background: #fff !important;
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
-    z-index: 99999;
+    z-index: auto !important;
   }
 
   .noPrint {

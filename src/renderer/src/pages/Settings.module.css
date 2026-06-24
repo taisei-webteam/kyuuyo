@@ -47,9 +47,9 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  padding-bottom: 24px;
-  max-width: 720px;
+  gap: 20px;
+  padding-bottom: 32px;
+  max-width: 760px;
   flex: 1;
   overflow: auto;
 }
@@ -59,13 +59,14 @@
   border: 1px solid var(--color-border);
   border-radius: 12px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .sectionHeader {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 20px;
+  padding: 14px 24px;
   border-bottom: 1px solid var(--color-border);
   background: #f8fafc;
 }
@@ -82,17 +83,17 @@
 }
 
 .sectionBody {
-  padding: 20px;
+  padding: 24px;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px 24px;
+  gap: 20px 28px;
 }
 
 .sectionBodySingle {
-  padding: 20px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .field {
@@ -140,13 +141,14 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  min-height: 38px;
 }
 
 .ruleLabel {
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--color-text);
-  min-width: 140px;
+  min-width: 160px;
 }
 
 .ruleValue {
@@ -258,6 +260,10 @@
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+  margin-top: 4px;
+  padding-top: 20px;
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .btnPrimary {

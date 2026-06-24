@@ -16,6 +16,7 @@ import { registerEmployeeHandlers } from './ipc/employee.ipc.js';
 import { registerPayslipHandlers } from './ipc/payslip.ipc.js';
 import { registerCompanyHandlers } from './ipc/company.ipc.js';
 import { registerAttendanceHandlers } from './ipc/attendance.ipc.js';
+import { registerExportHandlers } from './ipc/export.ipc.js';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -54,6 +55,7 @@ app.whenReady().then(() => {
   registerPayslipHandlers();
   registerCompanyHandlers();
   registerAttendanceHandlers();
+  registerExportHandlers();
 
   createWindow();
 

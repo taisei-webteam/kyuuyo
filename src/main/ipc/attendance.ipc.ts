@@ -53,12 +53,22 @@ interface CompanyRow {
   rounding_unit: number;
   grace_period: number;
   default_break_minutes: number;
+  early_rounding_unit: number;
+  overtime_rounding_unit: number;
 }
 
 function getCompanySettings(): CompanyRow {
   const raw = getSqlite();
-  const row = raw.prepare('SELECT rounding_unit, grace_period, default_break_minutes FROM companies LIMIT 1').get() as CompanyRow | undefined;
-  return row ?? { rounding_unit: 15, grace_period: 10, default_break_minutes: 60 };
+  const row = raw.prepare(
+    'SELECT rounding_unit, grace_period, default_break_minutes, early_rounding_unit, overtime_rounding_unit FROM companies LIMIT 1',
+  ).get() as CompanyRow | undefined;
+  return row ?? {
+    rounding_unit: 15,
+    grace_period: 10,
+    default_break_minutes: 60,
+    early_rounding_unit: 15,
+    overtime_rounding_unit: 15,
+  };
 }
 
 function getEmployeeMap(): Map<number, EmployeeRow> {
@@ -98,10 +108,12 @@ function roundAndUpsertOne(
   const clockIn = clockInResult.time;
   const clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
 
+  // 早出は「実打刻」を基準に算出（早出開始前は0、早出終了までを早出単位で切り捨て）
   const earlyOvertimeMinutes = calcEarlyOvertime(
-    clockIn,
-    clockInResult.type,
+    rawIn.slice(0, 5),
+    emp.early_work_start,
     emp.early_work_end,
+    company.early_rounding_unit,
   );
 
   let workMinutes = 0;

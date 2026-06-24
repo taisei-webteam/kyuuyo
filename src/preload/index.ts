@@ -85,6 +85,15 @@ const api = {
     initYear: (year: number, holidays: Array<{ date: string; isHoliday: boolean; holidayName: string | null }>): Promise<IpcResult<{ count: number }>> =>
       ipcRenderer.invoke(IPC.CALENDAR.INIT_YEAR, { year, holidays }),
   },
+
+  export: {
+    pdf: (params?: {
+      fileName?: string
+      pageSize?: 'A4' | 'A3'
+      landscape?: boolean
+    }): Promise<IpcResult<{ path: string }>> =>
+      ipcRenderer.invoke(IPC.EXPORT.PDF, params ?? {}),
+  },
 } as const;
 
 contextBridge.exposeInMainWorld('api', api);

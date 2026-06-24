@@ -56,6 +56,11 @@
   background: var(--color-primary-hover);
 }
 
+.printButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .closeButton {
   background: none;
   border: none;
@@ -101,9 +106,35 @@
 }
 
 .reportDate {
-  font-size: 11px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 600;
   color: #374151;
+}
+
+.reportCompany {
+  font-size: 13px;
+  font-weight: 700;
+  color: #111827;
+  min-width: 160px;
+  text-align: right;
+}
+
+.payDateField {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.payDateInput {
+  padding: 5px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.75rem;
 }
 
 /* テーブル */

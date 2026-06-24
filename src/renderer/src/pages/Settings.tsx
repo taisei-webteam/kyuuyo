@@ -16,6 +16,16 @@ const TABS: { key: SettingsTab; label: string; icon: string }[] = [
 
 const EMAIL_PLACEHOLDERS = '{employeeName} {year} {month} {season} {companyName}'
 
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+
+interface CompanyRoundingDto {
+  roundingUnit: number
+  gracePeriod: number
+  defaultBreakMinutes: number
+  earlyRoundingUnit: number
+  overtimeRoundingUnit: number
+}
+
 const ROUNDING_OPTIONS = [
   { value: 5, label: '5分' },
   { value: 10, label: '10分' },
@@ -30,6 +40,24 @@ export default function Settings(): ReactElement {
 
   useEffect(() => {
     setForm(getSettings())
+    if (!hasElectronApi) return
+    void (async () => {
+      const res = (await window.api.company.get()) as {
+        success: boolean
+        data?: Partial<CompanyRoundingDto>
+      }
+      if (res.success && res.data) {
+        const d = res.data
+        setForm((prev) => ({
+          ...prev,
+          roundingUnit: d.roundingUnit ?? prev.roundingUnit,
+          gracePeriod: d.gracePeriod ?? prev.gracePeriod,
+          defaultBreakMinutes: d.defaultBreakMinutes ?? prev.defaultBreakMinutes,
+          earlyRoundingUnit: d.earlyRoundingUnit ?? prev.earlyRoundingUnit,
+          overtimeRoundingUnit: d.overtimeRoundingUnit ?? prev.overtimeRoundingUnit,
+        }))
+      }
+    })()
   }, [])
 
   const handleChange = useCallback(
@@ -69,8 +97,18 @@ export default function Settings(): ReactElement {
     }),
   }
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     updateSettings(form)
+    if (hasElectronApi) {
+      const payload: CompanyRoundingDto = {
+        roundingUnit: form.roundingUnit,
+        gracePeriod: form.gracePeriod,
+        defaultBreakMinutes: form.defaultBreakMinutes,
+        earlyRoundingUnit: form.earlyRoundingUnit,
+        overtimeRoundingUnit: form.overtimeRoundingUnit,
+      }
+      await window.api.company.update(payload)
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }, [form])
@@ -212,11 +250,38 @@ export default function Settings(): ReactElement {
               </div>
 
               <div className={styles.ruleRow}>
-                <span className={styles.ruleLabel}>退勤丸め方向</span>
+                <span className={styles.ruleLabel}>早出丸め単位</span>
                 <div className={styles.ruleValue}>
-                  <select className={styles.select} value="down" disabled>
-                    <option value="down">切捨て</option>
+                  <select
+                    className={styles.select}
+                    value={form.earlyRoundingUnit}
+                    onChange={(e) => handleChange('earlyRoundingUnit', Number(e.target.value))}
+                  >
+                    {ROUNDING_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
                   </select>
+                  <span className={styles.ruleUnit}>切り捨て</span>
+                </div>
+              </div>
+
+              <div className={styles.ruleRow}>
+                <span className={styles.ruleLabel}>残業丸め単位</span>
+                <div className={styles.ruleValue}>
+                  <select
+                    className={styles.select}
+                    value={form.overtimeRoundingUnit}
+                    onChange={(e) => handleChange('overtimeRoundingUnit', Number(e.target.value))}
+                  >
+                    {ROUNDING_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className={styles.ruleUnit}>月合計を切り捨て</span>
                 </div>
               </div>
             </div>

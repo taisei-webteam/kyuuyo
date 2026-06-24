@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, type KeyboardEvent } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   getEmployees,
   getPayslips,
@@ -7,7 +8,6 @@ import {
   type MockPayslip,
 } from '@/lib/mock-data'
 import { PayrollReportModal } from '@/components/PayrollReportModal'
-import { triggerPrint } from '@/lib/print'
 import styles from './PayslipHistory.module.css'
 
 function num(amount: number): string {
@@ -50,12 +50,14 @@ const DEDUCT_COLUMNS: Column[] = [
   { key: 'residentTax', label: '住民税', editable: true },
   { key: 'savingsDeduction', label: '積立', editable: true },
   { key: 'loanDeduction', label: '貸付', editable: true },
+  { key: 'otherDeduction', label: '共済掛金', editable: true },
   { key: 'totalDeduction', label: '控除合計', editable: false },
 ]
 
 const ALL_COLUMNS: Column[] = [...PAY_COLUMNS, ...DEDUCT_COLUMNS]
 
 export function PayslipHistory(): ReactElement {
+  const navigate = useNavigate()
   const [selectedYear, setSelectedYear] = useState(2026)
   const [selectedMonth, setSelectedMonth] = useState(5)
   const [showReport, setShowReport] = useState(false)
@@ -153,7 +155,7 @@ export function PayslipHistory(): ReactElement {
       positionAllowance: 0, transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0,
       totalPayment: 0,
       healthInsurance: 0, nursingInsurance: 0, welfarePension: 0, employmentInsurance: 0,
-      incomeTax: 0, residentTax: 0, savingsDeduction: 0, loanDeduction: 0,
+      incomeTax: 0, residentTax: 0, savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0,
       totalDeduction: 0,
     }
     for (const r of editData) {
@@ -168,6 +170,13 @@ export function PayslipHistory(): ReactElement {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
+          <button
+            className={styles.btnBack}
+            onClick={() => navigate('/payslip')}
+            type="button"
+          >
+            ← 給与作成へ戻る
+          </button>
           <div className={styles.periodSelector}>
             <select
               className={styles.select}
@@ -199,13 +208,7 @@ export function PayslipHistory(): ReactElement {
               className={styles.btnSecondary}
               onClick={() => setShowReport(true)}
             >
-              給与一覧表
-            </button>
-            <button
-              className={styles.btnSecondary}
-              onClick={() => triggerPrint({ orientation: 'landscape', mode: 'page' })}
-            >
-              印刷
+              PDF出力 / 印刷
             </button>
             <button
               className={styles.btnPrimary}
