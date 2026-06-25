@@ -61,6 +61,24 @@
   cursor: not-allowed;
 }
 
+.printButtonSecondary {
+  padding: 6px 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.printButtonSecondary:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-bg);
+}
+
 .closeButton {
   background: none;
   border: none;
@@ -241,19 +259,59 @@
 
   .page {
     box-shadow: none;
-    padding: 0;
+    padding: 6mm 8mm;
     min-width: 0;
     width: 100%;
   }
 
+  /* 見出し（〇年〇月分一覧表 / 支給日 / 会社名）を拡大 */
+  .reportTitle {
+    font-size: 21px;
+  }
+
+  .reportDate {
+    font-size: 22px;
+  }
+
+  .reportCompany {
+    font-size: 20px;
+  }
+
+  /* 表内の文字を2pt相当大きく */
   .table {
-    font-size: 8px;
+    font-size: 11px;
+    line-height: 1.15;
     page-break-inside: auto;
+  }
+
+  .thGroup {
+    font-size: 13px;
+  }
+
+  .thSmall {
+    font-size: 11px;
+  }
+
+  .tdName {
+    font-size: 12px;
   }
 
   .table tr {
     page-break-inside: avoid;
     page-break-after: auto;
+  }
+
+  /* A3横で約30人が1枚に収まる行高。文字を上げた分、高さはほんの少し詰める */
+  .table thead th {
+    padding: 1.2mm 4px;
+  }
+
+  .table tbody td {
+    padding: 2.4mm 4px;
+  }
+
+  .totalRow td {
+    padding: 2.1mm 4px;
   }
 
   .table thead {

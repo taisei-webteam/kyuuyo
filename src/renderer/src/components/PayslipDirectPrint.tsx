@@ -28,7 +28,7 @@ export function PayslipDirectPrint({
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
-      const result = await exportPdf({ fileName })
+      const result = await exportPdf({ fileName, pageSize: 'A4', landscape: false })
       if (!result.success) {
         alert(`PDF出力に失敗しました: ${result.error}`)
       }

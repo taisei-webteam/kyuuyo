@@ -48,7 +48,12 @@ button {
   }
 }
 
+/*
+ * 用紙サイズ・向きは PDF出力時に printToPDF の pageSize/landscape で
+ * 呼び出しごとに指定する（明細=A4縦 / 一覧表=A3横）。
+ * ここでグローバルに @page { size } を固定すると printToPDF の指定を
+ * 上書きしてしまい、全出力が同じ向きになるため指定しない。
+ */
 @page {
-  size: A4 portrait;
   margin: 0;
 }
