@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
-import { calculateInsurancePremiums, calcAge, INSURANCE_RATES } from '@/lib/mock-data'
+import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId } from '@/lib/mock-data'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
+import { DateSelect } from './DateSelect'
 import styles from './EmployeeForm.module.css'
 
 interface EmployeeFormProps {
@@ -53,10 +55,12 @@ function yen(amount: number): string {
 }
 
 export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): ReactElement {
-  const [form, setForm] = useState<MockEmployee>(employee ?? { ...emptyEmployee, id: Date.now() })
+  const [form, setForm] = useState<MockEmployee>(
+    employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() },
+  )
 
   useEffect(() => {
-    setForm(employee ?? { ...emptyEmployee, id: Date.now() })
+    setForm(employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() })
   }, [employee])
 
   const isNew = !employee
@@ -88,12 +92,10 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     onSave(saveData)
   }
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onClose()
-  }
+  const overlay = useOverlayDismiss(onClose)
 
   return (
-    <div className={styles.overlay} onClick={handleOverlayClick}>
+    <div className={styles.overlay} {...overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>{isNew ? '従業員 新規登録' : '従業員 編集'}</h2>
@@ -136,10 +138,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                 </div>
                 <div className={styles.field}>
                   <label>生年月日 {age !== null && <span className={styles.ageBadge}>({age}歳)</span>}</label>
-                  <input
-                    type="date"
+                  <DateSelect
                     value={form.birthDate}
-                    onChange={(e) => handleChange('birthDate', e.target.value)}
+                    onChange={(value) => handleChange('birthDate', value)}
                     required
                   />
                 </div>
@@ -174,10 +175,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                 </div>
                 <div className={styles.field}>
                   <label>雇入年月日</label>
-                  <input
-                    type="date"
+                  <DateSelect
                     value={form.hireDate}
-                    onChange={(e) => handleChange('hireDate', e.target.value)}
+                    onChange={(value) => handleChange('hireDate', value)}
                   />
                 </div>
                 <div className={styles.field}>
@@ -252,35 +252,37 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     残業不可
                   </label>
                 </div>
-                <div className={styles.field}>
-                  <label>残業開始時刻</label>
-                  <input
-                    type="time"
-                    value={form.overtimeStart ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        overtimeStart: e.target.value || null,
-                      }))
-                    }
-                    disabled={!form.overtimeAllowed}
-                    placeholder="未設定"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label>残業終了時刻</label>
-                  <input
-                    type="time"
-                    value={form.overtimeEnd ?? ''}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        overtimeEnd: e.target.value || null,
-                      }))
-                    }
-                    disabled={!form.overtimeAllowed}
-                    placeholder="未設定"
-                  />
+                <div className={styles.timePair}>
+                  <div className={styles.field}>
+                    <label>残業開始時刻</label>
+                    <input
+                      type="time"
+                      value={form.overtimeStart ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          overtimeStart: e.target.value || null,
+                        }))
+                      }
+                      disabled={!form.overtimeAllowed}
+                      placeholder="未設定"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label>残業終了時刻</label>
+                    <input
+                      type="time"
+                      value={form.overtimeEnd ?? ''}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          overtimeEnd: e.target.value || null,
+                        }))
+                      }
+                      disabled={!form.overtimeAllowed}
+                      placeholder="未設定"
+                    />
+                  </div>
                 </div>
                 <div className={styles.fieldWide}>
                   <label>休日設定</label>

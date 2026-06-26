@@ -11,6 +11,8 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  row-gap: 10px;
+  flex-wrap: wrap;
   padding: 16px 24px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
@@ -61,8 +63,16 @@
 
 .headerButtons {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* 画面幅が狭いときに見切れないよう、ヘッダー内ボタンは余白・文字を控えめにする */
+.headerButtons button {
+  padding: 7px 11px;
+  font-size: 0.75rem;
 }
 
 .syncButton {

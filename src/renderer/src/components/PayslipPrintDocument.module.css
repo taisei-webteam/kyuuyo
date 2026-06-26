@@ -118,9 +118,9 @@
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   padding: 6mm 7mm;
   font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", sans-serif;
-  font-size: 12px;
+  font-size: 14px;
   color: #1a1a1a;
-  line-height: 1.4;
+  line-height: 1.35;
   box-sizing: border-box;
   display: grid;
   grid-template-rows: minmax(0, 1fr) 6mm minmax(0, 1fr);
@@ -131,7 +131,7 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .titleBar {
@@ -147,14 +147,16 @@
 }
 
 .titleText {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.18em;
+  white-space: nowrap;
 }
 
 .titlePeriod {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .nameRow {
@@ -172,20 +174,31 @@
 }
 
 .empName {
-  font-size: 19px;
+  font-size: 21px;
   font-weight: 700;
   min-width: 140px;
   padding: 0 14px 1px;
   border-bottom: 1px solid #1a1a1a;
+  white-space: nowrap;
 }
 
 .sama {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .companyName {
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.companyLogo {
+  height: auto;
+  width: auto;
+  max-height: 32px;
+  max-width: 220px;
+  object-fit: contain;
+  display: block;
 }
 
 .grid {
@@ -197,10 +210,10 @@
 .grid th,
 .grid td {
   border: 1px solid #6b7280;
-  padding: 4px 2px;
+  padding: 4px 1px;
   text-align: center;
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.3;
   overflow: hidden;
 }
 
@@ -220,14 +233,15 @@
   background: #e5e7eb;
   font-weight: 600;
   color: #374151;
+  white-space: nowrap;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 
 .grid td.val {
   text-align: right;
-  padding: 5px 6px;
-  height: 52px;
+  padding: 5px 5px;
+  height: 48px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -253,8 +267,8 @@
   border: 1px solid #6b7280;
   padding: 4px 6px;
   text-align: center;
-  font-size: 11px;
-  line-height: 1.3;
+  font-size: 13px;
+  line-height: 1.25;
   white-space: nowrap;
 }
 
@@ -295,7 +309,7 @@
 }
 
 .stampLabel {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   color: #374151;
   text-align: center;
@@ -308,7 +322,7 @@
 
 .stampSpace {
   flex: 1;
-  min-height: 72px;
+  min-height: 64px;
   background: #fff;
 }
 
@@ -316,7 +330,7 @@
   display: flex;
   align-items: stretch;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .totalBox,
@@ -337,18 +351,19 @@
 
 .totalLabel {
   background: #e5e7eb;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   text-align: center;
   padding: 3px 8px;
   border-bottom: 1px solid #6b7280;
+  white-space: nowrap;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 
 .totalValue {
   text-align: right;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   padding: 5px 10px;
   font-variant-numeric: tabular-nums;
@@ -356,7 +371,7 @@
 
 .totalValueNet {
   text-align: right;
-  font-size: 17px;
+  font-size: 19px;
   font-weight: 800;
   padding: 5px 10px;
   font-variant-numeric: tabular-nums;
@@ -377,7 +392,7 @@
   transform: translateX(-50%);
   background: #fff;
   padding: 0 10px;
-  font-size: 8px;
+  font-size: 10px;
   color: #94a3b8;
   white-space: nowrap;
 }

@@ -1,6 +1,14 @@
 import { useState, useMemo } from 'react'
 import type { ReactElement } from 'react'
-import { getEmployees, updateEmployee, deleteEmployee, calcAge, type MockEmployee } from '@/lib/mock-data'
+import {
+  getEmployees,
+  updateEmployee,
+  deleteEmployee,
+  reloadEmployeesFromDb,
+  mockToEmployeeInput,
+  calcAge,
+  type MockEmployee,
+} from '@/lib/mock-data'
 import { EmployeeForm } from '@/components/EmployeeForm'
 import styles from './Employees.module.css'
 
@@ -8,12 +16,16 @@ function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
 }
 
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+
 export function Employees(): ReactElement {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterType, setFilterType] = useState<string>('all')
   const [editingEmployee, setEditingEmployee] = useState<MockEmployee | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMessage, setSyncMessage] = useState<string | null>(null)
 
   const employees = useMemo(() => getEmployees(), [refreshKey])
 
@@ -39,23 +51,72 @@ export function Employees(): ReactElement {
     setIsFormOpen(true)
   }
 
-  function handleSave(data: MockEmployee): void {
-    updateEmployee(data)
+  async function handleSave(data: MockEmployee): Promise<void> {
+    if (hasElectronApi) {
+      const input = mockToEmployeeInput(data)
+      const res = editingEmployee
+        ? await window.api.employees.update({ id: editingEmployee.id, ...input })
+        : await window.api.employees.create(input)
+      if (!res.success) {
+        setSyncMessage(`保存に失敗しました: ${res.error}`)
+        return
+      }
+      await reloadEmployeesFromDb()
+    } else {
+      updateEmployee(data)
+    }
     setIsFormOpen(false)
     setEditingEmployee(null)
     setRefreshKey((k) => k + 1)
   }
 
-  function handleDelete(emp: MockEmployee): void {
-    if (confirm(`${emp.name} を削除しますか？`)) {
+  async function handleDelete(emp: MockEmployee): Promise<void> {
+    if (!confirm(`${emp.name} を削除しますか？`)) return
+    if (hasElectronApi) {
+      const res = await window.api.employees.delete(emp.id)
+      if (!res.success) {
+        setSyncMessage(`削除に失敗しました: ${res.error}`)
+        return
+      }
+      await reloadEmployeesFromDb()
+    } else {
       deleteEmployee(emp.id)
-      setRefreshKey((k) => k + 1)
     }
+    setRefreshKey((k) => k + 1)
   }
 
   function handleClose(): void {
     setIsFormOpen(false)
     setEditingEmployee(null)
+  }
+
+  async function handleSyncToPunchApp(): Promise<void> {
+    if (!hasElectronApi) {
+      setSyncMessage('Electron モードで起動してください')
+      return
+    }
+    setSyncing(true)
+    setSyncMessage(null)
+    try {
+      const payload = getEmployees().map((e) => ({
+        id: e.id,
+        name: e.name,
+        name_kana: e.nameKana,
+        employee_type: e.employeeType,
+        display_order: e.displayOrder,
+        is_active: e.isActive,
+      }))
+      const result = await window.api.attendance.syncEmployees(payload)
+      if (result.success) {
+        setSyncMessage(`${result.data.synced}名を打刻アプリへ同期しました`)
+      } else {
+        setSyncMessage(`同期エラー: ${result.error}`)
+      }
+    } catch (err) {
+      setSyncMessage(`同期に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setSyncing(false)
+    }
   }
 
   return (
@@ -84,10 +145,16 @@ export function Employees(): ReactElement {
             ))}
           </div>
         </div>
-        <button className={styles.btnPrimary} onClick={handleNew}>
-          ＋ 新規登録
-        </button>
+        <div className={styles.headerActions}>
+          <button className={styles.btnSecondary} onClick={handleSyncToPunchApp} disabled={syncing}>
+            {syncing ? '同期中...' : '打刻アプリへ同期'}
+          </button>
+          <button className={styles.btnPrimary} onClick={handleNew}>
+            ＋ 新規登録
+          </button>
+        </div>
       </div>
+      {syncMessage && <div className={styles.syncMessage}>{syncMessage}</div>}
 
       <div className={styles.tableContainer}>
         <table className={styles.table}>

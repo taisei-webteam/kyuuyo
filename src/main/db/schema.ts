@@ -95,6 +95,8 @@ export const attendanceRecords = sqliteTable('attendance_records', {
   date: text('date').notNull(),
   clockIn: text('clock_in'),
   clockOut: text('clock_out'),
+  goOut: text('go_out'),
+  goReturn: text('go_return'),
   workMinutes: integer('work_minutes').notNull().default(0),
   overtimeMinutes: integer('overtime_minutes').notNull().default(0),
   earlyOvertimeMinutes: integer('early_overtime_minutes').notNull().default(0),

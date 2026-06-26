@@ -9,7 +9,7 @@
 }
 
 .modal {
-  background: var(--color-background);
+  background: var(--color-surface);
   border-radius: 12px;
   width: 90vw;
   max-width: 900px;
@@ -32,6 +32,27 @@
   font-size: 1rem;
   font-weight: 700;
   margin: 0;
+}
+
+.headerRight {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.headerCompany {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* 会社名と同じくらいの高さ。縦横比は維持（引き延ばさない） */
+.headerLogo {
+  height: 22px;
+  width: auto;
+  object-fit: contain;
+  display: block;
 }
 
 .headerActions {
@@ -125,6 +146,14 @@
   font-size: 0.6875rem;
 }
 
+.daySun {
+  color: #dc2626;
+}
+
+.daySat {
+  color: #2563eb;
+}
+
 /* ── 印刷用 ── */
 
 @media print {
@@ -140,10 +169,63 @@
     max-height: none;
     box-shadow: none;
     border-radius: 0;
+    overflow: visible;
   }
 
+  .body {
+    overflow: visible;
+    max-height: none;
+    padding: 0 12mm;
+  }
+
+  /* 一人一枚: 従業員ごとに改ページ（末尾の空白ページは防止）
+     各ページ先頭に固定ヘッダー分＋氏名上の余白を確保する */
+  .employeeSection {
+    break-inside: avoid;
+    break-after: page;
+    margin-bottom: 0;
+    padding-top: 11mm;
+  }
+
+  .employeeSection:last-child {
+    break-after: auto;
+  }
+
+  /* 1ページに1ヶ月分（最大31日）を収めるため、行の縦余白を詰める */
+  .employeeName {
+    margin: 0 0 4px 0;
+  }
+
+  .table th,
+  .table td {
+    padding: 1.2mm 10px;
+  }
+
+  /* ヘッダーを固定配置にして全ページに繰り返し表示する（小さめに） */
   .header {
-    border-bottom: 2px solid #000;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border-bottom: 1px solid #000;
+    padding: 2mm 12mm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .title {
+    font-size: 0.8125rem;
+  }
+
+  .headerCompany {
+    font-size: 0.8125rem;
+  }
+
+  .headerLogo {
+    height: 5mm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .headerActions {

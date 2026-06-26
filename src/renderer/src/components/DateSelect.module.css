@@ -1,0 +1,38 @@
+.dateSelect {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dateSelect select {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s;
+  cursor: pointer;
+}
+
+.dateSelect select:focus {
+  border-color: var(--color-primary);
+}
+
+.year {
+  flex: 0 0 auto;
+  min-width: 84px;
+}
+
+.month,
+.day {
+  flex: 0 0 auto;
+  min-width: 56px;
+}
+
+.unit {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  flex: 0 0 auto;
+}

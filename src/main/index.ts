@@ -10,6 +10,25 @@ import { app, BrowserWindow } from 'electron';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// stdout/stderr のパイプが閉じている際の EPIPE で落とさない（開発時にターミナル切断等で発生）
+function ignoreEpipe(stream: NodeJS.WriteStream): void {
+  stream.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') return;
+    throw err;
+  });
+}
+ignoreEpipe(process.stdout);
+ignoreEpipe(process.stderr);
+
+// メインプロセスの未補足例外でアプリを即時終了させない（EPIPE 等の無害な例外を握りつぶす）
+process.on('uncaughtException', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') return;
+  console.error('[main] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[main] unhandledRejection:', reason);
+});
+
 loadEnv({ path: path.resolve(__dirname, '../../../.env') });
 import { getDb, closeDb } from './db/connection.js';
 import { registerEmployeeHandlers } from './ipc/employee.ipc.js';

@@ -17,7 +17,7 @@ interface PunchRow {
   id: string;
   employee_id: number;
   employee_name: string;
-  punch_type: 'clock_in' | 'clock_out';
+  punch_type: 'clock_in' | 'clock_out' | 'go_out' | 'go_return';
   punched_at: string;
   device: string;
   cancelled: boolean;
@@ -38,6 +38,8 @@ interface DayPunches {
   date: string;
   clockIn: string | null;
   clockOut: string | null;
+  goOut: string | null;
+  goReturn: string | null;
 }
 
 async function supabaseFetch<T>(
@@ -59,7 +61,28 @@ async function supabaseFetch<T>(
     const body = await res.text();
     throw new Error(`Supabase API error ${res.status}: ${body}`);
   }
-  return res.json() as Promise<T>;
+  // POST (UPSERT) など本文が空のレスポンスでも JSON.parse で落ちないようにする
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/**
+ * UTC の ISO 文字列を JST(+9h) に変換し、日付・時刻文字列を返す。
+ * punch_records.punched_at は UTC で保存されるため、勤務日の判定や
+ * 勤怠表示は JST に直す必要がある（サーバーのTZに依存しないよう+9hを明示加算）。
+ */
+function toJstParts(iso: string): { date: string; time: string } {
+  const d = new Date(new Date(iso).getTime() + 9 * 60 * 60 * 1000);
+  const p = (n: number): string => String(n).padStart(2, '0');
+  return {
+    date: `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`,
+    time: `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`,
+  };
+}
+
+/** UTC ISO 文字列を JST の "HH:MM:SS" に変換する。 */
+export function isoToJstTime(iso: string): string {
+  return toJstParts(iso).time;
 }
 
 function groupPunchesByDay(punches: PunchRow[]): DayPunches[] {
@@ -67,7 +90,7 @@ function groupPunchesByDay(punches: PunchRow[]): DayPunches[] {
 
   const grouped = new Map<string, PunchRow[]>();
   for (const p of active) {
-    const date = p.punched_at.slice(0, 10);
+    const date = toJstParts(p.punched_at).date;
     const key = `${p.employee_id}:${date}`;
     const arr = grouped.get(key) ?? [];
     arr.push(p);
@@ -82,6 +105,8 @@ function groupPunchesByDay(punches: PunchRow[]): DayPunches[] {
     );
     const clockIns = sorted.filter((p) => p.punch_type === 'clock_in');
     const clockOuts = sorted.filter((p) => p.punch_type === 'clock_out');
+    const goOuts = sorted.filter((p) => p.punch_type === 'go_out');
+    const goReturns = sorted.filter((p) => p.punch_type === 'go_return');
 
     results.push({
       employeeId: Number(empId),
@@ -89,6 +114,9 @@ function groupPunchesByDay(punches: PunchRow[]): DayPunches[] {
       date: date!,
       clockIn: clockIns[0]?.punched_at ?? null,
       clockOut: clockOuts.at(-1)?.punched_at ?? null,
+      // 外出は最初の打刻、戻りは最後の打刻を採用（1日1回の外出を想定）
+      goOut: goOuts[0]?.punched_at ?? null,
+      goReturn: goReturns.at(-1)?.punched_at ?? null,
     });
   }
 

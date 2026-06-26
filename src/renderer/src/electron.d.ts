@@ -23,7 +23,7 @@ interface ElectronAttendanceApi {
   }>;
   list(year: number, month: number, employeeId?: number): Promise<{
     success: true;
-    data: unknown[];
+    data: import('../../../../shared/types').AttendanceRecord[];
   } | {
     success: false;
     error: string;
@@ -49,11 +49,27 @@ interface ElectronAttendanceApi {
     success: false;
     error: string;
   }>;
+  syncEmployees(employees: Array<{
+    id: number;
+    name: string;
+    name_kana: string;
+    employee_type: string;
+    display_order: number;
+    is_active: boolean;
+  }>): Promise<{
+    success: true;
+    data: { synced: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
   upsert(data: {
     employeeId: number;
     date: string;
     clockIn: string | null;
     clockOut: string | null;
+    goOut: string | null;
+    goReturn: string | null;
     workMinutes: number;
     overtimeMinutes: number;
     earlyOvertimeMinutes: number;
@@ -65,6 +81,44 @@ interface ElectronAttendanceApi {
   }): Promise<{
     success: true;
     data: { id: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
+interface ElectronEmployeesApi {
+  list(): Promise<{
+    success: true;
+    data: import('../../../../shared/types').Employee[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  get(id: number): Promise<{
+    success: true;
+    data: import('../../../../shared/types').Employee | null;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  create(data: import('../../../../shared/types').EmployeeCreate): Promise<{
+    success: true;
+    data: { id: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  update(data: import('../../../../shared/types').EmployeeUpdate): Promise<{
+    success: true;
+    data: { updated: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  delete(id: number): Promise<{
+    success: true;
+    data: { deleted: boolean };
   } | {
     success: false;
     error: string;
@@ -87,7 +141,7 @@ interface ElectronExportApi {
 
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
-  employees: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  employees: ElectronEmployeesApi;
   payslips: Record<string, (...args: unknown[]) => Promise<unknown>>;
   company: Record<string, (...args: unknown[]) => Promise<unknown>>;
   calendar: Record<string, (...args: unknown[]) => Promise<unknown>>;

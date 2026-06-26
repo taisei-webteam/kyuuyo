@@ -4,7 +4,16 @@ import { createPortal } from 'react-dom'
 import { getEmployees, type MockEmployee, type MockPayslip } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
 import { triggerPrint } from '@/lib/print'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PayrollReportModal.module.css'
+
+// 会社ロゴ。src/assets/logo-dark.(png|jpg|jpeg|svg|webp) を置くと自動で読み込まれる。
+// 未配置の場合は会社名テキストにフォールバックする。
+const logoModules = import.meta.glob<{ default: string }>(
+  '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
+  { eager: true },
+)
+const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
 
 function num(amount: number): string {
   if (amount === 0) return '0'
@@ -121,9 +130,7 @@ export function PayrollReportModal({
     return t
   }, [rows])
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onClose()
-  }
+  const overlay = useOverlayDismiss(onClose)
 
   async function handlePrint(): Promise<void> {
     const exportPdf = window.api?.export?.pdf
@@ -133,7 +140,8 @@ export function PayrollReportModal({
       return
     }
 
-    const fileName = `給与一覧表_${year}年${String(month).padStart(2, '0')}月`
+    // ファイル名の日付は支給日（YYYY-MM-DD）を使用する
+    const fileName = `${paymentDate}_給与一覧表`
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
@@ -150,7 +158,7 @@ export function PayrollReportModal({
   }
 
   return createPortal(
-    <div className={`${styles.overlay} printScope`} onClick={handleOverlayClick}>
+    <div className={`${styles.overlay} printScope`} {...overlay}>
       <div className={styles.modal}>
         <div className={`${styles.modalHeader} noPrint`}>
           <h2>給与一覧表（A3横）印刷プレビュー</h2>
@@ -176,7 +184,11 @@ export function PayrollReportModal({
             <div className={styles.reportHeader}>
               <span className={styles.reportTitle}>{year}年{String(month).padStart(2, '0')}月分　給与一覧表</span>
               <span className={styles.reportDate}>{formatPayDate(paymentDate)}　支給</span>
-              <span className={styles.reportCompany}>{companyName}</span>
+              {companyLogoSrc ? (
+                <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
+              ) : (
+                <span className={styles.reportCompany}>{companyName}</span>
+              )}
             </div>
 
             <table className={styles.table}>

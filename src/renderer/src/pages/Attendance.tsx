@@ -1,8 +1,11 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
 import {
   getEmployees,
   getAttendance,
+  buildAttendanceDaysFromRecords,
+  mapDbEmployeeToMock,
+  type MockEmployee,
   type MockAttendanceDay,
   type StampInType,
   type StampOutType,
@@ -58,8 +61,9 @@ function stampOutClass(stamp: StampOutType | null): string {
 }
 
 export function Attendance(): ReactElement {
-  const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState(5)
+  const now = new Date()
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [syncing, setSyncing] = useState(false)
@@ -68,9 +72,27 @@ export function Attendance(): ReactElement {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [showRawPunch, setShowRawPunch] = useState(false)
+  const [rawPunchTarget, setRawPunchTarget] = useState<'all' | 'single' | null>(null)
 
-  const employees = useMemo(() => getEmployees(), [])
+  // Electron では DB の従業員一覧を表示する（打刻アプリで追加された従業員も反映するため）。
+  // Vite 単体プレビュー時はモックを表示する。
+  const [employees, setEmployees] = useState<MockEmployee[]>(() => getEmployees())
+
+  useEffect(() => {
+    if (!hasElectronApi) return
+    let cancelled = false
+    void (async () => {
+      const res = await window.api.employees.list()
+      if (cancelled || !res.success) return
+      const active = res.data.filter((e) => e.isActive)
+      if (active.length > 0) {
+        setEmployees(active.map(mapDbEmployeeToMock).sort((a, b) => a.displayOrder - b.displayOrder))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredEmployees = useMemo(
     () =>
@@ -86,20 +108,38 @@ export function Attendance(): ReactElement {
     [employees, selectedEmployeeId],
   )
 
-  const rawAttendance = useMemo(
-    () => getAttendance(selectedEmployeeId, selectedYear, selectedMonth),
-    [selectedEmployeeId, selectedYear, selectedMonth],
-  )
-
   const [editData, setEditData] = useState<MockAttendanceDay[]>([])
-  const [editKey, setEditKey] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const currentKey = `${selectedEmployeeId}-${selectedYear}-${selectedMonth}`
-  if (editKey !== currentKey) {
-    setEditData(rawAttendance.map((d) => ({ ...d })))
-    setEditKey(currentKey)
-    setDirty(false)
-  }
+  // 勤怠データの読み込み:
+  // Electron では SQLite の実データ (raw_punches + attendance_records) を表示する。
+  // Vite 単体プレビュー時は従来どおりモック勤怠を表示する。
+  const loadAttendance = useCallback(async (): Promise<void> => {
+    if (!hasElectronApi) {
+      setEditData(getAttendance(selectedEmployeeId, selectedYear, selectedMonth).map((d) => ({ ...d })))
+      setDirty(false)
+      return
+    }
+    setLoading(true)
+    try {
+      const [listRes, rawRes] = await Promise.all([
+        window.api.attendance.list(selectedYear, selectedMonth, selectedEmployeeId),
+        window.api.attendance.rawList(selectedYear, selectedMonth),
+      ])
+      const records = listRes.success ? listRes.data : []
+      const raws = rawRes.success ? rawRes.data : []
+      setEditData(
+        buildAttendanceDaysFromRecords(selectedEmployeeId, selectedYear, selectedMonth, records, raws),
+      )
+      setDirty(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [selectedEmployeeId, selectedYear, selectedMonth])
+
+  useEffect(() => {
+    void loadAttendance()
+  }, [loadAttendance])
 
   const handleTimeChange = useCallback(
     (idx: number, field: 'clockIn' | 'clockOut' | 'goOut' | 'goReturn', value: string): void => {
@@ -226,6 +266,7 @@ export function Attendance(): ReactElement {
                 const result = await window.api.attendance.sync(selectedYear, selectedMonth)
                 if (result.success) {
                   setSyncMessage(`${result.data.synced}件の打刻データを取り込みました`)
+                  await loadAttendance()
                 } else {
                   setSyncMessage(`同期エラー: ${result.error}`)
                 }
@@ -252,6 +293,7 @@ export function Attendance(): ReactElement {
                   const result = await window.api.attendance.roundAll(selectedYear, selectedMonth)
                   if (result.success) {
                     setSyncMessage(`${result.data.processed}件の丸め処理を実行しました`)
+                    await loadAttendance()
                   } else {
                     setSyncMessage(`丸めエラー: ${result.error}`)
                   }
@@ -269,9 +311,15 @@ export function Attendance(): ReactElement {
           </button>
           <button
             className={styles.rawPunchButton}
-            onClick={() => setShowRawPunch(true)}
+            onClick={() => setRawPunchTarget('all')}
           >
-            実打刻一覧
+            実打刻一覧（全員）
+          </button>
+          <button
+            className={styles.rawPunchButton}
+            onClick={() => setRawPunchTarget('single')}
+          >
+            実打刻一覧（選択者）
           </button>
           <button
             className={editing ? styles.editButtonActive : styles.editButton}
@@ -279,7 +327,7 @@ export function Attendance(): ReactElement {
           >
             {editing ? '編集を終了' : '丸め時間を編集'}
           </button>
-          {dirty && (
+          {(editing || dirty) && (
             <button
               className={styles.saveButton}
               disabled={saving}
@@ -299,6 +347,8 @@ export function Attendance(): ReactElement {
                       date: day.date,
                       clockIn: day.clockIn,
                       clockOut: day.clockOut,
+                      goOut: day.goOut,
+                      goReturn: day.goReturn,
                       workMinutes: day.workMinutes,
                       overtimeMinutes: day.overtimeMinutes,
                       earlyOvertimeMinutes: day.earlyOvertimeMinutes,
@@ -312,6 +362,7 @@ export function Attendance(): ReactElement {
                   }
                   setDirty(false)
                   setSyncMessage(`${savedCount}件の勤怠データを保存しました`)
+                  await loadAttendance()
                 } catch (err) {
                   setSyncMessage(`保存に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
                 } finally {
@@ -381,6 +432,7 @@ export function Attendance(): ReactElement {
                 <span className={styles.holidayBadge}>
                   休日 {holidayLabel}
                 </span>
+                {loading && <span className={styles.contentHeaderSub}>読み込み中...</span>}
               </div>
               <div className={styles.legend}>
                 出勤・退勤欄は<span className={styles.legendRaw}>上段=実打刻（編集不可）</span>／
@@ -632,11 +684,12 @@ export function Attendance(): ReactElement {
           )}
         </div>
       </div>
-      {showRawPunch && (
+      {rawPunchTarget && (
         <RawPunchModal
           year={selectedYear}
           month={selectedMonth}
-          onClose={() => setShowRawPunch(false)}
+          employeeId={rawPunchTarget === 'single' ? selectedEmployeeId : undefined}
+          onClose={() => setRawPunchTarget(null)}
         />
       )}
     </div>

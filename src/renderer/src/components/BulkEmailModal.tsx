@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { isEmailSent, sendEmailBulk, type MockEmployee } from '@/lib/mock-data'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './BulkEmailModal.module.css'
 
 interface BulkEmailModalProps {
@@ -71,12 +72,10 @@ export function BulkEmailModal({
   const selectedCount = selected.size
   const sentCount = targets.filter((t) => t.sent).length
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onClose()
-  }
+  const overlay = useOverlayDismiss(onClose)
 
   return (
-    <div className={styles.overlay} onClick={handleOverlayClick}>
+    <div className={styles.overlay} {...overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>メール一括送信</h2>

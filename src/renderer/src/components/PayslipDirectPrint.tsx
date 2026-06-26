@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { triggerPrint } from '@/lib/print'
 import { PayslipPrintDocument, type PayslipPrintDocumentProps } from './PayslipPrintDocument'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PayslipPrintDocument.module.css'
 
 interface PayslipDirectPrintProps extends PayslipPrintDocumentProps {
@@ -24,7 +25,8 @@ export function PayslipDirectPrint({
     }
 
     const docKind = documentProps.titleLabel?.includes('賞') ? '賞与明細' : '給与明細'
-    const fileName = `${docKind}_${documentProps.employee.name}_${documentProps.year}年${documentProps.month}月`
+    const mm = String(documentProps.month).padStart(2, '0')
+    const fileName = `${documentProps.year}-${mm}_${docKind}_${documentProps.employee.name}`
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
@@ -40,12 +42,10 @@ export function PayslipDirectPrint({
     }
   }, [documentProps])
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onDone()
-  }
+  const overlay = useOverlayDismiss(onDone)
 
   return createPortal(
-    <div className={`${styles.previewOverlay} printScope`} onClick={handleOverlayClick}>
+    <div className={`${styles.previewOverlay} printScope`} {...overlay}>
       <div className={styles.previewModal}>
         <div className={`${styles.previewHeader} noPrint`}>
           <h2 className={styles.previewTitle}>印刷プレビュー</h2>

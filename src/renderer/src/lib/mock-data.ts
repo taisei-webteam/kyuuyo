@@ -454,6 +454,7 @@ import { getHolidaysForYear } from './holidays-jp'
 import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
+import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate } from '../../../shared/types'
 
 export interface CalendarDay {
   isHoliday: boolean
@@ -715,14 +716,77 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
   return days
 }
 
-function generatePayslips(year: number, month: number): MockPayslip[] {
-  return employees.map((emp, idx) => {
-    const attendance = generateAttendance(emp.id, year, month)
-    const workDays = attendance.filter(d => !d.isHoliday && d.workMinutes > 0).length
-    const totalWorkMinutes = attendance.reduce((sum, d) => sum + d.workMinutes, 0)
-    const totalOvertimeMinutes = attendance.reduce((sum, d) => sum + d.overtimeMinutes, 0)
-    const workHours = Math.round(totalWorkMinutes / 60 * 10) / 10
-    const overtimeHours = Math.round(totalOvertimeMinutes / 60 * 10) / 10
+/**
+ * 給与計算に必要な勤怠の月次集計
+ */
+export interface AttendanceAggregate {
+  workDays: number
+  workHours: number
+  overtimeHours: number
+  holidayWorkDays: number
+}
+
+/**
+ * SQLite (attendance_records) から取得した実勤怠レコードを従業員ごとに集計する。
+ * Supabase 同期 → 丸め済みの勤怠を給与計算に反映するための入口。
+ */
+export function aggregateAttendanceRecords(
+  records: AttendanceRecord[],
+): Map<number, AttendanceAggregate> {
+  const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number }>()
+  for (const r of records) {
+    const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0 }
+    if (!r.isHoliday && r.workMinutes > 0) cur.workDays++
+    cur.totalWork += r.workMinutes
+    // 残業時間 = 通常残業 + 早出 + 休日出勤(全労働時間)。いずれも割増(1.25倍)の対象。
+    if (r.isHolidayWork) {
+      cur.totalOvertime += r.workMinutes
+      cur.holidayWorkDays++
+    } else {
+      cur.totalOvertime += r.overtimeMinutes + r.earlyOvertimeMinutes
+    }
+    acc.set(r.employeeId, cur)
+  }
+
+  const result = new Map<number, AttendanceAggregate>()
+  for (const [id, v] of acc) {
+    result.set(id, {
+      workDays: v.workDays,
+      workHours: Math.round((v.totalWork / 60) * 10) / 10,
+      overtimeHours: Math.round((v.totalOvertime / 60) * 10) / 10,
+      holidayWorkDays: v.holidayWorkDays,
+    })
+  }
+  return result
+}
+
+function generatePayslips(
+  year: number,
+  month: number,
+  realAttendance?: Map<number, AttendanceAggregate>,
+): MockPayslip[] {
+  return employeeData.map((emp, idx) => {
+    // 実勤怠 (Supabase 同期 → attendance_records) があれば優先し、
+    // 無ければ従来どおりモック勤怠から算出する。
+    const real = realAttendance?.get(emp.id)
+    let workDays: number
+    let workHours: number
+    let overtimeHours: number
+    let holidayWorkDays: number
+    if (real) {
+      workDays = real.workDays
+      workHours = real.workHours
+      overtimeHours = real.overtimeHours
+      holidayWorkDays = real.holidayWorkDays
+    } else {
+      const attendance = generateAttendance(emp.id, year, month)
+      workDays = attendance.filter(d => !d.isHoliday && d.workMinutes > 0).length
+      const totalWorkMinutes = attendance.reduce((sum, d) => sum + d.workMinutes, 0)
+      const totalOvertimeMinutes = attendance.reduce((sum, d) => sum + d.overtimeMinutes, 0)
+      workHours = Math.round(totalWorkMinutes / 60 * 10) / 10
+      overtimeHours = Math.round(totalOvertimeMinutes / 60 * 10) / 10
+      holidayWorkDays = 0
+    }
 
     const isPartTime = emp.employeeType === 'パート'
     const regularHours = Math.max(0, workHours - overtimeHours)
@@ -779,7 +843,7 @@ function generatePayslips(year: number, month: number): MockPayslip[] {
       workDays,
       workHours,
       overtimeHours,
-      holidayWorkDays: 0,
+      holidayWorkDays,
       basicSalary,
       overtimePay,
       transportAllowance: emp.transportAllowance,
@@ -814,6 +878,126 @@ export function getEmployees(): MockEmployee[] {
   return [...employeeData].sort((a, b) => a.displayOrder - b.displayOrder)
 }
 
+/**
+ * 従業員データソースを差し替える（DB から読み込んだ一覧で上書きする）。
+ * 給与キャッシュもクリアして再計算を促す。
+ */
+export function setEmployees(list: MockEmployee[]): void {
+  employeeData = [...list]
+  payslipCache.clear()
+  createdMonths.clear()
+}
+
+/**
+ * Electron 環境では DB(window.api.employees.list) から従業員を読み込み、
+ * 画面共通のデータソース(employeeData)へ反映する。Vite 単体では何もしない。
+ */
+export async function reloadEmployeesFromDb(): Promise<boolean> {
+  if (typeof window === 'undefined' || !('api' in window)) return false
+  const res = await window.api.employees.list()
+  if (!res.success) return false
+  const active = res.data.filter((e) => e.isActive)
+  if (active.length === 0) return false
+  setEmployees(active.map(mapDbEmployeeToMock).sort((a, b) => a.displayOrder - b.displayOrder))
+  return true
+}
+
+/**
+ * MockEmployee を DB 登録/更新用の入力(EmployeeCreate)へ変換する。
+ * holidayDays は DB に列が無いため除外する。
+ */
+export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
+  return {
+    name: m.name,
+    nameKana: m.nameKana,
+    email: m.email,
+    birthDate: m.birthDate || null,
+    employeeType: m.employeeType,
+    departmentName: m.departmentName,
+    jobTitle: m.jobTitle,
+    hireDate: m.hireDate || null,
+    resignDate: null,
+    displayOrder: m.displayOrder,
+    basicSalary: m.basicSalary,
+    hourlyRate: m.hourlyRate,
+    standardMonthlyRemuneration: m.standardMonthlyRemuneration,
+    transportAllowance: m.transportAllowance,
+    positionAllowance: m.positionAllowance,
+    familyAllowance: m.familyAllowance,
+    specialAllowance: m.specialAllowance,
+    dangerAllowance: m.dangerAllowance,
+    salesAllowance: m.salesAllowance,
+    healthInsurance: m.healthInsurance,
+    welfarePension: m.welfarePension,
+    residentTax: m.residentTax,
+    savingsDeduction: m.savingsDeduction,
+    loanDeduction: m.loanDeduction,
+    dependents: m.dependents,
+    scheduledStart: m.scheduledStart,
+    scheduledEnd: m.scheduledEnd,
+    holidayMode: m.holidayMode,
+    earlyWorkStart: m.earlyWorkStart,
+    earlyWorkEnd: m.earlyWorkEnd,
+    overtimeAllowed: m.overtimeAllowed,
+    overtimeStart: m.overtimeStart,
+    overtimeEnd: m.overtimeEnd,
+    isActive: m.isActive,
+  }
+}
+
+/**
+ * DB の Employee (shared/types) を画面用の MockEmployee 形に変換する。
+ * holidayDays は DB に持っていないため既定値 [0,6]（土日休み）を補う。
+ */
+export function mapDbEmployeeToMock(e: Employee): MockEmployee {
+  return {
+    id: e.id,
+    name: e.name,
+    nameKana: e.nameKana,
+    email: e.email,
+    birthDate: e.birthDate ?? '',
+    employeeType: e.employeeType,
+    departmentName: e.departmentName,
+    jobTitle: e.jobTitle,
+    hireDate: e.hireDate ?? '',
+    displayOrder: e.displayOrder,
+    basicSalary: e.basicSalary,
+    hourlyRate: e.hourlyRate,
+    standardMonthlyRemuneration: e.standardMonthlyRemuneration,
+    transportAllowance: e.transportAllowance,
+    positionAllowance: e.positionAllowance,
+    familyAllowance: e.familyAllowance,
+    specialAllowance: e.specialAllowance,
+    dangerAllowance: e.dangerAllowance,
+    salesAllowance: e.salesAllowance,
+    healthInsurance: e.healthInsurance,
+    welfarePension: e.welfarePension,
+    residentTax: e.residentTax,
+    savingsDeduction: e.savingsDeduction,
+    loanDeduction: e.loanDeduction,
+    dependents: e.dependents,
+    isActive: e.isActive,
+    scheduledStart: e.scheduledStart,
+    scheduledEnd: e.scheduledEnd,
+    holidayDays: [0, 6],
+    holidayMode: e.holidayMode,
+    earlyWorkStart: e.earlyWorkStart,
+    earlyWorkEnd: e.earlyWorkEnd,
+    overtimeAllowed: e.overtimeAllowed,
+    overtimeStart: e.overtimeStart,
+    overtimeEnd: e.overtimeEnd,
+  }
+}
+
+/**
+ * 新規従業員に割り当てる ID を返す (既存最大 + 1)。
+ * Supabase / SQLite の employee_id は integer 型のため、Date.now() のような
+ * 巨大値を使わず小さな連番にする。
+ */
+export function nextEmployeeId(): number {
+  return employeeData.reduce((max, e) => Math.max(max, e.id), 0) + 1
+}
+
 export function updateEmployee(updated: MockEmployee): void {
   const idx = employeeData.findIndex(e => e.id === updated.id)
   if (idx >= 0) {
@@ -833,9 +1017,80 @@ export function getAttendance(employeeId: number, year: number, month: number): 
   return generateAttendance(employeeId, year, month)
 }
 
-export function createPayslips(year: number, month: number): MockPayslip[] {
+/**
+ * SQLite から取得した実打刻 (raw_punches) と丸め済み勤怠 (attendance_records) を
+ * 月次の勤怠表 (MockAttendanceDay[]) に組み立てる。
+ *
+ * - 上段=実打刻 は raw_punches、下段=丸め時間/労働時間は attendance_records 由来。
+ * - レコードが無い日は空欄（休日判定は従業員設定で補完）。
+ * Supabase 同期 → 勤怠管理画面のメイン表に「実際の打刻」を反映するための変換。
+ */
+export function buildAttendanceDaysFromRecords(
+  employeeId: number,
+  year: number,
+  month: number,
+  records: AttendanceRecord[],
+  rawPunches: RawPunch[],
+): MockAttendanceDay[] {
+  const emp = employeeData.find((e) => e.id === employeeId)
+  const holidayMode = emp?.holidayMode ?? 'calendar'
+  const holidayDays = emp?.holidayDays ?? [0, 6]
+
+  const recByDate = new Map<string, AttendanceRecord>()
+  for (const r of records) {
+    if (r.employeeId === employeeId) recByDate.set(r.date, r)
+  }
+  const rawByDate = new Map<string, RawPunch>()
+  for (const r of rawPunches) {
+    if (r.employeeId === employeeId) rawByDate.set(r.date, r)
+  }
+
+  const toHm = (t: string | null): string | null => (t ? t.slice(0, 5) : null)
+
+  const days: MockAttendanceDay[] = []
+  const daysInMonth = new Date(year, month, 0).getDate()
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const dow = new Date(year, month - 1, day).getDay()
+    const rec = recByDate.get(dateStr)
+    const raw = rawByDate.get(dateStr)
+
+    const isHoliday = rec
+      ? !!rec.isHoliday
+      : holidayMode === 'calendar'
+        ? isCalendarHoliday(dateStr, year)
+        : holidayDays.includes(dow)
+
+    days.push({
+      date: dateStr,
+      rawClockIn: toHm(raw?.rawClockIn ?? null),
+      rawClockOut: toHm(raw?.rawClockOut ?? null),
+      clockIn: toHm(rec?.clockIn ?? null),
+      clockOut: toHm(rec?.clockOut ?? null),
+      stampIn: null,
+      stampOut: null,
+      goOut: toHm(rec?.goOut ?? raw?.rawGoOut ?? null),
+      goReturn: toHm(rec?.goReturn ?? raw?.rawGoReturn ?? null),
+      workMinutes: rec?.workMinutes ?? 0,
+      overtimeMinutes: rec?.overtimeMinutes ?? 0,
+      earlyOvertimeMinutes: rec?.earlyOvertimeMinutes ?? 0,
+      isHoliday,
+      isHolidayWork: rec ? !!rec.isHolidayWork : false,
+      dataSource: (rec?.dataSource ?? 'ipad') as 'ipad' | 'manual',
+    })
+  }
+
+  return days
+}
+
+export function createPayslips(
+  year: number,
+  month: number,
+  realAttendance?: Map<number, AttendanceAggregate>,
+): MockPayslip[] {
   const key = `${year}-${month}`
-  const data = generatePayslips(year, month)
+  const data = generatePayslips(year, month, realAttendance)
   payslipCache.set(key, data)
   createdMonths.add(key)
   return data

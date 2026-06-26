@@ -10,6 +10,7 @@ import { getSqlite } from '../db/connection.js';
 import {
   syncAttendanceFromSupabase,
   syncEmployeesToSupabase,
+  isoToJstTime,
   type SupabaseConfig,
 } from '../services/attendance.sync.js';
 import { validateAttendance } from '../services/attendance.validate.js';
@@ -20,6 +21,7 @@ import {
   toMinutes,
   type ClockInConfig,
 } from '../../shared/time-rounding.js';
+import { getNationalHolidaySet } from '../../shared/holidays-jp.js';
 import type {
   IpcResult,
   AttendanceRecord,
@@ -84,6 +86,34 @@ function getEmployeeMap(): Map<number, EmployeeRow> {
 }
 
 /**
+ * 会社カレンダー(company_calendar)の明示設定を date→isHoliday の Map で返す。
+ * 指定日に明示設定がある場合は、土日/祝日の既定判定より優先する。
+ */
+function getCalendarOverrides(datePrefix: string): Map<string, boolean> {
+  const raw = getSqlite();
+  const rows = raw.prepare(
+    'SELECT date, is_holiday AS isHoliday FROM company_calendar WHERE date LIKE ? || \'%\'',
+  ).all(datePrefix) as { date: string; isHoliday: number }[];
+  const map = new Map<string, boolean>();
+  for (const r of rows) map.set(r.date, !!r.isHoliday);
+  return map;
+}
+
+/**
+ * 指定日が休日かどうかを判定する。
+ * 優先順位: 会社カレンダーの明示設定 > 土日・国民の祝日。
+ */
+function isHolidayDate(
+  date: string,
+  calendar: Map<string, boolean>,
+  nationalSet: Set<string>,
+): boolean {
+  if (calendar.has(date)) return calendar.get(date)!;
+  const dow = new Date(date + 'T00:00:00').getDay();
+  return dow === 0 || dow === 6 || nationalSet.has(date);
+}
+
+/**
  * 1件の実打刻に対して丸め＋勤務時間計算を行い、attendance_records に UPSERT する
  */
 function roundAndUpsertOne(
@@ -93,6 +123,9 @@ function roundAndUpsertOne(
   rawOut: string | null,
   emp: EmployeeRow,
   company: CompanyRow,
+  isHoliday: boolean,
+  rawGoOut: string | null = null,
+  rawGoReturn: string | null = null,
 ): void {
   if (!rawIn) return;
 
@@ -108,18 +141,35 @@ function roundAndUpsertOne(
   const clockIn = clockInResult.time;
   const clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
 
+  // 外出・戻りは丸めず実打刻の HH:MM をそのまま採用する
+  const goOut = rawGoOut ? rawGoOut.slice(0, 5) : null;
+  const goReturn = rawGoReturn ? rawGoReturn.slice(0, 5) : null;
+  const goOutMinutes =
+    goOut && goReturn ? Math.max(0, toMinutes(goReturn) - toMinutes(goOut)) : 0;
+
+  const breakMinutes = company.default_break_minutes;
+
+  let workMinutes = 0;
+  let overtimeMinutes = 0;
   // 早出は「実打刻」を基準に算出（早出開始前は0、早出終了までを早出単位で切り捨て）
-  const earlyOvertimeMinutes = calcEarlyOvertime(
+  let earlyOvertimeMinutes = calcEarlyOvertime(
     rawIn.slice(0, 5),
     emp.early_work_start,
     emp.early_work_end,
     company.early_rounding_unit,
   );
+  let isHolidayWork = false;
 
-  let workMinutes = 0;
-  let overtimeMinutes = 0;
-
-  if (clockOut) {
+  if (isHoliday) {
+    // 休日出勤: 定時の概念を適用せず、実働時間の全体を残業（割増対象）とする。
+    // 早出は休日には適用しない（二重計上を避ける）。
+    if (clockOut) {
+      workMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - breakMinutes - goOutMinutes);
+    }
+    overtimeMinutes = workMinutes;
+    earlyOvertimeMinutes = 0;
+    isHolidayWork = workMinutes > 0;
+  } else if (clockOut) {
     const workStartMin = toMinutes(clockIn);
     let workEndMin = toMinutes(clockOut);
     const scheduledEndMin = toMinutes(emp.scheduled_end);
@@ -131,9 +181,9 @@ function roundAndUpsertOne(
       workEndMin = Math.min(workEndMin, toMinutes(emp.overtime_end));
     }
 
-    const breakMinutes = company.default_break_minutes;
     const scheduledMinutes = scheduledEndMin - toMinutes(emp.scheduled_start) - breakMinutes;
-    workMinutes = Math.max(0, workEndMin - workStartMin - breakMinutes);
+    // 外出〜戻りの時間は無給休憩として労働時間から控除する
+    workMinutes = Math.max(0, workEndMin - workStartMin - breakMinutes - goOutMinutes);
 
     if (!overtimeAllowed) {
       overtimeMinutes = 0;
@@ -151,22 +201,26 @@ function roundAndUpsertOne(
   const raw = getSqlite();
   raw.prepare(`
     INSERT INTO attendance_records
-      (employee_id, date, clock_in, clock_out, work_minutes, overtime_minutes,
+      (employee_id, date, clock_in, clock_out, go_out, go_return, work_minutes, overtime_minutes,
        early_overtime_minutes, break_minutes, is_holiday, is_holiday_work, data_source)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'ipad')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ipad')
     ON CONFLICT(employee_id, date) DO UPDATE SET
       clock_in = excluded.clock_in,
       clock_out = excluded.clock_out,
+      go_out = excluded.go_out,
+      go_return = excluded.go_return,
       work_minutes = excluded.work_minutes,
       overtime_minutes = excluded.overtime_minutes,
       early_overtime_minutes = excluded.early_overtime_minutes,
       break_minutes = excluded.break_minutes,
+      is_holiday = excluded.is_holiday,
+      is_holiday_work = excluded.is_holiday_work,
       data_source = 'ipad',
       updated_at = datetime('now','localtime')
   `).run(
-    empId, date, clockIn, clockOut,
+    empId, date, clockIn, clockOut, goOut, goReturn,
     workMinutes, overtimeMinutes, earlyOvertimeMinutes,
-    company.default_break_minutes,
+    breakMinutes, isHoliday ? 1 : 0, isHolidayWork ? 1 : 0,
   );
 }
 
@@ -187,19 +241,24 @@ export function registerAttendanceHandlers(): void {
 
         const raw = getSqlite();
         const upsert = raw.prepare(`
-          INSERT INTO raw_punches (employee_id, date, raw_clock_in, raw_clock_out, data_source, synced_at)
-          VALUES (?, ?, ?, ?, 'ipad', datetime('now','localtime'))
+          INSERT INTO raw_punches (employee_id, date, raw_clock_in, raw_clock_out, raw_go_out, raw_go_return, data_source, synced_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'ipad', datetime('now','localtime'))
           ON CONFLICT(employee_id, date) DO UPDATE SET
             raw_clock_in = excluded.raw_clock_in,
             raw_clock_out = excluded.raw_clock_out,
+            raw_go_out = excluded.raw_go_out,
+            raw_go_return = excluded.raw_go_return,
             synced_at = datetime('now','localtime')
         `);
 
         const tx = raw.transaction(() => {
           for (const pair of pairs) {
-            const clockInTime = pair.clockIn ? pair.clockIn.slice(11, 19) : null;
-            const clockOutTime = pair.clockOut ? pair.clockOut.slice(11, 19) : null;
-            upsert.run(pair.employeeId, pair.date, clockInTime, clockOutTime);
+            // punched_at は UTC のため JST に変換して保存する
+            const clockInTime = pair.clockIn ? isoToJstTime(pair.clockIn) : null;
+            const clockOutTime = pair.clockOut ? isoToJstTime(pair.clockOut) : null;
+            const goOutTime = pair.goOut ? isoToJstTime(pair.goOut) : null;
+            const goReturnTime = pair.goReturn ? isoToJstTime(pair.goReturn) : null;
+            upsert.run(pair.employeeId, pair.date, clockInTime, clockOutTime, goOutTime, goReturnTime);
           }
         });
         tx();
@@ -233,6 +292,7 @@ export function registerAttendanceHandlers(): void {
         const rows = raw.prepare(`
           SELECT id, employee_id AS employeeId, date,
                  raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut,
+                 raw_go_out AS rawGoOut, raw_go_return AS rawGoReturn,
                  data_source AS dataSource, synced_at AS syncedAt
           FROM raw_punches
           WHERE date LIKE ? || '%'
@@ -256,10 +316,13 @@ export function registerAttendanceHandlers(): void {
         const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
         const company = getCompanySettings();
         const empMap = getEmployeeMap();
+        const calendar = getCalendarOverrides(monthStr);
+        const nationalSet = getNationalHolidaySet(params.year);
 
         const punches = raw.prepare(`
           SELECT employee_id AS employeeId, date,
-                 raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut
+                 raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut,
+                 raw_go_out AS rawGoOut, raw_go_return AS rawGoReturn
           FROM raw_punches
           WHERE date LIKE ? || '%'
           ORDER BY employee_id, date
@@ -268,6 +331,8 @@ export function registerAttendanceHandlers(): void {
           date: string;
           rawClockIn: string | null;
           rawClockOut: string | null;
+          rawGoOut: string | null;
+          rawGoReturn: string | null;
         }>;
 
         let processed = 0;
@@ -275,7 +340,8 @@ export function registerAttendanceHandlers(): void {
           for (const p of punches) {
             const emp = empMap.get(p.employeeId);
             if (!emp) continue;
-            roundAndUpsertOne(p.employeeId, p.date, p.rawClockIn, p.rawClockOut, emp, company);
+            const holiday = isHolidayDate(p.date, calendar, nationalSet);
+            roundAndUpsertOne(p.employeeId, p.date, p.rawClockIn, p.rawClockOut, emp, company, holiday, p.rawGoOut, p.rawGoReturn);
             processed++;
           }
         });
@@ -300,10 +366,11 @@ export function registerAttendanceHandlers(): void {
         const empMap = getEmployeeMap();
 
         const punch = raw.prepare(`
-          SELECT raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut
+          SELECT raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut,
+                 raw_go_out AS rawGoOut, raw_go_return AS rawGoReturn
           FROM raw_punches
           WHERE employee_id = ? AND date = ?
-        `).get(params.employeeId, params.date) as { rawClockIn: string | null; rawClockOut: string | null } | undefined;
+        `).get(params.employeeId, params.date) as { rawClockIn: string | null; rawClockOut: string | null; rawGoOut: string | null; rawGoReturn: string | null } | undefined;
 
         if (!punch) {
           return { success: false, error: '該当の実打刻データがありません' };
@@ -314,7 +381,10 @@ export function registerAttendanceHandlers(): void {
           return { success: false, error: '該当の従業員が見つかりません' };
         }
 
-        roundAndUpsertOne(params.employeeId, params.date, punch.rawClockIn, punch.rawClockOut, emp, company);
+        const year = Number(params.date.slice(0, 4));
+        const calendar = getCalendarOverrides(params.date);
+        const holiday = isHolidayDate(params.date, calendar, getNationalHolidaySet(year));
+        roundAndUpsertOne(params.employeeId, params.date, punch.rawClockIn, punch.rawClockOut, emp, company, holiday, punch.rawGoOut, punch.rawGoReturn);
         return { success: true, data: { ok: true } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : '個別丸めに失敗しました' };
@@ -329,6 +399,28 @@ export function registerAttendanceHandlers(): void {
     IPC.ATTENDANCE.SYNC_EMPLOYEES,
     async (_event, params: { employees: Array<{ id: number; name: string; name_kana: string; employee_type: string; display_order: number; is_active: boolean }> }): Promise<IpcResult<{ synced: number }>> => {
       try {
+        // まずローカル SQLite の employees にも反映する。
+        // (raw_punches / attendance_records は employees(id) を外部キー参照するため、
+        //  ここで従業員が存在しないと打刻同期が外部キー制約で失敗する)
+        const raw = getSqlite();
+        const upsertLocal = raw.prepare(`
+          INSERT INTO employees (id, name, name_kana, employee_type, display_order, is_active)
+          VALUES (@id, @name, @name_kana, @employee_type, @display_order, @is_active)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            name_kana = excluded.name_kana,
+            employee_type = excluded.employee_type,
+            display_order = excluded.display_order,
+            is_active = excluded.is_active,
+            updated_at = datetime('now','localtime')
+        `);
+        const txLocal = raw.transaction((emps: typeof params.employees) => {
+          for (const e of emps) {
+            upsertLocal.run({ ...e, is_active: e.is_active ? 1 : 0 });
+          }
+        });
+        txLocal(params.employees);
+
         const config = getSupabaseConfig();
         await syncEmployeesToSupabase(config, params.employees);
         return { success: true, data: { synced: params.employees.length } };
@@ -351,12 +443,14 @@ export function registerAttendanceHandlers(): void {
         const raw = getSqlite();
         const result = raw.prepare(`
           INSERT INTO attendance_records
-            (employee_id, date, clock_in, clock_out, work_minutes, overtime_minutes,
+            (employee_id, date, clock_in, clock_out, go_out, go_return, work_minutes, overtime_minutes,
              early_overtime_minutes, break_minutes, is_holiday, is_holiday_work, data_source, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(employee_id, date) DO UPDATE SET
             clock_in = excluded.clock_in,
             clock_out = excluded.clock_out,
+            go_out = excluded.go_out,
+            go_return = excluded.go_return,
             work_minutes = excluded.work_minutes,
             overtime_minutes = excluded.overtime_minutes,
             early_overtime_minutes = excluded.early_overtime_minutes,
@@ -368,6 +462,7 @@ export function registerAttendanceHandlers(): void {
             updated_at = datetime('now','localtime')
         `).run(
           params.employeeId, params.date, params.clockIn, params.clockOut,
+          params.goOut, params.goReturn,
           params.workMinutes, params.overtimeMinutes, params.earlyOvertimeMinutes,
           params.breakMinutes, params.isHoliday ? 1 : 0, params.isHolidayWork ? 1 : 0,
           params.dataSource, params.note,
@@ -389,7 +484,27 @@ export function registerAttendanceHandlers(): void {
         const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
         const raw = getSqlite();
 
-        let sql = `SELECT * FROM attendance_records WHERE date LIKE ? || '%'`;
+        // AttendanceRecord 型 (camelCase) に一致させるため明示的にエイリアスする
+        let sql = `
+          SELECT id,
+                 employee_id AS employeeId,
+                 date,
+                 clock_in AS clockIn,
+                 clock_out AS clockOut,
+                 go_out AS goOut,
+                 go_return AS goReturn,
+                 work_minutes AS workMinutes,
+                 overtime_minutes AS overtimeMinutes,
+                 early_overtime_minutes AS earlyOvertimeMinutes,
+                 break_minutes AS breakMinutes,
+                 is_holiday AS isHoliday,
+                 is_holiday_work AS isHolidayWork,
+                 data_source AS dataSource,
+                 note,
+                 created_at AS createdAt,
+                 updated_at AS updatedAt
+          FROM attendance_records
+          WHERE date LIKE ? || '%'`;
         const sqlParams: (string | number)[] = [monthStr];
 
         if (params.employeeId) {

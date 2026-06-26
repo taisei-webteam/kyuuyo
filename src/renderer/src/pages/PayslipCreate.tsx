@@ -5,6 +5,7 @@ import {
   getEmployees,
   getPayslips,
   createPayslips,
+  aggregateAttendanceRecords,
   isPayslipsCreated,
   isEmailSent,
   sendEmail,
@@ -16,6 +17,8 @@ import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import styles from './PayslipCreate.module.css'
+
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
@@ -56,8 +59,9 @@ function recalcTotals(ps: MockPayslip): MockPayslip {
 
 export function PayslipCreate(): ReactElement {
   const navigate = useNavigate()
-  const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState(5)
+  const now = new Date()
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [distributeMode, setDistributeMode] = useState<DistributeMode>('pdf')
@@ -66,6 +70,8 @@ export function PayslipCreate(): ReactElement {
   const [showBulkEmail, setShowBulkEmail] = useState(false)
   const [printing, setPrinting] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
+  const [creating, setCreating] = useState(false)
+  const [createMessage, setCreateMessage] = useState<string | null>(null)
 
   const employees = useMemo(() => getEmployees(), [])
 
@@ -113,9 +119,31 @@ export function PayslipCreate(): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employees, selectedYear, selectedMonth, emailRefresh])
 
-  const handleCreate = useCallback((): void => {
-    createPayslips(selectedYear, selectedMonth)
-    setRefreshKey((k) => k + 1)
+  const handleCreate = useCallback(async (): Promise<void> => {
+    setCreating(true)
+    setCreateMessage(null)
+    try {
+      // Electron 環境では Supabase 同期 → 丸め済みの実勤怠 (attendance_records) を取り込み、
+      // 給与の出勤日数・労働時間・残業・休出に反映する。データが無い場合はモック勤怠にフォールバック。
+      let realAttendance: ReturnType<typeof aggregateAttendanceRecords> | undefined
+      if (hasElectronApi) {
+        const result = await window.api.attendance.list(selectedYear, selectedMonth)
+        if (result.success && result.data.length > 0) {
+          realAttendance = aggregateAttendanceRecords(result.data)
+        }
+      }
+      createPayslips(selectedYear, selectedMonth, realAttendance)
+      setRefreshKey((k) => k + 1)
+      if (realAttendance && realAttendance.size > 0) {
+        setCreateMessage(`同期済みの勤怠データ（${realAttendance.size}名分）を反映して作成しました`)
+      } else if (hasElectronApi) {
+        setCreateMessage('同期済み勤怠が無いため、仮の勤怠で作成しました（勤怠管理で同期・丸めを実行してください）')
+      }
+    } catch (err) {
+      setCreateMessage(`作成に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setCreating(false)
+    }
   }, [selectedYear, selectedMonth])
 
   const handleFieldChange = useCallback(
@@ -180,8 +208,8 @@ export function PayslipCreate(): ReactElement {
           {created ? (
             <span className={styles.createdBadge}>作成済み</span>
           ) : (
-            <button className={styles.btnCreate} onClick={handleCreate}>
-              {selectedMonth}月分を作成
+            <button className={styles.btnCreate} onClick={handleCreate} disabled={creating}>
+              {creating ? '作成中...' : `${selectedMonth}月分を作成`}
             </button>
           )}
         </div>
@@ -201,7 +229,12 @@ export function PayslipCreate(): ReactElement {
                 メール送信
               </button>
             </div>
-            <button className={styles.btnSecondary} onClick={() => navigate('/history')}>一括編集</button>
+            <button
+              className={styles.btnSecondary}
+              onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
+            >
+              一括編集
+            </button>
             {distributeMode === 'pdf' ? (
               <>
                 <button className={styles.btnSecondary} onClick={() => alert('一括印刷します（モック）')}>一括印刷</button>
@@ -216,6 +249,10 @@ export function PayslipCreate(): ReactElement {
           </div>
         )}
       </div>
+
+      {created && createMessage && (
+        <p className={styles.notCreatedDesc} style={{ margin: '0 0 12px' }}>{createMessage}</p>
+      )}
 
       {created ? (
         <div className={styles.body}>
@@ -262,9 +299,10 @@ export function PayslipCreate(): ReactElement {
             まだ作成されていません。<br />
             勤怠データと従業員マスタをもとに給与データを自動生成します。
           </p>
-          <button className={styles.btnCreateLarge} onClick={handleCreate}>
-            {selectedMonth}月分を作成
+          <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
+            {creating ? '作成中...' : `${selectedMonth}月分を作成`}
           </button>
+          {createMessage && <p className={styles.notCreatedDesc}>{createMessage}</p>}
         </div>
       )}
 

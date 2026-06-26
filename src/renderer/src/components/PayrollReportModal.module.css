@@ -111,9 +111,10 @@
 
 /* ヘッダー */
 .reportHeader {
+  position: relative;
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   margin-bottom: 12px;
 }
 
@@ -124,6 +125,9 @@
 }
 
 .reportDate {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: 12px;
   font-weight: 600;
   color: #374151;
@@ -135,6 +139,15 @@
   color: #111827;
   min-width: 160px;
   text-align: right;
+}
+
+/* 会社ロゴ。縦横比は維持（引き延ばさない） */
+.reportLogo {
+  height: 15px;
+  width: auto;
+  object-fit: contain;
+  align-self: center;
+  margin-left: auto;
 }
 
 .payDateField {
@@ -275,6 +288,13 @@
 
   .reportCompany {
     font-size: 20px;
+  }
+
+  /* 印刷時のロゴ（小さめ・縦横比は維持） */
+  .reportLogo {
+    height: 6mm;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* 表内の文字を2pt相当大きく */

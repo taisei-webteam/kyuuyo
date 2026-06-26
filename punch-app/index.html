@@ -367,20 +367,20 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    const EMPLOYEES = [
-      { id: 1, name: '藤原 誠一', dept: '総務部', type: '役員', color: '#3b82f6' },
-      { id: 2, name: '中村 健太', dept: '営業部', type: '社員', color: '#ef4444' },
-      { id: 3, name: '山本 裕子', dept: '総務部', type: '役員', color: '#10b981' },
-      { id: 4, name: '高橋 大輔', dept: '技術部', type: '社員', color: '#f59e0b' },
-      { id: 5, name: '佐藤 俊介', dept: '営業部', type: '社員', color: '#8b5cf6' },
-      { id: 6, name: '伊藤 翔太', dept: '製造部', type: 'パート', color: '#ec4899' },
-      { id: 7, name: '渡辺 美咲', dept: '製造部', type: 'パート', color: '#06b6d4' },
-      { id: 8, name: '松田 浩二', dept: '倉庫部', type: 'パート', color: '#f97316' },
-    ];
+    // ── Supabase 接続（anon/publishable キーはブラウザ公開可） ──
+    const SUPABASE_URL = 'https://ejgtichwphfizxhyavgd.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_9TzzvEUwr6Rbg-H4Q8QRwA_3CQ_ckcY';
+    const sb = (window.supabase && window.supabase.createClient)
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
 
+    const AVATAR_COLORS = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316'];
+
+    // 従業員は Supabase の employees_sync から取得する（追加分も反映される）
+    let EMPLOYEES = [];
     const EMP_MAP = {};
-    EMPLOYEES.forEach(e => EMP_MAP[e.id] = e);
 
     const PUNCH_TYPES = {
       clockin:   { label: '出勤', cssClass: 'log-type-clockin' },
@@ -391,13 +391,18 @@
 
     const CANCEL_REASONS = ['入力間違い', '人違い', '誤動作'];
 
-    // { "empId-date": [ { type, time, cancelled, cancelReason, cancelTime } ] }
+    // { "empId-date": [ { type, time, cancelled, cancelReason, cancelTime, supabaseId } ] }
     const punchRecords = {};
     let selectedEmployee = null;
 
     function todayKey() {
       const d = new Date();
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
+    function timeFromIso(iso) {
+      const d = new Date(iso);
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
     function getRecords(empId, date) {
@@ -435,6 +440,65 @@
     function nowTimeStr() {
       const d = new Date();
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    // ── Supabase: 従業員ロード ──
+    async function loadEmployees() {
+      if (!sb) { showToast('Supabase に接続できません'); return; }
+      const { data, error } = await sb
+        .from('employees_sync')
+        .select('*')
+        .eq('is_active', true)
+        .order('display_order', { ascending: true });
+      if (error) { showToast('従業員の取得に失敗しました'); console.error(error); return; }
+      EMPLOYEES = (data || []).map((e, i) => ({
+        id: e.id,
+        name: e.name,
+        type: e.employee_type,
+        dept: e.employee_type,
+        color: AVATAR_COLORS[i % AVATAR_COLORS.length],
+      }));
+      for (const k of Object.keys(EMP_MAP)) delete EMP_MAP[k];
+      EMPLOYEES.forEach(e => EMP_MAP[e.id] = e);
+      renderGrid();
+    }
+
+    // ── Supabase: 本日の打刻ロード（状態・履歴の初期表示用） ──
+    async function loadTodayPunches() {
+      if (!sb) return;
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      const start = `${y}-${m}-${dd}T00:00:00`;
+      const end = `${y}-${m}-${dd}T23:59:59`;
+      const { data, error } = await sb
+        .from('punch_records')
+        .select('*')
+        .gte('punched_at', start)
+        .lte('punched_at', end)
+        .order('punched_at', { ascending: true });
+      if (error) { console.error(error); return; }
+      // 既存ローカル状態をクリアしてから反映
+      for (const k of Object.keys(punchRecords)) delete punchRecords[k];
+      const typeFromPunch = (pt) =>
+        pt === 'clock_in' ? 'clockin'
+        : pt === 'clock_out' ? 'clockout'
+        : pt === 'go_out' ? 'goout'
+        : pt === 'go_return' ? 'goreturn'
+        : 'clockout';
+      (data || []).forEach(p => {
+        const recs = getRecords(p.employee_id);
+        recs.push({
+          type: typeFromPunch(p.punch_type),
+          time: timeFromIso(p.punched_at),
+          cancelled: !!p.cancelled,
+          cancelReason: '',
+          cancelTime: '',
+          supabaseId: p.id,
+        });
+      });
+      renderGrid();
     }
 
     // ── Clock ──
@@ -478,7 +542,7 @@
         card.innerHTML = `
           <div class="employee-avatar" style="background:${emp.color}">${emp.name[0]}</div>
           <div class="employee-name">${emp.name}</div>
-          <div class="employee-dept">${emp.type} · ${emp.dept}</div>
+          <div class="employee-dept">${emp.dept}</div>
           <span class="employee-status ${statusClass}">${statusLabel}</span>
         `;
         card.onclick = () => openPunch(emp);
@@ -490,7 +554,7 @@
     function openPunch(emp) {
       selectedEmployee = emp;
       document.getElementById('punchName').textContent = emp.name;
-      document.getElementById('punchDept').textContent = `${emp.type} · ${emp.dept}`;
+      document.getElementById('punchDept').textContent = `${emp.dept}`;
       showScreen('screenPunch');
       updatePunchButtons();
       renderLog();
@@ -530,16 +594,47 @@
       setTimeout(() => overlay.remove(), 2600);
     }
 
-    function doPunch(type) {
+    async function doPunch(type) {
       if (!selectedEmployee) return;
       const recs = getRecords(selectedEmployee.id);
-      recs.push({ type, time: nowTimeStr(), cancelled: false, cancelReason: '', cancelTime: '' });
+      const rec = { type, time: nowTimeStr(), cancelled: false, cancelReason: '', cancelTime: '', supabaseId: null };
+      recs.push(rec);
       showToast(`${PUNCH_TYPES[type].label} ${nowTimeStr()}`);
       showMessage(type);
       updatePunchButtons();
       renderLog();
       clearTimeout(autoReturnTimer);
       autoReturnTimer = setTimeout(() => closePunch(), 3000);
+
+      // 出勤/退勤/外出/戻り を Supabase の punch_records に保存する（Windows アプリへ同期される）。
+      const punchType =
+        type === 'clockin' ? 'clock_in'
+        : type === 'clockout' ? 'clock_out'
+        : type === 'goout' ? 'go_out'
+        : type === 'goreturn' ? 'go_return'
+        : null;
+      if (punchType && sb) {
+        try {
+          const { data, error } = await sb
+            .from('punch_records')
+            .insert({
+              employee_id: selectedEmployee.id,
+              employee_name: selectedEmployee.name,
+              punch_type: punchType,
+              punched_at: new Date().toISOString(),
+              device: 'ipad',
+            })
+            .select();
+          if (error) {
+            showToast(`保存に失敗: ${error.message}`);
+          } else if (data && data[0]) {
+            rec.supabaseId = data[0].id;
+          }
+        } catch (err) {
+          showToast(`保存に失敗しました`);
+          console.error(err);
+        }
+      }
     }
 
     // ── Cancel Modal ──
@@ -611,15 +706,22 @@
       overlay.querySelector('#cancelModalClose').onclick = () => overlay.remove();
       overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 
-      confirmBtn.onclick = () => {
+      confirmBtn.onclick = async () => {
         const recs = getRecords(selectedEmployee.id);
-        recs[cancelTarget].cancelled = true;
-        recs[cancelTarget].cancelReason = selectedReason;
-        recs[cancelTarget].cancelTime = nowTimeStr();
+        const target = recs[cancelTarget];
+        target.cancelled = true;
+        target.cancelReason = selectedReason;
+        target.cancelTime = nowTimeStr();
         overlay.remove();
         showToast(`${typeLabel}を取り消しました`);
         updatePunchButtons();
         renderLog();
+        // Supabase 側も取消済みにする（同期で除外される）
+        if (target.supabaseId && sb) {
+          try {
+            await sb.from('punch_records').update({ cancelled: true }).eq('id', target.supabaseId);
+          } catch (err) { console.error(err); }
+        }
       };
     }
 
@@ -715,7 +817,12 @@
     document.getElementById('historyEmployee').onchange = renderHistory;
     document.getElementById('historyDate').onchange = renderHistory;
 
+    // ── 初期化：従業員と本日の打刻を Supabase から読み込む ──
     renderGrid();
+    (async () => {
+      await loadEmployees();
+      await loadTodayPunches();
+    })();
   </script>
   </body>
 </html>

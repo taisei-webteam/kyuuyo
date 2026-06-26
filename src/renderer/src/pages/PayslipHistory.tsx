@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, type KeyboardEvent } from 'react'
+import { useState, useMemo, useCallback, useEffect, type KeyboardEvent } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   getEmployees,
   getPayslips,
@@ -58,8 +58,10 @@ const ALL_COLUMNS: Column[] = [...PAY_COLUMNS, ...DEDUCT_COLUMNS]
 
 export function PayslipHistory(): ReactElement {
   const navigate = useNavigate()
-  const [selectedYear, setSelectedYear] = useState(2026)
-  const [selectedMonth, setSelectedMonth] = useState(5)
+  const location = useLocation()
+  const navState = location.state as { year?: number; month?: number } | null
+  const [selectedYear, setSelectedYear] = useState(navState?.year ?? 2026)
+  const [selectedMonth, setSelectedMonth] = useState(navState?.month ?? 5)
   const [showReport, setShowReport] = useState(false)
 
   const employees = useMemo(() => getEmployees(), [])
@@ -85,9 +87,11 @@ export function PayslipHistory(): ReactElement {
 
   const [editData, setEditData] = useState<EditablePayslip[]>(initialData)
 
-  useState(() => {
+  // 年月の切替で initialData が再計算されたら編集データを同期する。
+  // (旧コードは useState の初期化関数で 1 度しか実行されず、期間変更が反映されなかった)
+  useEffect(() => {
     setEditData(initialData)
-  })
+  }, [initialData])
 
   const handleChange = useCallback(
     (idx: number, field: PayField, value: number): void => {

@@ -2,8 +2,18 @@ import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { getEmployees, type MockEmployee } from '@/lib/mock-data'
+import { getSettings } from '@/lib/settings-store'
 import { triggerPrint } from '@/lib/print'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PayrollReportModal.module.css'
+
+// 会社ロゴ。src/assets/logo-dark.(png|jpg|jpeg|svg|webp) を置くと自動で読み込まれる。
+// 未配置の場合は会社名テキストにフォールバックする。
+const logoModules = import.meta.glob<{ default: string }>(
+  '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
+  { eager: true },
+)
+const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
 
 function num(amount: number): string {
   if (amount === 0) return '0'
@@ -74,6 +84,7 @@ export function BonusReportModal({
   onClose,
 }: BonusReportModalProps): ReactElement {
   const employees = useMemo(() => getEmployees(), [])
+  const companyName = useMemo(() => getSettings().companyName, [])
   const [busy, setBusy] = useState(false)
 
   const rows: ReportRow[] = useMemo(() => {
@@ -127,9 +138,7 @@ export function BonusReportModal({
     return t
   }, [rows])
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onClose()
-  }
+  const overlay = useOverlayDismiss(onClose)
 
   async function handlePrint(): Promise<void> {
     const exportPdf = window.api?.export?.pdf
@@ -139,7 +148,9 @@ export function BonusReportModal({
       return
     }
 
-    const fileName = `賞与一覧表_${year}年_${season}`
+    // ファイル名の日付は支給日（YYYY-MM-DD）を使用する。未指定時は年・季節でフォールバック
+    const mm = season === '夏季' ? '07' : '12'
+    const fileName = `${paymentDate ?? `${year}-${mm}`}_賞与一覧表`
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
@@ -156,7 +167,7 @@ export function BonusReportModal({
   }
 
   return createPortal(
-    <div className={`${styles.overlay} printScope`} onClick={handleOverlayClick}>
+    <div className={`${styles.overlay} printScope`} {...overlay}>
       <div className={styles.modal}>
         <div className={`${styles.modalHeader} noPrint`}>
           <h2>賞与一覧表（A3横）印刷プレビュー</h2>
@@ -173,6 +184,11 @@ export function BonusReportModal({
             <div className={styles.reportHeader}>
               <span className={styles.reportTitle}>{year}年 {season} 賞与一覧</span>
               {paymentDate && <span className={styles.reportDate}>支給日: {formatPayDate(paymentDate)}</span>}
+              {companyLogoSrc ? (
+                <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
+              ) : (
+                <span className={styles.reportCompany}>{companyName}</span>
+              )}
             </div>
 
             <table className={styles.table}>

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import type { MockEmployee, MockPayslip } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
+import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PdfPreviewModal.module.css'
 
 function yen(amount: number): string {
@@ -165,12 +166,10 @@ export function PdfPreviewModal({
   const settings = getSettings()
   const docTitle = title ?? '給 与 明 細 書'
 
-  function handleOverlayClick(e: React.MouseEvent): void {
-    if (e.target === e.currentTarget) onClose()
-  }
+  const overlay = useOverlayDismiss(onClose)
 
   return (
-    <div className={styles.overlay} onClick={handleOverlayClick}>
+    <div className={styles.overlay} {...overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
           <h2>印刷プレビュー</h2>

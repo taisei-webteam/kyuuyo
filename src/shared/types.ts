@@ -66,6 +66,8 @@ export interface RawPunch {
   date: string;
   rawClockIn: string | null;
   rawClockOut: string | null;
+  rawGoOut: string | null;
+  rawGoReturn: string | null;
   dataSource: string;
   syncedAt: string;
 }
@@ -82,6 +84,8 @@ export interface AttendanceRecord {
   date: string;
   clockIn: string | null;
   clockOut: string | null;
+  goOut: string | null;
+  goReturn: string | null;
   workMinutes: number;
   overtimeMinutes: number;
   earlyOvertimeMinutes: number;

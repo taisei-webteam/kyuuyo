@@ -11,6 +11,7 @@ import { app } from 'electron';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
+import { seedEmployeesIfEmpty } from './seed.js';
 
 let sqlite: Database.Database | null = null;
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -123,6 +124,8 @@ function initTables(): void {
       date TEXT NOT NULL,
       raw_clock_in TEXT,
       raw_clock_out TEXT,
+      raw_go_out TEXT,
+      raw_go_return TEXT,
       data_source TEXT NOT NULL DEFAULT 'ipad',
       synced_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       UNIQUE(employee_id, date)
@@ -134,6 +137,8 @@ function initTables(): void {
       date TEXT NOT NULL,
       clock_in TEXT,
       clock_out TEXT,
+      go_out TEXT,
+      go_return TEXT,
       work_minutes INTEGER NOT NULL DEFAULT 0,
       overtime_minutes INTEGER NOT NULL DEFAULT 0,
       early_overtime_minutes INTEGER NOT NULL DEFAULT 0,
@@ -233,6 +238,9 @@ function initTables(): void {
   `);
 
   runMigrations(raw);
+
+  // ローカル開発用: 従業員が未登録なら mock と同一の従業員を投入する
+  seedEmployeesIfEmpty(raw);
 }
 
 /**
@@ -257,6 +265,12 @@ function runMigrations(raw: Database.Database): void {
   addColumn('employees', 'early_work_start', 'TEXT');
   addColumn('employees', 'early_work_end', 'TEXT');
 
+  // raw_punches / attendance_records: 外出・戻りカラム
+  addColumn('raw_punches', 'raw_go_out', 'TEXT');
+  addColumn('raw_punches', 'raw_go_return', 'TEXT');
+  addColumn('attendance_records', 'go_out', 'TEXT');
+  addColumn('attendance_records', 'go_return', 'TEXT');
+
   // companies: 丸め設定カラム
   addColumn('companies', 'rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
   addColumn('companies', 'grace_period', 'INTEGER NOT NULL DEFAULT 10');
@@ -264,6 +278,86 @@ function runMigrations(raw: Database.Database): void {
   addColumn('companies', 'clock_out_rounding', "TEXT NOT NULL DEFAULT 'down'");
   addColumn('companies', 'early_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
   addColumn('companies', 'overtime_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
+
+  // employees: id / display_order の int4 範囲超過値を是正
+  // (旧コードが Date.now() を id や display_order に入れていた頃の巨大値が残ると
+  //  Supabase 同期(int4)で範囲外エラーになるため、正常行の続き番号へ再採番)
+  repairEmployeeIds(raw);
+  repairDisplayOrder(raw);
+}
+
+/**
+ * employees.id が PostgreSQL の integer(int4) 範囲を超える行を、
+ * 正常行の最大 id の続き番号へ再採番する。
+ * 子テーブル(raw_punches / attendance_records / payslips)の employee_id も
+ * 連動して付け替える（外部キーを一時的に無効化して整合性を保つ）。冪等。
+ */
+function repairEmployeeIds(raw: Database.Database): void {
+  const INT4_MAX = 2147483647;
+
+  const bad = raw
+    .prepare('SELECT id FROM employees WHERE id > ? ORDER BY id ASC')
+    .all(INT4_MAX) as { id: number }[];
+
+  if (bad.length === 0) return;
+
+  // 外部キー制約は付け替え中だけ無効化する（PRAGMA はトランザクション外で設定）
+  raw.pragma('foreign_keys = OFF');
+  try {
+    const updateChildren = (oldId: number, newId: number): void => {
+      raw.prepare('UPDATE raw_punches SET employee_id = ? WHERE employee_id = ?').run(newId, oldId);
+      raw.prepare('UPDATE attendance_records SET employee_id = ? WHERE employee_id = ?').run(newId, oldId);
+      raw.prepare('UPDATE payslips SET employee_id = ? WHERE employee_id = ?').run(newId, oldId);
+    };
+    const updateParent = raw.prepare('UPDATE employees SET id = ? WHERE id = ?');
+    const maxStmt = raw.prepare(
+      'SELECT COALESCE(MAX(id), 0) AS maxId FROM employees WHERE id <= ?',
+    );
+
+    const tx = raw.transaction(() => {
+      for (const row of bad) {
+        const { maxId } = maxStmt.get(INT4_MAX) as { maxId: number };
+        const newId = maxId + 1;
+        updateChildren(row.id, newId);
+        updateParent.run(newId, row.id);
+      }
+    });
+    tx();
+  } finally {
+    raw.pragma('foreign_keys = ON');
+  }
+}
+
+/**
+ * display_order が PostgreSQL の integer(int4) 範囲を超える行を、
+ * 正常行の最大値の続き番号へ再採番する（相対順を維持・冪等）。
+ */
+function repairDisplayOrder(raw: Database.Database): void {
+  const INT4_MAX = 2147483647;
+
+  const bad = raw
+    .prepare(
+      'SELECT id FROM employees WHERE display_order > ? ORDER BY display_order ASC, id ASC',
+    )
+    .all(INT4_MAX) as { id: number }[];
+
+  if (bad.length === 0) return;
+
+  const { maxOrder } = raw
+    .prepare(
+      'SELECT COALESCE(MAX(display_order), 0) AS maxOrder FROM employees WHERE display_order <= ?',
+    )
+    .get(INT4_MAX) as { maxOrder: number };
+
+  const update = raw.prepare('UPDATE employees SET display_order = ? WHERE id = ?');
+  const tx = raw.transaction(() => {
+    let next = maxOrder;
+    for (const row of bad) {
+      next += 1;
+      update.run(next, row.id);
+    }
+  });
+  tx();
 }
 
 /**
