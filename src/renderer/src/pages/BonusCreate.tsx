@@ -3,9 +3,12 @@ import {
   getEmployees,
   isEmailSent,
   sendEmail,
+  calculateInsurancePremiums,
+  calcAge,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
+import { calcBonusTax } from '../../../shared/bonus-tax-jp'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
@@ -77,12 +80,37 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
       const specialBonus = emp.employeeType === '役員' ? 100000 : 0
       const totalPayment = basicBonus + performanceBonus + specialBonus
 
+      // 賞与の社会保険料（標準賞与額ベース。介護保険は40歳以上のみ）
+      const age = emp.birthDate ? calcAge(emp.birthDate) : 0
       const healthInsurance = Math.round(totalPayment * 0.04985)
-      const nursingInsurance = emp.id === 3 ? Math.round(totalPayment * 0.008) : 0
+      const nursingInsurance = age >= 40 ? Math.round(totalPayment * 0.008) : 0
       const welfarePension = Math.round(totalPayment * 0.0915)
       const employmentInsurance = Math.round(totalPayment * 0.006)
       const socialInsurance = healthInsurance + nursingInsurance + welfarePension + employmentInsurance
-      const incomeTax = Math.round((totalPayment - socialInsurance) * 0.1021)
+
+      // 前月の社会保険料等控除後の給与等の金額（マスタから推計：課税支給 − 月次社会保険料）
+      const prevMonthlyTaxableGross =
+        emp.basicSalary +
+        emp.positionAllowance +
+        emp.familyAllowance +
+        emp.specialAllowance +
+        emp.dangerAllowance +
+        emp.salesAllowance
+      const prevPremiums = calculateInsurancePremiums(
+        emp.standardMonthlyRemuneration,
+        emp.birthDate,
+        prevMonthlyTaxableGross + emp.transportAllowance,
+      )
+      const prevMonthSalaryAfterSI =
+        prevMonthlyTaxableGross -
+        (prevPremiums.healthInsurance +
+          prevPremiums.nursingInsurance +
+          prevPremiums.welfarePension +
+          prevPremiums.employmentInsurance)
+
+      // 賞与の源泉徴収税額（算出率の表・甲欄／令和8年分以降）
+      const bonusAfterSI = totalPayment - socialInsurance
+      const incomeTax = calcBonusTax(bonusAfterSI, prevMonthSalaryAfterSI, emp.dependents)
       const totalDeduction = socialInsurance + incomeTax
 
       return {
