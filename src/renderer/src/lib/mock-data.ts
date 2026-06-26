@@ -454,6 +454,7 @@ import { getHolidaysForYear } from './holidays-jp'
 import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
+import { calcWithholdingTaxMonthly } from '../../../shared/income-tax-jp'
 import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate } from '../../../shared/types'
 
 export interface CalendarDay {
@@ -819,9 +820,15 @@ function generatePayslips(
       totalPayment,
     )
 
-    const incomeTax = Math.round(
-      (totalPayment - emp.transportAllowance - premiums.healthInsurance - premiums.nursingInsurance - premiums.welfarePension - premiums.employmentInsurance) * 0.05,
-    )
+    // その月の社会保険料等控除後の給与等の金額（非課税通勤手当を除いた課税支給 − 社会保険料）
+    const socialInsuranceTotal =
+      premiums.healthInsurance +
+      premiums.nursingInsurance +
+      premiums.welfarePension +
+      premiums.employmentInsurance
+    const taxableBase = totalPayment - emp.transportAllowance - socialInsuranceTotal
+    // 源泉徴収税額（月額表・甲欄／電算機計算の特例）。扶養親族等の数で税額が変わる。
+    const incomeTax = calcWithholdingTaxMonthly(taxableBase, emp.dependents)
 
     const totalDeduction =
       premiums.healthInsurance +
