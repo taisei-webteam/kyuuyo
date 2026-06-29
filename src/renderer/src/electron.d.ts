@@ -137,15 +137,122 @@ interface ElectronExportApi {
     success: false;
     error: string;
   }>;
+  pdfBuffer(params?: {
+    fileName?: string;
+    pageSize?: 'A4' | 'A3';
+    landscape?: boolean;
+  }): Promise<{
+    success: true;
+    data: { base64: string };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
+interface ElectronMailApi {
+  getConfig(): Promise<{
+    success: true;
+    data: import('../../shared/types').MailConfigStatus;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  setConfig(data: import('../../shared/types').MailConfigUpdate): Promise<{
+    success: true;
+    data: import('../../shared/types').MailConfigStatus;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  authorize(): Promise<{
+    success: true;
+    data: { authorized: boolean; email: string };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  send(messages: import('../../shared/types').MailMessageInput[]): Promise<{
+    success: true;
+    data: import('../../shared/types').MailSendResult[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  test(): Promise<{
+    success: true;
+    data: import('../../shared/types').MailSendResult;
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
+interface ElectronPayslipsApi {
+  list(year: number, month: number, type?: string): Promise<{
+    success: true;
+    data: import('../../shared/types').Payslip[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  get(id: number): Promise<{
+    success: true;
+    data: import('../../shared/types').Payslip | null;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  create(data: import('../../shared/types').PayslipCreate): Promise<{
+    success: true;
+    data: { id: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  createBulk(items: import('../../shared/types').PayslipCreate[]): Promise<{
+    success: true;
+    data: { count: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  saveMonth(
+    year: number,
+    month: number,
+    type: string,
+    items: import('../../shared/types').PayslipCreate[],
+  ): Promise<{
+    success: true;
+    data: { count: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  update(data: Partial<import('../../shared/types').PayslipCreate> & { id: number }): Promise<{
+    success: true;
+    data: { updated: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  delete(id: number): Promise<{
+    success: true;
+    data: { deleted: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: ElectronEmployeesApi;
-  payslips: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  payslips: ElectronPayslipsApi;
   company: Record<string, (...args: unknown[]) => Promise<unknown>>;
   calendar: Record<string, (...args: unknown[]) => Promise<unknown>>;
   export: ElectronExportApi;
+  mail: ElectronMailApi;
 }
 
 interface Window {

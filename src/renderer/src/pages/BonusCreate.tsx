@@ -12,6 +12,9 @@ import { calcBonusTax } from '../../../shared/bonus-tax-jp'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
+import { buildBonusEmail } from '@/lib/email-template'
+import { getSettings } from '@/lib/settings-store'
+import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
 import styles from './BonusCreate.module.css'
 
 function yen(amount: number): string {
@@ -184,14 +187,69 @@ export function BonusCreate(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eligibleEmployees, selectedYear, selectedSeason, emailRefresh])
 
-  const handleEmailSend = useCallback((): void => {
+  const buildMailItem = useCallback(
+    (emp: MockEmployee): MailDocItem | null => {
+      if (!emp.email) return null
+      const bonus = bonuses.find((b) => b.employeeId === emp.id)
+      if (!bonus) return null
+      const settings = getSettings()
+      const email = buildBonusEmail({
+        employeeName: emp.name,
+        year: selectedYear,
+        season: selectedSeason,
+        companyName: settings.companyName,
+      })
+      return {
+        refId: emp.id,
+        name: emp.name,
+        to: emp.email,
+        subject: email.subject,
+        body: email.body,
+        html: email.html,
+        fileName: `${selectedYear}_${selectedSeason}賞与_${emp.name}様`,
+        doc: {
+          employee: emp,
+          payslip: bonusToPayslipShape(bonus),
+          year: selectedYear,
+          month: selectedSeason === '夏季' ? 7 : 12,
+          paymentDate,
+          titleLabel: '賞 与 明 細 書',
+          periodLabel: `${selectedYear}年 ${selectedSeason}賞与`,
+          variant: 'bonus',
+        },
+      }
+    },
+    [bonuses, selectedYear, selectedSeason, paymentDate],
+  )
+
+  const handleEmailSend = useCallback(async (): Promise<void> => {
     if (!selectedEmployee?.email) {
       alert('メールアドレスが登録されていません。')
       return
     }
-    sendEmail(selectedEmployee.id, 'bonus', selectedYear, selectedSeason)
-    setEmailRefresh((k) => k + 1)
-  }, [selectedEmployee, selectedYear, selectedSeason])
+    if (!isMailSendAvailable()) {
+      sendEmail(selectedEmployee.id, 'bonus', selectedYear, selectedSeason)
+      setEmailRefresh((k) => k + 1)
+      return
+    }
+    const item = buildMailItem(selectedEmployee)
+    if (!item) {
+      alert('賞与データが見つかりません。')
+      return
+    }
+    try {
+      const results = await sendDocsByEmail([item])
+      const r = results[0]
+      if (r?.success) {
+        sendEmail(selectedEmployee.id, 'bonus', selectedYear, selectedSeason)
+        setEmailRefresh((k) => k + 1)
+      } else {
+        alert(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
+      }
+    } catch (err) {
+      alert(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    }
+  }, [selectedEmployee, selectedYear, selectedSeason, buildMailItem])
 
   const handleEmailSent = useCallback((): void => {
     setEmailRefresh((k) => k + 1)
@@ -293,6 +351,7 @@ export function BonusCreate(): React.ReactElement {
           year={selectedYear}
           monthOrSeason={selectedSeason}
           periodLabel={`${selectedYear}年 ${selectedSeason} 賞与明細`}
+          makeItem={buildMailItem}
           onClose={() => setShowBulkEmail(false)}
           onSent={handleEmailSent}
         />

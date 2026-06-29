@@ -75,6 +75,41 @@ export function registerPayslipHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC.PAYSLIPS.SAVE_MONTH,
+    async (
+      _event,
+      params: { year: number; month: number; type?: string; items: PayslipCreate[] },
+    ): Promise<IpcResult<{ count: number }>> => {
+      try {
+        const raw = getSqlite();
+        const db = getDb();
+        const type = params.type ?? 'salary';
+        // 指定年月・種別の明細を一括置換する（編集・再作成を冪等に反映）。
+        // UNIQUE(employee_id, year, month, payslip_type) の競合を避けるため
+        // 削除 → 挿入を 1 トランザクションで実施する。
+        const tx = raw.transaction(() => {
+          db.delete(payslips)
+            .where(
+              and(
+                eq(payslips.year, params.year),
+                eq(payslips.month, params.month),
+                eq(payslips.payslipType, type),
+              ),
+            )
+            .run();
+          for (const item of params.items) {
+            db.insert(payslips).values(item).run();
+          }
+        });
+        tx();
+        return { success: true, data: { count: params.items.length } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '給与明細の保存に失敗しました' };
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC.PAYSLIPS.UPDATE,
     async (_event, params: Partial<PayslipCreate> & { id: number }): Promise<IpcResult<{ updated: boolean }>> => {
       try {

@@ -4,7 +4,11 @@ import { getSettings, updateSettings } from '../lib/settings-store'
 import type { AppSettings } from '../lib/settings-store'
 import { renderEmailTemplate } from '../lib/email-template'
 import { CompanyCalendar } from './CompanyCalendar'
+import type { MailConfigStatus } from '../../../shared/types'
 import styles from './Settings.module.css'
+
+const DEFAULT_CLIENT_ID = '1086473446602-fkcvs3f5n0lsmlfnlnlcnon79723jsmb.apps.googleusercontent.com'
+const DEFAULT_SENDER_ADDRESS = 'cskyuyomeisai@gmail.com'
 
 type SettingsTab = 'general' | 'email' | 'calendar'
 
@@ -38,6 +42,15 @@ export default function Settings(): ReactElement {
   const [form, setForm] = useState<AppSettings>(getSettings)
   const [saved, setSaved] = useState(false)
 
+  // Gmail送信設定（mail.service / safeStorage 管理）
+  const [mailStatus, setMailStatus] = useState<MailConfigStatus | null>(null)
+  const [mailSenderName, setMailSenderName] = useState('')
+  const [mailSenderAddress, setMailSenderAddress] = useState('')
+  const [mailClientId, setMailClientId] = useState('')
+  const [mailClientSecret, setMailClientSecret] = useState('')
+  const [mailBusy, setMailBusy] = useState(false)
+  const [mailMessage, setMailMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
   useEffect(() => {
     setForm(getSettings())
     if (!hasElectronApi) return
@@ -58,6 +71,70 @@ export default function Settings(): ReactElement {
         }))
       }
     })()
+    void (async () => {
+      const res = await window.api.mail.getConfig()
+      if (res.success) {
+        setMailStatus(res.data)
+        setMailSenderName(res.data.senderName || getSettings().companyName)
+        setMailSenderAddress(res.data.senderAddress || DEFAULT_SENDER_ADDRESS)
+        setMailClientId(res.data.clientId || DEFAULT_CLIENT_ID)
+      }
+    })()
+  }, [])
+
+  const handleMailSave = useCallback(async (): Promise<void> => {
+    setMailBusy(true)
+    setMailMessage(null)
+    try {
+      const res = await window.api.mail.setConfig({
+        senderName: mailSenderName,
+        senderAddress: mailSenderAddress,
+        clientId: mailClientId,
+        clientSecret: mailClientSecret.length > 0 ? mailClientSecret : undefined,
+      })
+      if (res.success) {
+        setMailStatus(res.data)
+        setMailClientSecret('')
+        setMailMessage({ text: 'メール送信設定を保存しました', ok: true })
+      } else {
+        setMailMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setMailBusy(false)
+    }
+  }, [mailSenderName, mailSenderAddress, mailClientId, mailClientSecret])
+
+  const handleMailAuthorize = useCallback(async (): Promise<void> => {
+    setMailBusy(true)
+    setMailMessage({ text: 'ブラウザが開きます。Googleアカウントで連携を許可してください...', ok: true })
+    try {
+      const res = await window.api.mail.authorize()
+      if (res.success) {
+        setMailMessage({ text: `Googleと連携しました（${res.data.email}）`, ok: true })
+        const status = await window.api.mail.getConfig()
+        if (status.success) setMailStatus(status.data)
+      } else {
+        setMailMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setMailBusy(false)
+    }
+  }, [])
+
+  const handleMailTest = useCallback(async (): Promise<void> => {
+    setMailBusy(true)
+    setMailMessage(null)
+    try {
+      const res = await window.api.mail.test()
+      if (res.success && res.data.success) {
+        setMailMessage({ text: 'テストメールを送信しました。受信箱をご確認ください。', ok: true })
+      } else {
+        const err = res.success ? res.data.error : res.error
+        setMailMessage({ text: `テスト送信に失敗しました: ${err ?? '不明なエラー'}`, ok: false })
+      }
+    } finally {
+      setMailBusy(false)
+    }
   }, [])
 
   const handleChange = useCallback(
@@ -307,26 +384,106 @@ export default function Settings(): ReactElement {
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
               <span className={styles.sectionIcon}>📤</span>
-              <span className={styles.sectionTitle}>送信元</span>
+              <span className={styles.sectionTitle}>Gmail送信設定（送信元）</span>
             </div>
             <div className={styles.sectionBody}>
-              <div className={styles.field}>
-                <label className={styles.label}>送信者名</label>
-                <input
-                  className={styles.input}
-                  value={form.emailSenderName}
-                  onChange={(e) => handleChange('emailSenderName', e.target.value)}
-                />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>送信元メールアドレス</label>
-                <input
-                  type="email"
-                  className={styles.input}
-                  value={form.emailSenderAddress}
-                  onChange={(e) => handleChange('emailSenderAddress', e.target.value)}
-                />
-              </div>
+              {hasElectronApi ? (
+                <>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <div className={styles.mailStatusRow}>
+                      <span
+                        className={`${styles.mailBadge} ${mailStatus?.authorized ? styles.mailBadgeOk : styles.mailBadgeNg}`}
+                      >
+                        {mailStatus?.authorized ? '● 連携済み' : '○ 未連携'}
+                      </span>
+                      {mailStatus && !mailStatus.encryptionAvailable && (
+                        <span className={styles.fieldHint}>
+                          ※この環境では暗号化保存が利用できないため、簡易保存になります
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>送信者名</label>
+                    <input
+                      className={styles.input}
+                      value={mailSenderName}
+                      onChange={(e) => setMailSenderName(e.target.value)}
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label className={styles.label}>送信元メールアドレス（Gmail）</label>
+                    <input
+                      type="email"
+                      className={styles.input}
+                      value={mailSenderAddress}
+                      onChange={(e) => setMailSenderAddress(e.target.value)}
+                    />
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <label className={styles.label}>クライアントID</label>
+                    <input
+                      className={styles.input}
+                      value={mailClientId}
+                      onChange={(e) => setMailClientId(e.target.value)}
+                      placeholder="xxxxx.apps.googleusercontent.com"
+                    />
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <label className={styles.label}>クライアントシークレット</label>
+                    <input
+                      type="password"
+                      className={styles.input}
+                      value={mailClientSecret}
+                      onChange={(e) => setMailClientSecret(e.target.value)}
+                      placeholder={
+                        mailStatus?.hasClientSecret
+                          ? '保存済み（変更する場合のみ入力）'
+                          : 'Google Cloud で発行したシークレット'
+                      }
+                    />
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <div className={styles.mailActions}>
+                      <button className={styles.btnPrimary} onClick={handleMailSave} disabled={mailBusy}>
+                        設定を保存
+                      </button>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={handleMailAuthorize}
+                        disabled={mailBusy || !mailStatus?.hasClientSecret}
+                      >
+                        Googleと連携
+                      </button>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={handleMailTest}
+                        disabled={mailBusy || !mailStatus?.authorized}
+                      >
+                        テスト送信
+                      </button>
+                    </div>
+                    {mailMessage && (
+                      <div
+                        className={`${styles.mailMessage} ${mailMessage.ok ? styles.mailMessageOk : styles.mailMessageNg}`}
+                      >
+                        {mailMessage.text}
+                      </div>
+                    )}
+                    <p className={styles.fieldHint}>
+                      Gmailの送信権限のみを使用します。連携には Google Cloud で発行した OAuth
+                      クライアント（種類: デスクトップアプリ）の ID とシークレットが必要です。認証情報は端末内に暗号化して保存され、外部には送信されません。
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className={`${styles.field} ${styles.fieldWide}`}>
+                  <p className={styles.fieldHint}>
+                    メール送信設定はデスクトップアプリ版で利用できます（現在はプレビュー環境）。
+                  </p>
+                </div>
+              )}
+
               <div className={`${styles.field} ${styles.fieldWide}`}>
                 <label className={styles.checkboxRow}>
                   <input

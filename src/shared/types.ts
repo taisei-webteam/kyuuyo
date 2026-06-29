@@ -189,3 +189,53 @@ export interface CalendarEntry {
   isHoliday: boolean;
   holidayName: string | null;
 }
+
+// ========================================
+// メール送信（Gmail API）
+// ========================================
+
+/** Renderer に返すメール設定の状態（秘密情報は含めない） */
+export interface MailConfigStatus {
+  senderName: string;
+  senderAddress: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  authorized: boolean;
+  encryptionAvailable: boolean;
+}
+
+/** 設定画面から保存するメール設定（シークレットは任意・未指定なら据え置き） */
+export interface MailConfigUpdate {
+  senderName: string;
+  senderAddress: string;
+  clientId: string;
+  clientSecret?: string;
+}
+
+/** 1通分の送信メッセージ */
+export interface MailMessageInput {
+  /** 宛先メールアドレス */
+  to: string;
+  subject: string;
+  body: string;
+  /** HTML版本文（任意）。指定時は multipart/alternative で併送する */
+  html?: string;
+  attachments: MailAttachmentInput[];
+  /** 呼び出し側で結果を突き合わせるための任意キー（例: 従業員ID） */
+  refId?: number;
+}
+
+export interface MailAttachmentInput {
+  filename: string;
+  /** PDF 本体の base64 文字列 */
+  contentBase64: string;
+  mimeType?: string;
+}
+
+/** 1通分の送信結果 */
+export interface MailSendResult {
+  to: string;
+  refId?: number;
+  success: boolean;
+  error?: string;
+}

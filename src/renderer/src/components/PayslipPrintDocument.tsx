@@ -27,6 +27,8 @@ export interface PayslipPrintDocumentProps {
   periodLabel?: string
   /** 給与 or 賞与。賞与は共済掛金欄を省略する */
   variant?: 'salary' | 'bonus'
+  /** print: 原本＋控え＋切り取り線（既定）。mail: 控え・切り取り線を省いた1枚構成 */
+  layout?: 'print' | 'mail'
 }
 
 interface BlockProps {
@@ -192,6 +194,7 @@ export function PayslipPrintDocument({
   titleLabel,
   periodLabel,
   variant = 'salary',
+  layout = 'print',
 }: PayslipPrintDocumentProps): ReactElement {
   const companyName = getSettings().companyName
   const title = titleLabel ?? '給 与 明 細 書'
@@ -200,12 +203,16 @@ export function PayslipPrintDocument({
   const blockProps = { employee, payslip, companyName, variant }
 
   return (
-    <div className={styles.page}>
+    <div className={layout === 'mail' ? `${styles.page} ${styles.pageMail}` : styles.page}>
       <PayslipBlock {...blockProps} title={title} period={period} />
-      <div className={styles.cutLine}>
-        <span className={styles.cutLineLabel}>切り取り線</span>
-      </div>
-      <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
+      {layout === 'print' && (
+        <>
+          <div className={styles.cutLine}>
+            <span className={styles.cutLineLabel}>切り取り線</span>
+          </div>
+          <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
+        </>
+      )}
     </div>
   )
 }

@@ -18,6 +18,33 @@ function sanitizeFileName(name: string): string {
     .slice(0, 80);
 }
 
+/**
+ * 現在表示中ウィンドウの内容を printToPDF でPDF化し Buffer を返す。
+ * document.title を一時的に出力名へ差し替える点は EXPORT.PDF と同じ。
+ */
+async function renderWindowToPdf(
+  event: Electron.IpcMainInvokeEvent,
+  params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
+): Promise<Buffer> {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) {
+    throw new Error('対象ウィンドウが見つかりません');
+  }
+  const base = sanitizeFileName(params?.fileName ?? 'payslip');
+  const originalTitle = win.webContents.getTitle();
+  try {
+    await win.webContents.executeJavaScript(`document.title = ${JSON.stringify(base)};`);
+    return await win.webContents.printToPDF({
+      pageSize: params?.pageSize ?? 'A4',
+      landscape: params?.landscape ?? false,
+      printBackground: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 },
+    });
+  } finally {
+    await win.webContents.executeJavaScript(`document.title = ${JSON.stringify(originalTitle)};`);
+  }
+}
+
 export function registerExportHandlers(): void {
   ipcMain.handle(
     IPC.EXPORT.PDF,
@@ -26,33 +53,8 @@ export function registerExportHandlers(): void {
       params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
     ): Promise<IpcResult<{ path: string }>> => {
       try {
-        const win = BrowserWindow.fromWebContents(event.sender);
-        if (!win) {
-          return { success: false, error: '対象ウィンドウが見つかりません' };
-        }
-
         const base = sanitizeFileName(params?.fileName ?? 'payslip');
-
-        // printToPDF は document.title を PDF の内部タイトル(/Title)として埋め込み、
-        // 多くのビューアが保存ファイル名ではなくこのタイトルを既定名に使う。
-        // 出力名と一致させるため、生成中だけページタイトルを差し替えて元に戻す。
-        const originalTitle = win.webContents.getTitle();
-        let pdfData: Buffer;
-        try {
-          await win.webContents.executeJavaScript(
-            `document.title = ${JSON.stringify(base)};`,
-          );
-          pdfData = await win.webContents.printToPDF({
-            pageSize: params?.pageSize ?? 'A4',
-            landscape: params?.landscape ?? false,
-            printBackground: true,
-            margins: { top: 0, bottom: 0, left: 0, right: 0 },
-          });
-        } finally {
-          await win.webContents.executeJavaScript(
-            `document.title = ${JSON.stringify(originalTitle)};`,
-          );
-        }
+        const pdfData = await renderWindowToPdf(event, params);
 
         // 同名PDFがビューアで開かれているとファイルがロックされ EBUSY になるため、
         // 出力ごとにユニークなサブフォルダへ書き出す（ファイル名は分かりやすいまま維持）。
@@ -69,6 +71,22 @@ export function registerExportHandlers(): void {
         return { success: true, data: { path: filePath } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'PDF出力に失敗しました' };
+      }
+    },
+  );
+
+  // メール添付用：ファイル保存せず PDF を base64 で返す
+  ipcMain.handle(
+    IPC.EXPORT.PDF_BUFFER,
+    async (
+      event,
+      params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
+    ): Promise<IpcResult<{ base64: string }>> => {
+      try {
+        const pdfData = await renderWindowToPdf(event, params);
+        return { success: true, data: { base64: pdfData.toString('base64') } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'PDF生成に失敗しました' };
       }
     },
   );

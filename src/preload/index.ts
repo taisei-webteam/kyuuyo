@@ -20,6 +20,10 @@ import type {
   CompanySettings,
   CompanySettingsUpdate,
   CalendarEntry,
+  MailConfigStatus,
+  MailConfigUpdate,
+  MailMessageInput,
+  MailSendResult,
 } from '../shared/types.js';
 
 const api = {
@@ -45,6 +49,13 @@ const api = {
       ipcRenderer.invoke(IPC.PAYSLIPS.CREATE, data),
     createBulk: (items: PayslipCreate[]): Promise<IpcResult<{ count: number }>> =>
       ipcRenderer.invoke(IPC.PAYSLIPS.CREATE_BULK, { items }),
+    saveMonth: (
+      year: number,
+      month: number,
+      type: string,
+      items: PayslipCreate[],
+    ): Promise<IpcResult<{ count: number }>> =>
+      ipcRenderer.invoke(IPC.PAYSLIPS.SAVE_MONTH, { year, month, type, items }),
     update: (data: Partial<PayslipCreate> & { id: number }): Promise<IpcResult<{ updated: boolean }>> =>
       ipcRenderer.invoke(IPC.PAYSLIPS.UPDATE, data),
     delete: (id: number): Promise<IpcResult<{ deleted: boolean }>> =>
@@ -93,6 +104,25 @@ const api = {
       landscape?: boolean
     }): Promise<IpcResult<{ path: string }>> =>
       ipcRenderer.invoke(IPC.EXPORT.PDF, params ?? {}),
+    pdfBuffer: (params?: {
+      fileName?: string
+      pageSize?: 'A4' | 'A3'
+      landscape?: boolean
+    }): Promise<IpcResult<{ base64: string }>> =>
+      ipcRenderer.invoke(IPC.EXPORT.PDF_BUFFER, params ?? {}),
+  },
+
+  mail: {
+    getConfig: (): Promise<IpcResult<MailConfigStatus>> =>
+      ipcRenderer.invoke(IPC.MAIL.GET_CONFIG),
+    setConfig: (data: MailConfigUpdate): Promise<IpcResult<MailConfigStatus>> =>
+      ipcRenderer.invoke(IPC.MAIL.SET_CONFIG, data),
+    authorize: (): Promise<IpcResult<{ authorized: boolean; email: string }>> =>
+      ipcRenderer.invoke(IPC.MAIL.AUTHORIZE),
+    send: (messages: MailMessageInput[]): Promise<IpcResult<MailSendResult[]>> =>
+      ipcRenderer.invoke(IPC.MAIL.SEND, { messages }),
+    test: (): Promise<IpcResult<MailSendResult>> =>
+      ipcRenderer.invoke(IPC.MAIL.TEST),
   },
 } as const;
 

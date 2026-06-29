@@ -204,3 +204,58 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.statusBar {
+  padding: 12px 24px;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8125rem;
+}
+
+.progressTrack {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--color-primary);
+  transition: width 0.2s ease;
+}
+
+.statusText {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.errorBox {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.warnBanner {
+  padding: 12px 24px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.errBadge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.675rem;
+  font-weight: 600;
+  background: #fee2e2;
+  color: #991b1b;
+}

@@ -126,6 +126,12 @@
   grid-template-rows: minmax(0, 1fr) 6mm minmax(0, 1fr);
 }
 
+/* メール添付用: 控えがない1枚構成のため、上下2分割をやめ内容高さで上部に配置する */
+.pageMail {
+  grid-template-rows: auto;
+  align-content: start;
+}
+
 .block {
   min-height: 0;
   overflow: hidden;

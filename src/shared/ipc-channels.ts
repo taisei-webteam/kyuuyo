@@ -11,6 +11,7 @@ export const IPC = {
     GET: 'payslips:get',
     CREATE: 'payslips:create',
     CREATE_BULK: 'payslips:create-bulk',
+    SAVE_MONTH: 'payslips:save-month',
     UPDATE: 'payslips:update',
     DELETE: 'payslips:delete',
   },
@@ -36,6 +37,14 @@ export const IPC = {
   },
   EXPORT: {
     PDF: 'export:pdf',
+    PDF_BUFFER: 'export:pdf-buffer',
     CSV: 'export:csv',
+  },
+  MAIL: {
+    GET_CONFIG: 'mail:get-config',
+    SET_CONFIG: 'mail:set-config',
+    AUTHORIZE: 'mail:authorize',
+    SEND: 'mail:send',
+    TEST: 'mail:test',
   },
 } as const;

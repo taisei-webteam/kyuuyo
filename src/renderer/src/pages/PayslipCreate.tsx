@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -9,6 +9,9 @@ import {
   isPayslipsCreated,
   isEmailSent,
   sendEmail,
+  loadPayslipsFromDb,
+  savePayslipsToDb,
+  setPayslips,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
@@ -16,6 +19,7 @@ import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
+import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
 import styles from './PayslipCreate.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -72,8 +76,35 @@ export function PayslipCreate(): ReactElement {
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
   const [createMessage, setCreateMessage] = useState<string | null>(null)
+  const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
+  // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
+  const dirtyRef = useRef(false)
 
   const employees = useMemo(() => getEmployees(), [])
+
+  // 年月の切替時に SQLite から保存済み明細を読み込み、メモリキャッシュへ反映する。
+  useEffect(() => {
+    if (!hasElectronApi) {
+      setLoadingMonth(false)
+      return
+    }
+    let cancelled = false
+    dirtyRef.current = false
+    setLoadingMonth(true)
+    void (async () => {
+      try {
+        await loadPayslipsFromDb(selectedYear, selectedMonth)
+      } finally {
+        if (!cancelled) {
+          setRefreshKey((k) => k + 1)
+          setLoadingMonth(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedYear, selectedMonth])
 
   const created = useMemo(
     () => isPayslipsCreated(selectedYear, selectedMonth),
@@ -132,12 +163,17 @@ export function PayslipCreate(): ReactElement {
           realAttendance = aggregateAttendanceRecords(result.data)
         }
       }
-      createPayslips(selectedYear, selectedMonth, realAttendance)
+      const data = createPayslips(selectedYear, selectedMonth, realAttendance)
+      // 生成した明細を SQLite に永続化する（再起動後も保持される）
+      const saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
+      dirtyRef.current = false
       setRefreshKey((k) => k + 1)
       if (realAttendance && realAttendance.size > 0) {
         setCreateMessage(`同期済みの勤怠データ（${realAttendance.size}名分）を反映して作成しました`)
-      } else if (hasElectronApi) {
+      } else if (hasElectronApi && !saved) {
         setCreateMessage('同期済み勤怠が無いため、仮の勤怠で作成しました（勤怠管理で同期・丸めを実行してください）')
+      } else if (hasElectronApi) {
+        setCreateMessage('給与データを作成・保存しました')
       }
     } catch (err) {
       setCreateMessage(`作成に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
@@ -148,6 +184,7 @@ export function PayslipCreate(): ReactElement {
 
   const handleFieldChange = useCallback(
     (employeeId: number, field: keyof MockPayslip, value: number): void => {
+      dirtyRef.current = true
       setEditPayslips((prev) =>
         prev.map((ps) => {
           if (ps.employeeId !== employeeId) return ps
@@ -158,14 +195,77 @@ export function PayslipCreate(): ReactElement {
     [],
   )
 
-  const handleEmailSend = useCallback((): void => {
+  // 編集内容を自動保存する（デバウンス）。DB ロード直後や未編集時は保存しない。
+  useEffect(() => {
+    if (!dirtyRef.current || editPayslips.length === 0) return
+    const timer = setTimeout(() => {
+      setPayslips(selectedYear, selectedMonth, editPayslips)
+      void savePayslipsToDb(selectedYear, selectedMonth, editPayslips)
+      dirtyRef.current = false
+    }, 800)
+    return () => clearTimeout(timer)
+  }, [editPayslips, selectedYear, selectedMonth])
+
+  const buildMailItem = useCallback(
+    (emp: MockEmployee): MailDocItem | null => {
+      if (!emp.email) return null
+      const payslip = editPayslips.find((p) => p.employeeId === emp.id)
+      if (!payslip) return null
+      const settings = getSettings()
+      const email = buildPayslipEmail({
+        employeeName: emp.name,
+        year: selectedYear,
+        month: selectedMonth,
+        companyName: settings.companyName,
+      })
+      const mm = String(selectedMonth).padStart(2, '0')
+      return {
+        refId: emp.id,
+        name: emp.name,
+        to: emp.email,
+        subject: email.subject,
+        body: email.body,
+        html: email.html,
+        fileName: `${selectedYear}-${mm}_給与明細_${emp.name}様`,
+        doc: { employee: emp, payslip, year: selectedYear, month: selectedMonth },
+      }
+    },
+    [editPayslips, selectedYear, selectedMonth],
+  )
+
+  const handleEmailSend = useCallback(async (): Promise<void> => {
     if (!selectedEmployee?.email) {
       alert('メールアドレスが登録されていません。従業員管理画面で登録してください。')
       return
     }
-    sendEmail(selectedEmployee.id, 'payslip', selectedYear, selectedMonth)
-    setEmailRefresh((k) => k + 1)
-  }, [selectedEmployee, selectedYear, selectedMonth])
+    if (!isMailSendAvailable()) {
+      // ブラウザ単体プレビューではモック記録のみ
+      sendEmail(selectedEmployee.id, 'payslip', selectedYear, selectedMonth)
+      setEmailRefresh((k) => k + 1)
+      return
+    }
+    const item = buildMailItem(selectedEmployee)
+    if (!item) {
+      alert('明細データが見つかりません。先に給与データを作成してください。')
+      return
+    }
+    setCreateMessage(`${selectedEmployee.name} さんへ送信中...`)
+    try {
+      const results = await sendDocsByEmail([item])
+      const r = results[0]
+      if (r?.success) {
+        sendEmail(selectedEmployee.id, 'payslip', selectedYear, selectedMonth)
+        setEmailRefresh((k) => k + 1)
+        setCreateMessage(`${selectedEmployee.name} さんへ送信しました`)
+      } else {
+        setCreateMessage(null)
+        alert(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
+      }
+    } catch (err) {
+      setCreateMessage(null)
+      alert(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    }
+  }, [selectedEmployee, selectedYear, selectedMonth, buildMailItem])
 
   const handleEmailSent = useCallback((): void => {
     setEmailRefresh((k) => k + 1)
@@ -291,6 +391,11 @@ export function PayslipCreate(): ReactElement {
             )}
           </main>
         </div>
+      ) : loadingMonth ? (
+        <div className={styles.notCreated}>
+          <div className={styles.notCreatedIcon}>⏳</div>
+          <p className={styles.notCreatedDesc}>保存済みの給与データを読み込み中...</p>
+        </div>
       ) : (
         <div className={styles.notCreated}>
           <div className={styles.notCreatedIcon}>📋</div>
@@ -313,6 +418,7 @@ export function PayslipCreate(): ReactElement {
           year={selectedYear}
           monthOrSeason={selectedMonth}
           periodLabel={`${selectedYear}年${selectedMonth}月 給与明細`}
+          makeItem={buildMailItem}
           onClose={() => setShowBulkEmail(false)}
           onSent={handleEmailSent}
         />

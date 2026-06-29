@@ -26,7 +26,7 @@ export function PayslipDirectPrint({
 
     const docKind = documentProps.titleLabel?.includes('賞') ? '賞与明細' : '給与明細'
     const mm = String(documentProps.month).padStart(2, '0')
-    const fileName = `${documentProps.year}-${mm}_${docKind}_${documentProps.employee.name}`
+    const fileName = `${documentProps.year}-${mm}_${docKind}_${documentProps.employee.name}様`
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {

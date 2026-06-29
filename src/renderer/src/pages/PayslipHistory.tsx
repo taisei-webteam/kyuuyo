@@ -5,8 +5,13 @@ import {
   getEmployees,
   getPayslips,
   isPayslipsCreated,
+  loadPayslipsFromDb,
+  savePayslipsToDb,
+  setPayslips,
   type MockPayslip,
 } from '@/lib/mock-data'
+
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { PayrollReportModal } from '@/components/PayrollReportModal'
 import styles from './PayslipHistory.module.css'
 
@@ -63,11 +68,28 @@ export function PayslipHistory(): ReactElement {
   const [selectedYear, setSelectedYear] = useState(navState?.year ?? 2026)
   const [selectedMonth, setSelectedMonth] = useState(navState?.month ?? 5)
   const [showReport, setShowReport] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+
+  // 年月の切替時に SQLite から保存済み明細を読み込み、メモリキャッシュへ反映する。
+  useEffect(() => {
+    setSaveMessage(null)
+    if (!hasElectronApi) return
+    let cancelled = false
+    void (async () => {
+      await loadPayslipsFromDb(selectedYear, selectedMonth)
+      if (!cancelled) setRefreshKey((k) => k + 1)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedYear, selectedMonth])
 
   const employees = useMemo(() => getEmployees(), [])
   const basePayslips = useMemo(
     () => getPayslips(selectedYear, selectedMonth),
-    [selectedYear, selectedMonth],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedYear, selectedMonth, refreshKey],
   )
 
   const initialData = useMemo((): EditablePayslip[] => {
@@ -132,8 +154,21 @@ export function PayslipHistory(): ReactElement {
 
   const created = useMemo(
     () => isPayslipsCreated(selectedYear, selectedMonth),
-    [selectedYear, selectedMonth],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedYear, selectedMonth, refreshKey],
   )
+
+  const handleSave = useCallback(async (): Promise<void> => {
+    setSaveMessage('保存中...')
+    // メモリキャッシュへ反映しつつ SQLite に永続化する。
+    setPayslips(selectedYear, selectedMonth, editData)
+    if (!hasElectronApi) {
+      setSaveMessage('保存しました')
+      return
+    }
+    const ok = await savePayslipsToDb(selectedYear, selectedMonth, editData)
+    setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
+  }, [selectedYear, selectedMonth, editData])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>, rowIdx: number, colIdx: number): void => {
@@ -216,10 +251,11 @@ export function PayslipHistory(): ReactElement {
             </button>
             <button
               className={styles.btnPrimary}
-              onClick={() => alert('保存しました（モック）')}
+              onClick={() => void handleSave()}
             >
               保存
             </button>
+            {saveMessage && <span className={styles.legendTotal}>{saveMessage}</span>}
           </div>
         )}
       </div>

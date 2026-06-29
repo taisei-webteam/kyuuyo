@@ -36,6 +36,7 @@ import { registerPayslipHandlers } from './ipc/payslip.ipc.js';
 import { registerCompanyHandlers } from './ipc/company.ipc.js';
 import { registerAttendanceHandlers } from './ipc/attendance.ipc.js';
 import { registerExportHandlers } from './ipc/export.ipc.js';
+import { registerMailHandlers } from './ipc/mail.ipc.js';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -75,6 +76,7 @@ app.whenReady().then(() => {
   registerCompanyHandlers();
   registerAttendanceHandlers();
   registerExportHandlers();
+  registerMailHandlers();
 
   createWindow();
 

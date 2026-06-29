@@ -455,7 +455,7 @@ import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxMonthly } from '../../../shared/income-tax-jp'
-import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate } from '../../../shared/types'
+import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, Payslip, PayslipCreate } from '../../../shared/types'
 
 export interface CalendarDay {
   isHoliday: boolean
@@ -1118,6 +1118,121 @@ export function getPayslips(year: number, month: number): MockPayslip[] {
     return []
   }
   return payslipCache.get(key) ?? []
+}
+
+// ========================================
+// 給与明細の永続化 (SQLite ⇔ メモリキャッシュ)
+// ========================================
+
+const hasApi = (): boolean => typeof window !== 'undefined' && 'api' in window
+
+/** DB の Payslip を画面用 MockPayslip に変換する。 */
+function payslipToMock(p: Payslip): MockPayslip {
+  return {
+    id: p.id,
+    employeeId: p.employeeId,
+    year: p.year,
+    month: p.month,
+    workDays: p.workDays,
+    workHours: p.workHours,
+    overtimeHours: p.overtimeHours,
+    holidayWorkDays: p.holidayWorkDays,
+    basicSalary: p.basicSalary,
+    overtimePay: p.overtimePay,
+    transportAllowance: p.transportAllowance,
+    positionAllowance: p.positionAllowance,
+    familyAllowance: p.familyAllowance,
+    specialAllowance: p.specialAllowance,
+    dangerAllowance: p.dangerAllowance,
+    salesAllowance: p.salesAllowance,
+    otherAllowance: p.otherAllowance,
+    totalPayment: p.totalPayment,
+    healthInsurance: p.healthInsurance,
+    nursingInsurance: p.nursingInsurance,
+    welfarePension: p.welfarePension,
+    employmentInsurance: p.employmentInsurance,
+    incomeTax: p.incomeTax,
+    residentTax: p.residentTax,
+    savingsDeduction: p.savingsDeduction,
+    loanDeduction: p.loanDeduction,
+    otherDeduction: p.otherDeduction,
+    totalDeduction: p.totalDeduction,
+    netPayment: p.netPayment,
+  }
+}
+
+/** 画面用 MockPayslip を DB 保存用 PayslipCreate に変換する。 */
+function mockToPayslipCreate(m: MockPayslip, type: 'salary' | 'bonus' = 'salary'): PayslipCreate {
+  return {
+    employeeId: m.employeeId,
+    year: m.year,
+    month: m.month,
+    paymentDate: null,
+    payslipType: type,
+    bonusSeason: null,
+    workDays: m.workDays,
+    workHours: m.workHours,
+    overtimeHours: m.overtimeHours,
+    holidayWorkDays: m.holidayWorkDays,
+    basicSalary: m.basicSalary,
+    overtimePay: m.overtimePay,
+    transportAllowance: m.transportAllowance,
+    positionAllowance: m.positionAllowance,
+    familyAllowance: m.familyAllowance,
+    specialAllowance: m.specialAllowance,
+    dangerAllowance: m.dangerAllowance,
+    salesAllowance: m.salesAllowance,
+    otherAllowance: m.otherAllowance,
+    totalPayment: m.totalPayment,
+    healthInsurance: m.healthInsurance,
+    nursingInsurance: m.nursingInsurance,
+    welfarePension: m.welfarePension,
+    employmentInsurance: m.employmentInsurance,
+    incomeTax: m.incomeTax,
+    residentTax: m.residentTax,
+    savingsDeduction: m.savingsDeduction,
+    loanDeduction: m.loanDeduction,
+    otherDeduction: m.otherDeduction,
+    totalDeduction: m.totalDeduction,
+    netPayment: m.netPayment,
+  }
+}
+
+/**
+ * 編集済みの明細をメモリキャッシュへ書き戻す（作成済み扱いにする）。
+ * DB 保存(savePayslipsToDb)と併用して、同一セッション内の再描画にも反映する。
+ */
+export function setPayslips(year: number, month: number, list: MockPayslip[]): void {
+  const key = `${year}-${month}`
+  payslipCache.set(key, list.map((p) => ({ ...p })))
+  createdMonths.add(key)
+}
+
+/**
+ * SQLite から指定年月の給与明細(salary)を読み込み、メモリキャッシュへ反映する。
+ * Electron 環境のみ動作。DB に該当データがあれば作成済み扱いにし true を返す。
+ */
+export async function loadPayslipsFromDb(year: number, month: number): Promise<boolean> {
+  if (!hasApi()) return false
+  const res = await window.api.payslips.list(year, month, 'salary')
+  if (!res.success || res.data.length === 0) return false
+  setPayslips(year, month, res.data.map(payslipToMock))
+  return true
+}
+
+/**
+ * 指定年月の給与明細(salary)を SQLite に保存する（月単位で一括置換）。
+ * Electron 環境のみ動作。保存成功時 true を返す。
+ */
+export async function savePayslipsToDb(
+  year: number,
+  month: number,
+  list: MockPayslip[],
+): Promise<boolean> {
+  if (!hasApi()) return false
+  const items = list.map((m) => mockToPayslipCreate(m, 'salary'))
+  const res = await window.api.payslips.saveMonth(year, month, 'salary', items)
+  return res.success
 }
 
 // --- メール送信履歴 ---

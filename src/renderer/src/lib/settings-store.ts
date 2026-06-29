@@ -45,22 +45,26 @@ const defaultSettings: AppSettings = {
 
   emailSenderName: 'チクホーシーリング',
   emailSenderAddress: 'payroll@example.co.jp',
-  payslipEmailSubject: '{year}年{month}月分 給与明細のお知らせ',
+  payslipEmailSubject: '{year}年{month}月分 給与明細書の送付',
   payslipEmailBody:
     '{employeeName} 様\n\n' +
-    'いつもお世話になっております。\n' +
-    '{companyName}です。\n\n' +
-    '{year}年{month}月分の給与明細を添付いたします。\n' +
-    'ご確認をお願いいたします。\n\n' +
-    '※本メールに返信いただいても対応できません。',
-  bonusEmailSubject: '{year}年 {season} 賞与明細のお知らせ',
+    'お疲れ様です。\n' +
+    '{year}年{month}月分の給与明細書を添付ファイル（PDF）にてお送りいたします。\n' +
+    '内容をご確認くださいますようお願いいたします。\n\n' +
+    '【ご注意】\n' +
+    '本メールには給与に関する個人情報が含まれております。\n' +
+    '宛名にお心当たりがない場合は、お手数ですがメールを破棄のうえ、下記までご連絡ください。\n\n' +
+    'ご不明な点がございましたら、本メールへのご返信、または下記連絡先までお問い合わせください。',
+  bonusEmailSubject: '{year}年 {season}賞与明細書の送付',
   bonusEmailBody:
     '{employeeName} 様\n\n' +
-    'いつもお世話になっております。\n' +
-    '{companyName}です。\n\n' +
-    '{year}年 {season} の賞与明細を添付いたします。\n' +
-    'ご確認をお願いいたします。\n\n' +
-    '※本メールに返信いただいても対応できません。',
+    'お疲れ様です。\n' +
+    '{year}年 {season}の賞与明細書を添付ファイル（PDF）にてお送りいたします。\n' +
+    '内容をご確認くださいますようお願いいたします。\n\n' +
+    '【ご注意】\n' +
+    '本メールには賞与に関する個人情報が含まれております。\n' +
+    '宛名にお心当たりがない場合は、お手数ですがメールを破棄のうえ、下記までご連絡ください。\n\n' +
+    'ご不明な点がございましたら、本メールへのご返信、または下記連絡先までお問い合わせください。',
   emailIncludeStub: false,
 }
 
