@@ -235,6 +235,16 @@ function initTables(): void {
       error_count INTEGER NOT NULL DEFAULT 0,
       year_month TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS email_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      type TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      to_address TEXT,
+      sent_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+      UNIQUE(employee_id, type, period_key)
+    );
   `);
 
   runMigrations(raw);

@@ -12,6 +12,7 @@ import {
   loadPayslipsFromDb,
   savePayslipsToDb,
   setPayslips,
+  loadEmailHistory,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
@@ -94,9 +95,11 @@ export function PayslipCreate(): ReactElement {
     void (async () => {
       try {
         await loadPayslipsFromDb(selectedYear, selectedMonth)
+        await loadEmailHistory('payslip', selectedYear, selectedMonth)
       } finally {
         if (!cancelled) {
           setRefreshKey((k) => k + 1)
+          setEmailRefresh((k) => k + 1)
           setLoadingMonth(false)
         }
       }

@@ -24,6 +24,8 @@ import type {
   MailConfigUpdate,
   MailMessageInput,
   MailSendResult,
+  EmailLog,
+  EmailLogInput,
 } from '../shared/types.js';
 
 const api = {
@@ -123,6 +125,10 @@ const api = {
       ipcRenderer.invoke(IPC.MAIL.SEND, { messages }),
     test: (): Promise<IpcResult<MailSendResult>> =>
       ipcRenderer.invoke(IPC.MAIL.TEST),
+    logList: (type: string, periodKey: string): Promise<IpcResult<EmailLog[]>> =>
+      ipcRenderer.invoke(IPC.MAIL.LOG_LIST, { type, periodKey }),
+    logRecord: (data: EmailLogInput): Promise<IpcResult<{ recorded: boolean }>> =>
+      ipcRenderer.invoke(IPC.MAIL.LOG_RECORD, data),
   },
 } as const;
 

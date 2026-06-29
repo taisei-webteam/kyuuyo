@@ -215,3 +215,18 @@ export const attendanceImports = sqliteTable('attendance_imports', {
   errorCount: integer('error_count').notNull().default(0),
   yearMonth: text('year_month').notNull(),
 });
+
+// ========================================
+// メール送信履歴
+// ========================================
+
+export const emailLogs = sqliteTable('email_logs', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  employeeId: integer('employee_id').notNull().references(() => employees.id),
+  // 'payslip' | 'bonus'
+  type: text('type').notNull(),
+  // 期間キー（例: 'payslip-2026-5' / 'bonus-2026-夏季'）
+  periodKey: text('period_key').notNull(),
+  toAddress: text('to_address'),
+  sentAt: text('sent_at').notNull().default(sql`(datetime('now','localtime'))`),
+});

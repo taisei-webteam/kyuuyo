@@ -3,6 +3,7 @@
  */
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/ipc-channels.js';
+import { getSqlite } from '../db/connection.js';
 import {
   getMailConfigStatus,
   setMailConfig,
@@ -16,6 +17,8 @@ import type {
   MailConfigUpdate,
   MailMessageInput,
   MailSendResult,
+  EmailLog,
+  EmailLogInput,
 } from '../../shared/types.js';
 
 function validateConfigUpdate(params: unknown): MailConfigUpdate {
@@ -113,6 +116,56 @@ export function registerMailHandlers(): void {
         return { success: true, data: await sendTestMail() };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'テスト送信に失敗しました' };
+      }
+    },
+  );
+
+  // メール送信履歴の取得（期間キー単位）
+  ipcMain.handle(
+    IPC.MAIL.LOG_LIST,
+    async (_event, params: { type: string; periodKey: string }): Promise<IpcResult<EmailLog[]>> => {
+      try {
+        const raw = getSqlite();
+        const rows = raw.prepare(`
+          SELECT id,
+                 employee_id AS employeeId,
+                 type,
+                 period_key AS periodKey,
+                 to_address AS toAddress,
+                 sent_at AS sentAt
+          FROM email_logs
+          WHERE type = ? AND period_key = ?
+          ORDER BY employee_id
+        `).all(params.type, params.periodKey) as EmailLog[];
+        return { success: true, data: rows };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'メール送信履歴の取得に失敗しました' };
+      }
+    },
+  );
+
+  // メール送信記録の登録（同一従業員・種別・期間は二重登録しない）
+  ipcMain.handle(
+    IPC.MAIL.LOG_RECORD,
+    async (_event, params: EmailLogInput): Promise<IpcResult<{ recorded: boolean }>> => {
+      try {
+        if (
+          !params ||
+          typeof params.employeeId !== 'number' ||
+          typeof params.type !== 'string' ||
+          typeof params.periodKey !== 'string'
+        ) {
+          throw new Error('送信記録の入力値が不正です');
+        }
+        const raw = getSqlite();
+        raw.prepare(`
+          INSERT INTO email_logs (employee_id, type, period_key, to_address)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(employee_id, type, period_key) DO NOTHING
+        `).run(params.employeeId, params.type, params.periodKey, params.toAddress ?? null);
+        return { success: true, data: { recorded: true } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'メール送信記録の保存に失敗しました' };
       }
     },
   );

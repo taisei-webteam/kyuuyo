@@ -186,6 +186,20 @@ interface ElectronMailApi {
     success: false;
     error: string;
   }>;
+  logList(type: string, periodKey: string): Promise<{
+    success: true;
+    data: import('../../shared/types').EmailLog[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  logRecord(data: import('../../shared/types').EmailLogInput): Promise<{
+    success: true;
+    data: { recorded: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronPayslipsApi {

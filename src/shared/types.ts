@@ -239,3 +239,27 @@ export interface MailSendResult {
   success: boolean;
   error?: string;
 }
+
+// ========================================
+// メール送信履歴（永続化）
+// ========================================
+
+/** DB に保存されたメール送信記録 */
+export interface EmailLog {
+  id: number;
+  employeeId: number;
+  /** 'payslip' | 'bonus' */
+  type: string;
+  /** 期間キー（例: 'payslip-2026-5' / 'bonus-2026-夏季'） */
+  periodKey: string;
+  toAddress: string | null;
+  sentAt: string;
+}
+
+/** 送信記録の登録入力 */
+export interface EmailLogInput {
+  employeeId: number;
+  type: 'payslip' | 'bonus';
+  periodKey: string;
+  toAddress?: string | null;
+}

@@ -46,5 +46,7 @@ export const IPC = {
     AUTHORIZE: 'mail:authorize',
     SEND: 'mail:send',
     TEST: 'mail:test',
+    LOG_LIST: 'mail:log-list',
+    LOG_RECORD: 'mail:log-record',
   },
 } as const;

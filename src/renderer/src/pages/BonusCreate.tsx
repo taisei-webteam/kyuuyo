@@ -7,6 +7,7 @@ import {
   calcAge,
   loadBonusFromDb,
   saveBonusToDb,
+  loadEmailHistory,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
@@ -198,6 +199,7 @@ export function BonusCreate(): React.ReactElement {
     let cancelled = false
     setSaveMessage(null)
     void (async () => {
+      if (hasElectronApi) await loadEmailHistory('bonus', selectedYear, selectedSeason)
       const saved = hasElectronApi ? await loadBonusFromDb(selectedYear, selectedSeason) : null
       if (cancelled) return
       if (saved) {
@@ -206,6 +208,7 @@ export function BonusCreate(): React.ReactElement {
       } else {
         setBonuses(generateBonusData(employees, selectedYear, selectedSeason))
       }
+      setEmailRefresh((k) => k + 1)
     })()
     return () => {
       cancelled = true

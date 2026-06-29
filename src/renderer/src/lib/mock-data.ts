@@ -1308,6 +1308,38 @@ export function sendEmail(employeeId: number, type: 'payslip' | 'bonus', year: n
       sentAt: new Date().toISOString(),
     })
   }
+  // Electron 環境では SQLite にも記録（再起動後も「送信済」を保持）。失敗は致命的でないため握りつぶす。
+  if (hasApi()) {
+    void window.api.mail.logRecord({ employeeId, type, periodKey })
+  }
+}
+
+/**
+ * SQLite から指定期間のメール送信履歴を読み込み、メモリキャッシュへマージする。
+ * Electron 環境のみ動作。画面表示時に呼び出して「送信済」表示を復元する。
+ */
+export async function loadEmailHistory(
+  type: 'payslip' | 'bonus',
+  year: number,
+  monthOrSeason: number | string,
+): Promise<void> {
+  if (!hasApi()) return
+  const periodKey = makeEmailPeriodKey(type, year, monthOrSeason)
+  const res = await window.api.mail.logList(type, periodKey)
+  if (!res.success) return
+  for (const row of res.data) {
+    const exists = emailHistory.find(
+      (r) => r.employeeId === row.employeeId && r.periodKey === row.periodKey,
+    )
+    if (!exists) {
+      emailHistory.push({
+        employeeId: row.employeeId,
+        type: row.type === 'bonus' ? 'bonus' : 'payslip',
+        periodKey: row.periodKey,
+        sentAt: row.sentAt,
+      })
+    }
+  }
 }
 
 export function sendEmailBulk(employeeIds: number[], type: 'payslip' | 'bonus', year: number, monthOrSeason: number | string): void {
