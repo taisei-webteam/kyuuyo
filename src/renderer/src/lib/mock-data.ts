@@ -1235,6 +1235,53 @@ export async function savePayslipsToDb(
   return res.success
 }
 
+/** 賞与シーズンを支給月にマッピングする（夏季=7月 / 冬季=12月）。 */
+function bonusSeasonToMonth(season: '夏季' | '冬季'): number {
+  return season === '夏季' ? 7 : 12
+}
+
+/**
+ * SQLite から指定年・賞与シーズンの賞与明細(bonus)を読み込む。
+ * Electron 環境のみ動作。該当データが無ければ null を返す。
+ * MockPayslip 形（賞与は basicSalary=基本賞与, specialAllowance=特別賞与, otherAllowance=業績賞与）と
+ * 支給日を返す。
+ */
+export async function loadBonusFromDb(
+  year: number,
+  season: '夏季' | '冬季',
+): Promise<{ list: MockPayslip[]; paymentDate: string | null } | null> {
+  if (!hasApi()) return null
+  const month = bonusSeasonToMonth(season)
+  const res = await window.api.payslips.list(year, month, 'bonus')
+  if (!res.success || res.data.length === 0) return null
+  return {
+    list: res.data.map(payslipToMock),
+    paymentDate: res.data[0]?.paymentDate ?? null,
+  }
+}
+
+/**
+ * 指定年・賞与シーズンの賞与明細(bonus)を SQLite に保存する（月単位で一括置換）。
+ * Electron 環境のみ動作。保存成功時 true を返す。
+ */
+export async function saveBonusToDb(
+  year: number,
+  season: '夏季' | '冬季',
+  list: MockPayslip[],
+  paymentDate: string | null,
+): Promise<boolean> {
+  if (!hasApi()) return false
+  const month = bonusSeasonToMonth(season)
+  const items: PayslipCreate[] = list.map((m) => ({
+    ...mockToPayslipCreate(m, 'bonus'),
+    month,
+    bonusSeason: season,
+    paymentDate: paymentDate || null,
+  }))
+  const res = await window.api.payslips.saveMonth(year, month, 'bonus', items)
+  return res.success
+}
+
 // --- メール送信履歴 ---
 
 export interface EmailSendRecord {

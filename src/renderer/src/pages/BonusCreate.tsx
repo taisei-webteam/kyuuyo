@@ -1,13 +1,17 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   getEmployees,
   isEmailSent,
   sendEmail,
   calculateInsurancePremiums,
   calcAge,
+  loadBonusFromDb,
+  saveBonusToDb,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
+
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { calcBonusTax } from '../../../shared/bonus-tax-jp'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
@@ -70,6 +74,27 @@ function bonusToPayslipShape(b: MockBonus): MockPayslip {
     otherDeduction: 0,
     totalDeduction: b.totalDeduction,
     netPayment: b.netPayment,
+  }
+}
+
+/** DB から読み込んだ MockPayslip 形を画面用 MockBonus に逆変換する。 */
+function payslipShapeToBonus(p: MockPayslip, season: '夏季' | '冬季'): MockBonus {
+  return {
+    id: p.id,
+    employeeId: p.employeeId,
+    year: p.year,
+    season,
+    basicBonus: p.basicSalary,
+    performanceBonus: p.otherAllowance,
+    specialBonus: p.specialAllowance,
+    totalPayment: p.totalPayment,
+    healthInsurance: p.healthInsurance,
+    nursingInsurance: p.nursingInsurance,
+    welfarePension: p.welfarePension,
+    employmentInsurance: p.employmentInsurance,
+    incomeTax: p.incomeTax,
+    totalDeduction: p.totalDeduction,
+    netPayment: p.netPayment,
   }
 }
 
@@ -146,6 +171,7 @@ export function BonusCreate(): React.ReactElement {
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
 
   const employees = useMemo(() => getEmployees(), [])
 
@@ -163,10 +189,43 @@ export function BonusCreate(): React.ReactElement {
     [eligibleEmployees, searchQuery],
   )
 
-  const bonuses = useMemo(
-    () => generateBonusData(employees, selectedYear, selectedSeason),
-    [employees, selectedYear, selectedSeason],
+  // 賞与データ。DB に保存済みがあればそれを（発行時のまま）復元し、無ければ自動生成する。
+  const [bonuses, setBonuses] = useState<MockBonus[]>(() =>
+    generateBonusData(employees, selectedYear, selectedSeason),
   )
+
+  useEffect(() => {
+    let cancelled = false
+    setSaveMessage(null)
+    void (async () => {
+      const saved = hasElectronApi ? await loadBonusFromDb(selectedYear, selectedSeason) : null
+      if (cancelled) return
+      if (saved) {
+        setBonuses(saved.list.map((p) => payslipShapeToBonus(p, selectedSeason)))
+        setPaymentDate(saved.paymentDate ?? '')
+      } else {
+        setBonuses(generateBonusData(employees, selectedYear, selectedSeason))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [employees, selectedYear, selectedSeason])
+
+  const handleSave = useCallback(async (): Promise<void> => {
+    setSaveMessage('保存中...')
+    if (!hasElectronApi) {
+      setSaveMessage('保存しました')
+      return
+    }
+    const ok = await saveBonusToDb(
+      selectedYear,
+      selectedSeason,
+      bonuses.map(bonusToPayslipShape),
+      paymentDate || null,
+    )
+    setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
+  }, [selectedYear, selectedSeason, bonuses, paymentDate])
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === selectedEmployeeId),
@@ -290,9 +349,11 @@ export function BonusCreate(): React.ReactElement {
           </div>
         </div>
         <div className={styles.headerActions}>
+          {saveMessage && <span className={styles.detailBadge}>{saveMessage}</span>}
           <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
           <button className={styles.btnSecondary} onClick={() => setShowBulkEmail(true)}>一括送信</button>
           <button className={styles.btnSecondary} onClick={handleEmailSend}>個別送信</button>
+          <button className={styles.btnSecondary} onClick={() => void handleSave()}>保存</button>
           <button className={styles.btnPrimary} onClick={() => setShowPdfPreview(true)}>PDFプレビュー</button>
         </div>
       </div>
