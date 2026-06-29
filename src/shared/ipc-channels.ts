@@ -49,4 +49,10 @@ export const IPC = {
     LOG_LIST: 'mail:log-list',
     LOG_RECORD: 'mail:log-record',
   },
+  BACKUP: {
+    RUN: 'backup:run',
+    LIST: 'backup:list',
+    OPEN_DIR: 'backup:open-dir',
+    RESTORE: 'backup:restore',
+  },
 } as const;

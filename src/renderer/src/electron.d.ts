@@ -259,6 +259,37 @@ interface ElectronPayslipsApi {
   }>;
 }
 
+interface ElectronBackupApi {
+  run(): Promise<{
+    success: true;
+    data: import('../../shared/types').BackupInfo;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  list(): Promise<{
+    success: true;
+    data: import('../../shared/types').BackupInfo[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  openDir(): Promise<{
+    success: true;
+    data: { opened: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  restore(fileName: string): Promise<{
+    success: true;
+    data: { restored: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: ElectronEmployeesApi;
@@ -267,6 +298,7 @@ interface ElectronApi {
   calendar: Record<string, (...args: unknown[]) => Promise<unknown>>;
   export: ElectronExportApi;
   mail: ElectronMailApi;
+  backup: ElectronBackupApi;
 }
 
 interface Window {

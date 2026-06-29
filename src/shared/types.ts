@@ -263,3 +263,19 @@ export interface EmailLogInput {
   periodKey: string;
   toAddress?: string | null;
 }
+
+// ========================================
+// データバックアップ
+// ========================================
+
+/** バックアップファイル1件の情報 */
+export interface BackupInfo {
+  /** ファイル名（例: rakuraku-kyuuyo-20260629-161507.db） */
+  fileName: string;
+  /** 絶対パス */
+  path: string;
+  /** ファイルサイズ（バイト） */
+  size: number;
+  /** 作成日時（ISO文字列） */
+  createdAt: string;
+}

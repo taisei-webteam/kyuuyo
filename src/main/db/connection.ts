@@ -16,7 +16,11 @@ import { seedEmployeesIfEmpty } from './seed.js';
 let sqlite: Database.Database | null = null;
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
-function getDbPath(): string {
+/**
+ * DB ファイルの絶対パスを返す。
+ * (バックアップ・復元処理から参照するため公開)
+ */
+export function getDbPath(): string {
   const userDataDir = app.getPath('userData');
   return path.join(userDataDir, 'rakuraku-kyuuyo.db');
 }

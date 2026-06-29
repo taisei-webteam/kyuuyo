@@ -26,6 +26,7 @@ import type {
   MailSendResult,
   EmailLog,
   EmailLogInput,
+  BackupInfo,
 } from '../shared/types.js';
 
 const api = {
@@ -129,6 +130,17 @@ const api = {
       ipcRenderer.invoke(IPC.MAIL.LOG_LIST, { type, periodKey }),
     logRecord: (data: EmailLogInput): Promise<IpcResult<{ recorded: boolean }>> =>
       ipcRenderer.invoke(IPC.MAIL.LOG_RECORD, data),
+  },
+
+  backup: {
+    run: (): Promise<IpcResult<BackupInfo>> =>
+      ipcRenderer.invoke(IPC.BACKUP.RUN),
+    list: (): Promise<IpcResult<BackupInfo[]>> =>
+      ipcRenderer.invoke(IPC.BACKUP.LIST),
+    openDir: (): Promise<IpcResult<{ opened: boolean }>> =>
+      ipcRenderer.invoke(IPC.BACKUP.OPEN_DIR),
+    restore: (fileName: string): Promise<IpcResult<{ restored: boolean }>> =>
+      ipcRenderer.invoke(IPC.BACKUP.RESTORE, { fileName }),
   },
 } as const;
 

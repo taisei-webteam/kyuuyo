@@ -4,7 +4,7 @@ import { getSettings, updateSettings } from '../lib/settings-store'
 import type { AppSettings } from '../lib/settings-store'
 import { renderEmailTemplate } from '../lib/email-template'
 import { CompanyCalendar } from './CompanyCalendar'
-import type { MailConfigStatus } from '../../../shared/types'
+import type { MailConfigStatus, BackupInfo } from '../../../shared/types'
 import styles from './Settings.module.css'
 
 const DEFAULT_CLIENT_ID = '1086473446602-fkcvs3f5n0lsmlfnlnlcnon79723jsmb.apps.googleusercontent.com'
@@ -21,6 +21,19 @@ const TABS: { key: SettingsTab; label: string; icon: string }[] = [
 const EMAIL_PLACEHOLDERS = '{employeeName} {year} {month} {season} {companyName}'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatBackupDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
 
 interface CompanyRoundingDto {
   roundingUnit: number
@@ -51,6 +64,11 @@ export default function Settings(): ReactElement {
   const [mailBusy, setMailBusy] = useState(false)
   const [mailMessage, setMailMessage] = useState<{ text: string; ok: boolean } | null>(null)
 
+  // データバックアップ
+  const [backups, setBackups] = useState<BackupInfo[]>([])
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupMessage, setBackupMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
   useEffect(() => {
     setForm(getSettings())
     if (!hasElectronApi) return
@@ -80,6 +98,53 @@ export default function Settings(): ReactElement {
         setMailClientId(res.data.clientId || DEFAULT_CLIENT_ID)
       }
     })()
+    void (async () => {
+      const res = await window.api.backup.list()
+      if (res.success) setBackups(res.data)
+    })()
+  }, [])
+
+  const refreshBackups = useCallback(async (): Promise<void> => {
+    if (!hasElectronApi) return
+    const res = await window.api.backup.list()
+    if (res.success) setBackups(res.data)
+  }, [])
+
+  const handleBackupRun = useCallback(async (): Promise<void> => {
+    setBackupBusy(true)
+    setBackupMessage(null)
+    try {
+      const res = await window.api.backup.run()
+      if (res.success) {
+        setBackupMessage({ text: `バックアップを作成しました（${res.data.fileName}）`, ok: true })
+        await refreshBackups()
+      } else {
+        setBackupMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setBackupBusy(false)
+    }
+  }, [refreshBackups])
+
+  const handleBackupOpenDir = useCallback(async (): Promise<void> => {
+    const res = await window.api.backup.openDir()
+    if (!res.success) setBackupMessage({ text: res.error, ok: false })
+  }, [])
+
+  const handleBackupRestore = useCallback(async (b: BackupInfo): Promise<void> => {
+    const ok = window.confirm(
+      `「${b.fileName}」の内容でデータを復元します。\n` +
+        '現在のデータは復元直前に自動バックアップされます。\n' +
+        '復元後、アプリは自動的に再起動します。よろしいですか？',
+    )
+    if (!ok) return
+    setBackupBusy(true)
+    setBackupMessage({ text: '復元中です。まもなく再起動します...', ok: true })
+    const res = await window.api.backup.restore(b.fileName)
+    if (!res.success) {
+      setBackupBusy(false)
+      setBackupMessage({ text: res.error, ok: false })
+    }
   }, [])
 
   const handleMailSave = useCallback(async (): Promise<void> => {
@@ -361,6 +426,63 @@ export default function Settings(): ReactElement {
                   <span className={styles.ruleUnit}>月合計を切り捨て</span>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* データバックアップ */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>💾</span>
+              <span className={styles.sectionTitle}>データバックアップ</span>
+            </div>
+            <div className={styles.sectionBodySingle}>
+              {hasElectronApi ? (
+                <>
+                  <p className={styles.fieldHint}>
+                    従業員・給与明細・勤怠などの全データを1ファイルに保存します。起動時に1日1回自動でも作成され、最新10件を保持します。
+                  </p>
+                  <div className={styles.mailActions}>
+                    <button className={styles.btnPrimary} onClick={handleBackupRun} disabled={backupBusy}>
+                      今すぐバックアップ
+                    </button>
+                    <button className={styles.btnSecondary} onClick={handleBackupOpenDir} disabled={backupBusy}>
+                      バックアップフォルダを開く
+                    </button>
+                  </div>
+                  {backupMessage && (
+                    <div
+                      className={`${styles.mailMessage} ${backupMessage.ok ? styles.mailMessageOk : styles.mailMessageNg}`}
+                    >
+                      {backupMessage.text}
+                    </div>
+                  )}
+                  {backups.length > 0 ? (
+                    <div className={styles.backupList}>
+                      {backups.map((b) => (
+                        <div key={b.fileName} className={styles.backupItem}>
+                          <div className={styles.backupInfo}>
+                            <span className={styles.backupDate}>{formatBackupDate(b.createdAt)}</span>
+                            <span className={styles.backupMeta}>{formatFileSize(b.size)}</span>
+                          </div>
+                          <button
+                            className={styles.btnSecondary}
+                            onClick={() => handleBackupRestore(b)}
+                            disabled={backupBusy}
+                          >
+                            復元
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className={styles.fieldHint}>まだバックアップはありません。</p>
+                  )}
+                </>
+              ) : (
+                <p className={styles.fieldHint}>
+                  データバックアップはデスクトップアプリ版で利用できます（現在はプレビュー環境）。
+                </p>
+              )}
             </div>
           </div>
 
