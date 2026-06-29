@@ -39,6 +39,7 @@ import { registerExportHandlers } from './ipc/export.ipc.js';
 import { registerMailHandlers } from './ipc/mail.ipc.js';
 import { registerBackupHandlers } from './ipc/backup.ipc.js';
 import { autoBackupDaily } from './services/backup.service.js';
+import { setupAutoUpdater } from './updater.js';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -62,7 +63,7 @@ function createWindow(): void {
     mainWindow.loadURL('http://localhost:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
 
   mainWindow.on('closed', () => {
@@ -70,7 +71,24 @@ function createWindow(): void {
   });
 }
 
+// 多重起動防止（本番で同一アプリの2重起動を抑止し、DB同時アクセスを防ぐ）
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 app.whenReady().then(() => {
+  // 開発版は配布版とDBを分離（dev版↔配布版の同時起動による同一DB競合を防止）
+  if (!app.isPackaged) {
+    app.setPath('userData', path.join(app.getPath('appData'), 'rakuraku-kyuuyo-alpha-dev'));
+  }
+
   getDb();
 
   registerEmployeeHandlers();
@@ -85,6 +103,11 @@ app.whenReady().then(() => {
   void autoBackupDaily();
 
   createWindow();
+
+  // 配布版のみ自動更新を確認（開発時は無効）
+  if (app.isPackaged) {
+    setupAutoUpdater();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

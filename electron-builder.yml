@@ -1,0 +1,34 @@
+appId: jp.co.taisei.rakuraku-kyuuyo
+productName: らくらく給与明細α
+
+directories:
+  output: release
+  buildResources: build
+
+# 配布物に含めるのは成果物のみ（.env や src は同梱しない）
+files:
+  - dist/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/.env*"
+
+# ネイティブモジュール(better-sqlite3)は asar 外に展開して実行時に確実にロード
+asarUnpack:
+  - "**/*.node"
+
+# 自動更新の取得元（GitHub Releases）
+publish:
+  provider: github
+  owner: taisei-webteam
+  repo: kyuuyo
+
+win:
+  target:
+    - nsis
+  artifactName: rakuraku-kyuuyo-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false

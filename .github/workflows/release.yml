@@ -35,6 +35,7 @@ jobs:
         with:
           files: |
             release/*.exe
+            release/*.exe.blockmap
             release/*.yml
           draft: false
           prerelease: false
