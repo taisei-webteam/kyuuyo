@@ -655,23 +655,29 @@
       const play = () => {
         const now = ctx.currentTime;
         const baseFreq = {
-          clockin: 880,
-          goout: 740,
-          goreturn: 820,
-          clockout: 660,
+          clockin: 920,
+          goout: 760,
+          goreturn: 840,
+          clockout: 700,
         }[type] ?? 780;
 
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(baseFreq, now);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.25, now + 0.08);
-        gain.gain.setValueAtTime(0.0001, now);
-        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-        osc.connect(gain).connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.24);
+        const playTone = (freq, start, duration, peak, wave = 'triangle') => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = wave;
+          osc.frequency.setValueAtTime(freq, start);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.08, start + duration * 0.4);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.exponentialRampToValueAtTime(peak, start + 0.018);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(start);
+          osc.stop(start + duration + 0.02);
+        };
+
+        playTone(baseFreq, now, 0.18, 0.14);
+        playTone(baseFreq * 1.5, now + 0.08, 0.22, 0.12);
+        playTone(baseFreq * 2, now + 0.15, 0.16, 0.07, 'sine');
       };
 
       if (ctx.state === 'suspended') {
