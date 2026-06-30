@@ -5,6 +5,7 @@ import {
   fetchEmployees,
   fetchPunches,
   type PunchRecord,
+  type PunchType,
 } from '@/lib/api';
 import type { EmployeeWithStatus, PunchStatus } from '@/lib/types';
 
@@ -78,7 +79,7 @@ export function usePunchData() {
   }, []);
 
   const punch = useCallback(
-    async (employeeId: number, employeeName: string, type: 'clock_in' | 'clock_out') => {
+    async (employeeId: number, employeeName: string, type: PunchType) => {
       await createPunch(employeeId, employeeName, type);
       await fetchData();
     },

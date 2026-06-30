@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { DEMO_EMPLOYEES } from '@/lib/demo-data';
+import type { PunchType } from '@/lib/api';
 import type { EmployeeWithStatus } from '@/lib/types';
 
 function formatTime(d: Date): string {
@@ -10,7 +11,7 @@ export function useDemoData() {
   const [employees, setEmployees] = useState<EmployeeWithStatus[]>(DEMO_EMPLOYEES);
 
   const punch = useCallback(
-    async (employeeId: number, _employeeName: string, type: 'clock_in' | 'clock_out') => {
+    async (employeeId: number, _employeeName: string, type: PunchType) => {
       const now = formatTime(new Date());
       setEmployees((prev) =>
         prev.map((emp) => {
@@ -18,7 +19,10 @@ export function useDemoData() {
           if (type === 'clock_in') {
             return { ...emp, status: 'clocked_in', clockInTime: now, clockOutTime: null };
           }
-          return { ...emp, status: 'clocked_out', clockOutTime: now };
+          if (type === 'clock_out') {
+            return { ...emp, status: 'clocked_out', clockOutTime: now };
+          }
+          return emp;
         }),
       );
     },

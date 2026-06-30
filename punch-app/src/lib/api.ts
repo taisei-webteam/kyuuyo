@@ -1,5 +1,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 
+export type PunchType = 'clock_in' | 'clock_out' | 'go_out' | 'go_return';
+
 export interface EmployeeSync {
   id: number;
   name: string;
@@ -13,7 +15,7 @@ export interface PunchRecord {
   id: string;
   employee_id: number;
   employee_name: string;
-  punch_type: 'clock_in' | 'clock_out';
+  punch_type: PunchType;
   punched_at: string;
   device: 'ipad' | 'manual';
   cancelled: boolean;
@@ -55,7 +57,7 @@ export async function fetchPunches(start: string, end: string): Promise<PunchRec
 export async function createPunch(
   employeeId: number,
   employeeName: string,
-  punchType: 'clock_in' | 'clock_out',
+  punchType: PunchType,
   punchedAt?: string,
 ): Promise<void> {
   await requestJson<{ punch: PunchRecord | null }>('/api/punches', {

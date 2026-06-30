@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { createPunch } from '@/lib/api';
+import { createPunch, type PunchType } from '@/lib/api';
 
 const DB_NAME = 'rakuraku-punch-offline';
 const STORE_NAME = 'pending_punches';
@@ -9,7 +9,7 @@ interface PendingPunch {
   id: string;
   employee_id: number;
   employee_name: string;
-  punch_type: 'clock_in' | 'clock_out';
+  punch_type: PunchType;
   punched_at: string;
   device: 'ipad';
 }

@@ -1,5 +1,7 @@
 import { getSql, sendError, setCorsHeaders } from './_db.js';
 
+const PUNCH_TYPES = new Set(['clock_in', 'clock_out', 'go_out', 'go_return']);
+
 function getQueryValue(value) {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -12,7 +14,7 @@ function parseCreateBody(body) {
   if (
     typeof parsed.employeeId !== 'number' ||
     typeof parsed.employeeName !== 'string' ||
-    (parsed.punchType !== 'clock_in' && parsed.punchType !== 'clock_out')
+    !PUNCH_TYPES.has(parsed.punchType)
   ) {
     return null;
   }

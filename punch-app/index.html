@@ -466,11 +466,17 @@
     function localTypeToApi(type) {
       if (type === 'clockin') return 'clock_in';
       if (type === 'clockout') return 'clock_out';
+      if (type === 'goout') return 'go_out';
+      if (type === 'goreturn') return 'go_return';
       return null;
     }
 
     function apiTypeToLocal(type) {
-      return type === 'clock_in' ? 'clockin' : 'clockout';
+      if (type === 'clock_in') return 'clockin';
+      if (type === 'clock_out') return 'clockout';
+      if (type === 'go_out') return 'goout';
+      if (type === 'go_return') return 'goreturn';
+      return 'clockout';
     }
 
     async function apiJson(path, options) {
@@ -626,6 +632,55 @@
     }
 
     let autoReturnTimer = null;
+    let punchAudioContext = null;
+
+    function getAudioContext() {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      if (!punchAudioContext) punchAudioContext = new AudioContextClass();
+      return punchAudioContext;
+    }
+
+    function primePunchSound() {
+      const ctx = getAudioContext();
+      if (ctx?.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+    }
+
+    function playPunchSound(type) {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+
+      const play = () => {
+        const now = ctx.currentTime;
+        const baseFreq = {
+          clockin: 880,
+          goout: 740,
+          goreturn: 820,
+          clockout: 660,
+        }[type] ?? 780;
+
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.25, now + 0.08);
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.24);
+      };
+
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(play).catch(() => {});
+        return;
+      }
+
+      play();
+    }
 
     function showMessage(type) {
       const messages = { clockin: '本日もよろしくお願いします', clockout: 'お疲れさまでした' };
@@ -643,6 +698,7 @@
 
     async function doPunch(type) {
       if (!selectedEmployee) return;
+      primePunchSound();
       try {
         const remote = await createRemotePunch(type);
         const recs = getRecords(selectedEmployee.id);
@@ -657,6 +713,7 @@
         });
         showToast(`${PUNCH_TYPES[type].label} ${punchedTime}`);
         showMessage(type);
+        playPunchSound(type);
         updatePunchButtons();
         renderLog();
         clearTimeout(autoReturnTimer);
