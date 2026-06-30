@@ -367,20 +367,28 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
-    // ── Supabase 接続（anon/publishable キーはブラウザ公開可） ──
-    const SUPABASE_URL = 'https://ejgtichwphfizxhyavgd.supabase.co';
-    const SUPABASE_ANON_KEY = 'sb_publishable_9TzzvEUwr6Rbg-H4Q8QRwA_3CQ_ckcY';
-    const sb = (window.supabase && window.supabase.createClient)
-      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-      : null;
+    const API_BASE_URL = '';
+    const DEFAULT_EMPLOYEES = [
+      { id: 1, name: '藤原 誠一', dept: '総務部', type: '役員', color: '#3b82f6' },
+      { id: 2, name: '中村 健太', dept: '営業部', type: '社員', color: '#ef4444' },
+      { id: 3, name: '山本 裕子', dept: '総務部', type: '役員', color: '#10b981' },
+      { id: 4, name: '高橋 大輔', dept: '技術部', type: '社員', color: '#f59e0b' },
+      { id: 5, name: '佐藤 俊介', dept: '営業部', type: '社員', color: '#8b5cf6' },
+      { id: 6, name: '伊藤 翔太', dept: '製造部', type: 'パート', color: '#ec4899' },
+      { id: 7, name: '渡辺 美咲', dept: '製造部', type: 'パート', color: '#06b6d4' },
+      { id: 8, name: '松田 浩二', dept: '倉庫部', type: 'パート', color: '#f97316' },
+    ];
 
-    const AVATAR_COLORS = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#f97316'];
+    let EMPLOYEES = [...DEFAULT_EMPLOYEES];
+    let EMP_MAP = {};
 
-    // 従業員は Supabase の employees_sync から取得する（追加分も反映される）
-    let EMPLOYEES = [];
-    const EMP_MAP = {};
+    function rebuildEmployeeMap() {
+      EMP_MAP = {};
+      EMPLOYEES.forEach(e => EMP_MAP[e.id] = e);
+    }
+
+    rebuildEmployeeMap();
 
     const PUNCH_TYPES = {
       clockin:   { label: '出勤', cssClass: 'log-type-clockin' },
@@ -391,8 +399,8 @@
 
     const CANCEL_REASONS = ['入力間違い', '人違い', '誤動作'];
 
-    // { "empId-date": [ { type, time, cancelled, cancelReason, cancelTime, supabaseId } ] }
-    const punchRecords = {};
+    // { "empId-date": [ { type, time, cancelled, cancelReason, cancelTime } ] }
+    let punchRecords = {};
     let selectedEmployee = null;
 
     function todayKey() {
@@ -442,63 +450,102 @@
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
-    // ── Supabase: 従業員ロード ──
-    async function loadEmployees() {
-      if (!sb) { showToast('Supabase に接続できません'); return; }
-      const { data, error } = await sb
-        .from('employees_sync')
-        .select('*')
-        .eq('is_active', true)
-        .order('display_order', { ascending: true });
-      if (error) { showToast('従業員の取得に失敗しました'); console.error(error); return; }
-      EMPLOYEES = (data || []).map((e, i) => ({
-        id: e.id,
-        name: e.name,
-        type: e.employee_type,
-        dept: e.employee_type,
-        color: AVATAR_COLORS[i % AVATAR_COLORS.length],
-      }));
-      for (const k of Object.keys(EMP_MAP)) delete EMP_MAP[k];
-      EMPLOYEES.forEach(e => EMP_MAP[e.id] = e);
-      renderGrid();
+    function todayRange() {
+      const key = todayKey();
+      return {
+        start: `${key}T00:00:00`,
+        end: `${key}T23:59:59`,
+      };
     }
 
-    // ── Supabase: 本日の打刻ロード（状態・履歴の初期表示用） ──
-    async function loadTodayPunches() {
-      if (!sb) return;
-      const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth()+1).padStart(2,'0');
-      const dd = String(d.getDate()).padStart(2,'0');
-      const start = `${y}-${m}-${dd}T00:00:00`;
-      const end = `${y}-${m}-${dd}T23:59:59`;
-      const { data, error } = await sb
-        .from('punch_records')
-        .select('*')
-        .gte('punched_at', start)
-        .lte('punched_at', end)
-        .order('punched_at', { ascending: true });
-      if (error) { console.error(error); return; }
-      // 既存ローカル状態をクリアしてから反映
-      for (const k of Object.keys(punchRecords)) delete punchRecords[k];
-      const typeFromPunch = (pt) =>
-        pt === 'clock_in' ? 'clockin'
-        : pt === 'clock_out' ? 'clockout'
-        : pt === 'go_out' ? 'goout'
-        : pt === 'go_return' ? 'goreturn'
-        : 'clockout';
-      (data || []).forEach(p => {
-        const recs = getRecords(p.employee_id);
-        recs.push({
-          type: typeFromPunch(p.punch_type),
-          time: timeFromIso(p.punched_at),
-          cancelled: !!p.cancelled,
-          cancelReason: '',
-          cancelTime: '',
-          supabaseId: p.id,
-        });
+    function formatApiTime(iso) {
+      const d = new Date(iso);
+      return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+
+    function localTypeToApi(type) {
+      if (type === 'clockin') return 'clock_in';
+      if (type === 'clockout') return 'clock_out';
+      return null;
+    }
+
+    function apiTypeToLocal(type) {
+      return type === 'clock_in' ? 'clockin' : 'clockout';
+    }
+
+    async function apiJson(path, options) {
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(options?.headers ?? {}),
+        },
       });
-      renderGrid();
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `API error: ${res.status}`);
+      }
+      return res.json();
+    }
+
+    async function loadCloudData() {
+      const { start, end } = todayRange();
+      const [empData, punchData] = await Promise.all([
+        apiJson('/api/employees'),
+        apiJson(`/api/punches?${new URLSearchParams({ start, end }).toString()}`),
+      ]);
+
+      const colors = DEFAULT_EMPLOYEES.map(e => e.color);
+      EMPLOYEES = empData.employees.map((emp, idx) => ({
+        id: emp.id,
+        name: emp.name,
+        dept: '',
+        type: emp.employee_type,
+        color: colors[idx % colors.length],
+      }));
+      rebuildEmployeeMap();
+
+      punchRecords = {};
+      for (const punch of punchData.punches) {
+        const recDate = punch.punched_at.slice(0, 10);
+        const recs = getRecords(punch.employee_id, recDate);
+        recs.push({
+          remoteId: punch.id,
+          type: apiTypeToLocal(punch.punch_type),
+          time: formatApiTime(punch.punched_at),
+          cancelled: punch.cancelled,
+          cancelReason: punch.cancelled ? '取消済' : '',
+          cancelTime: '',
+        });
+      }
+    }
+
+    async function createRemotePunch(type) {
+      const apiType = localTypeToApi(type);
+      if (!apiType || !selectedEmployee) return null;
+      const data = await apiJson('/api/punches', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeId: selectedEmployee.id,
+          employeeName: selectedEmployee.name,
+          punchType: apiType,
+        }),
+      });
+      return data.punch ?? null;
+    }
+
+    async function cancelRemotePunch(rec) {
+      if (!selectedEmployee || !rec.remoteId) return;
+      const { start, end } = todayRange();
+      await apiJson('/api/punches/cancel', {
+        method: 'POST',
+        body: JSON.stringify({
+          punchId: rec.remoteId,
+          employeeId: selectedEmployee.id,
+          start,
+          end,
+        }),
+      });
     }
 
     // ── Clock ──
@@ -596,44 +643,26 @@
 
     async function doPunch(type) {
       if (!selectedEmployee) return;
-      const recs = getRecords(selectedEmployee.id);
-      const rec = { type, time: nowTimeStr(), cancelled: false, cancelReason: '', cancelTime: '', supabaseId: null };
-      recs.push(rec);
-      showToast(`${PUNCH_TYPES[type].label} ${nowTimeStr()}`);
-      showMessage(type);
-      updatePunchButtons();
-      renderLog();
-      clearTimeout(autoReturnTimer);
-      autoReturnTimer = setTimeout(() => closePunch(), 3000);
-
-      // 出勤/退勤/外出/戻り を Supabase の punch_records に保存する（Windows アプリへ同期される）。
-      const punchType =
-        type === 'clockin' ? 'clock_in'
-        : type === 'clockout' ? 'clock_out'
-        : type === 'goout' ? 'go_out'
-        : type === 'goreturn' ? 'go_return'
-        : null;
-      if (punchType && sb) {
-        try {
-          const { data, error } = await sb
-            .from('punch_records')
-            .insert({
-              employee_id: selectedEmployee.id,
-              employee_name: selectedEmployee.name,
-              punch_type: punchType,
-              punched_at: new Date().toISOString(),
-              device: 'ipad',
-            })
-            .select();
-          if (error) {
-            showToast(`保存に失敗: ${error.message}`);
-          } else if (data && data[0]) {
-            rec.supabaseId = data[0].id;
-          }
-        } catch (err) {
-          showToast(`保存に失敗しました`);
-          console.error(err);
-        }
+      try {
+        const remote = await createRemotePunch(type);
+        const recs = getRecords(selectedEmployee.id);
+        const punchedTime = remote ? formatApiTime(remote.punched_at) : nowTimeStr();
+        recs.push({
+          remoteId: remote?.id ?? null,
+          type,
+          time: punchedTime,
+          cancelled: false,
+          cancelReason: '',
+          cancelTime: '',
+        });
+        showToast(`${PUNCH_TYPES[type].label} ${punchedTime}`);
+        showMessage(type);
+        updatePunchButtons();
+        renderLog();
+        clearTimeout(autoReturnTimer);
+        autoReturnTimer = setTimeout(() => closePunch(), 3000);
+      } catch (err) {
+        showToast(`打刻に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`);
       }
     }
 
@@ -708,19 +737,18 @@
 
       confirmBtn.onclick = async () => {
         const recs = getRecords(selectedEmployee.id);
-        const target = recs[cancelTarget];
-        target.cancelled = true;
-        target.cancelReason = selectedReason;
-        target.cancelTime = nowTimeStr();
-        overlay.remove();
-        showToast(`${typeLabel}を取り消しました`);
-        updatePunchButtons();
-        renderLog();
-        // Supabase 側も取消済みにする（同期で除外される）
-        if (target.supabaseId && sb) {
-          try {
-            await sb.from('punch_records').update({ cancelled: true }).eq('id', target.supabaseId);
-          } catch (err) { console.error(err); }
+        const rec = recs[cancelTarget];
+        try {
+          await cancelRemotePunch(rec);
+          rec.cancelled = true;
+          rec.cancelReason = selectedReason;
+          rec.cancelTime = nowTimeStr();
+          overlay.remove();
+          showToast(`${typeLabel}を取り消しました`);
+          updatePunchButtons();
+          renderLog();
+        } catch (err) {
+          showToast(`取消に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`);
         }
       };
     }
@@ -817,12 +845,12 @@
     document.getElementById('historyEmployee').onchange = renderHistory;
     document.getElementById('historyDate').onchange = renderHistory;
 
-    // ── 初期化：従業員と本日の打刻を Supabase から読み込む ──
-    renderGrid();
-    (async () => {
-      await loadEmployees();
-      await loadTodayPunches();
-    })();
+    loadCloudData()
+      .catch((err) => {
+        console.error(err);
+        showToast('クラウド接続に失敗しました。デモ従業員を表示します');
+      })
+      .finally(renderGrid);
   </script>
   </body>
 </html>

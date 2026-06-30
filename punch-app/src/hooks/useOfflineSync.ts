@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { supabase } from '@/lib/supabase';
+import { createPunch } from '@/lib/api';
 
 const DB_NAME = 'rakuraku-punch-offline';
 const STORE_NAME = 'pending_punches';
@@ -63,17 +63,14 @@ async function flushPending(): Promise<number> {
   let flushed = 0;
 
   for (const punch of pending) {
-    const { error } = await supabase.from('punch_records').insert({
-      employee_id: punch.employee_id,
-      employee_name: punch.employee_name,
-      punch_type: punch.punch_type,
-      punched_at: punch.punched_at,
-      device: punch.device,
-    });
-    if (!error) {
-      await removePending(punch.id);
-      flushed++;
-    }
+    await createPunch(
+      punch.employee_id,
+      punch.employee_name,
+      punch.punch_type,
+      punch.punched_at,
+    );
+    await removePending(punch.id);
+    flushed++;
   }
 
   return flushed;
@@ -81,7 +78,7 @@ async function flushPending(): Promise<number> {
 
 /**
  * オフライン時に打刻データを IndexedDB に保存し、
- * オンライン復帰時に Supabase へ自動送信するフック。
+ * オンライン復帰時に Vercel API へ自動送信するフック。
  */
 export function useOfflineSync() {
   const flushingRef = useRef(false);

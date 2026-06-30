@@ -1,5 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, type EmployeeSync, type PunchRecord } from '@/lib/supabase';
+import {
+  cancelLastPunch as cancelLastPunchApi,
+  createPunch,
+  fetchEmployees,
+  fetchPunches,
+  type PunchRecord,
+} from '@/lib/api';
 import type { EmployeeWithStatus, PunchStatus } from '@/lib/types';
 
 function todayRange(): { start: string; end: string } {
@@ -47,21 +53,10 @@ export function usePunchData() {
   const fetchData = useCallback(async () => {
     const { start, end } = todayRange();
 
-    const [empRes, punchRes] = await Promise.all([
-      supabase
-        .from('employees_sync')
-        .select('*')
-        .eq('is_active', true)
-        .order('display_order', { ascending: true }),
-      supabase
-        .from('punch_records')
-        .select('*')
-        .gte('punched_at', start)
-        .lte('punched_at', end),
+    const [emps, punches] = await Promise.all([
+      fetchEmployees(),
+      fetchPunches(start, end),
     ]);
-
-    const emps: EmployeeSync[] = empRes.data ?? [];
-    const punches: PunchRecord[] = punchRes.data ?? [];
 
     const mapped: EmployeeWithStatus[] = emps.map((emp) => {
       const empPunches = punches.filter((p) => p.employee_id === emp.id);
@@ -84,15 +79,7 @@ export function usePunchData() {
 
   const punch = useCallback(
     async (employeeId: number, employeeName: string, type: 'clock_in' | 'clock_out') => {
-      const now = new Date().toISOString();
-      const { error } = await supabase.from('punch_records').insert({
-        employee_id: employeeId,
-        employee_name: employeeName,
-        punch_type: type,
-        punched_at: now,
-        device: 'ipad',
-      });
-      if (error) throw new Error(error.message);
+      await createPunch(employeeId, employeeName, type);
       await fetchData();
     },
     [fetchData],
@@ -101,20 +88,7 @@ export function usePunchData() {
   const cancelLastPunch = useCallback(
     async (employeeId: number) => {
       const { start, end } = todayRange();
-      const { data } = await supabase
-        .from('punch_records')
-        .select('*')
-        .eq('employee_id', employeeId)
-        .eq('cancelled', false)
-        .gte('punched_at', start)
-        .lte('punched_at', end)
-        .order('punched_at', { ascending: false })
-        .limit(1);
-
-      const last = data?.[0];
-      if (!last) return;
-
-      await supabase.from('punch_records').update({ cancelled: true }).eq('id', last.id);
+      await cancelLastPunchApi(employeeId, start, end);
       await fetchData();
     },
     [fetchData],
