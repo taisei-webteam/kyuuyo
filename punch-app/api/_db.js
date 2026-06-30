@@ -1,11 +1,8 @@
 import { neon } from '@neondatabase/serverless';
-import type { VercelResponse } from '@vercel/node';
 
-type SqlClient = ReturnType<typeof neon>;
+let cachedSql = null;
 
-let cachedSql: SqlClient | null = null;
-
-export function getSql(): SqlClient {
+export function getSql() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is not configured');
@@ -15,12 +12,12 @@ export function getSql(): SqlClient {
   return cachedSql;
 }
 
-export function setCorsHeaders(res: VercelResponse): void {
+export function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', process.env.ALLOWED_ORIGIN ?? '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
-export function sendError(res: VercelResponse, status: number, message: string): void {
+export function sendError(res, status, message) {
   res.status(status).json({ error: message });
 }

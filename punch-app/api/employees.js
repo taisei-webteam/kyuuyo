@@ -1,8 +1,6 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSql, sendError, setCorsHeaders } from './_db';
-import type { EmployeeSync } from './_types';
+import { getSql, sendError, setCorsHeaders } from './_db.js';
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+export default async function handler(req, res) {
   setCorsHeaders(res);
 
   if (req.method === 'OPTIONS') {
@@ -22,7 +20,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
       from employees_sync
       where is_active = true
       order by display_order asc, id asc
-    ` as EmployeeSync[];
+    `;
 
     res.status(200).json({ employees });
   } catch (err) {

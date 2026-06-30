@@ -1,29 +1,26 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSql, sendError, setCorsHeaders } from '../_db';
-import type { PunchCancelBody, PunchRecord } from '../_types';
+import { getSql, sendError, setCorsHeaders } from '../_db.js';
 
-function parseCancelBody(body: unknown): PunchCancelBody | null {
-  const parsed = typeof body === 'string' ? JSON.parse(body) as unknown : body;
+function parseCancelBody(body) {
+  const parsed = typeof body === 'string' ? JSON.parse(body) : body;
   if (typeof parsed !== 'object' || parsed === null) return null;
 
-  const candidate = parsed as Partial<PunchCancelBody>;
   if (
-    typeof candidate.employeeId !== 'number' ||
-    typeof candidate.start !== 'string' ||
-    typeof candidate.end !== 'string'
+    typeof parsed.employeeId !== 'number' ||
+    typeof parsed.start !== 'string' ||
+    typeof parsed.end !== 'string'
   ) {
     return null;
   }
 
   return {
-    punchId: typeof candidate.punchId === 'string' ? candidate.punchId : undefined,
-    employeeId: candidate.employeeId,
-    start: candidate.start,
-    end: candidate.end,
+    punchId: typeof parsed.punchId === 'string' ? parsed.punchId : undefined,
+    employeeId: parsed.employeeId,
+    start: parsed.start,
+    end: parsed.end,
   };
 }
 
-export default async function handler(req: VercelRequest, res: VercelResponse): Promise<void> {
+export default async function handler(req, res) {
   setCorsHeaders(res);
 
   if (req.method === 'OPTIONS') {
@@ -52,7 +49,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
             and employee_id = ${body.employeeId}
             and cancelled = false
           returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
-        ` as PunchRecord[]
+        `
       : await sql`
           update punch_records
           set cancelled = true
@@ -67,7 +64,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse): 
             limit 1
           )
           returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
-        ` as PunchRecord[];
+        `;
 
     res.status(200).json({ punch: rows[0] ?? null });
   } catch (err) {
