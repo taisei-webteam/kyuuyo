@@ -598,6 +598,12 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
 
   const holidayDays = emp?.holidayDays ?? [0, 6]
 
+  // 今日より後の日はまだ勤務実績が存在しないため、仮の勤怠を捏造しない。
+  const nowDate = new Date()
+  const todayYear = nowDate.getFullYear()
+  const todayMonth = nowDate.getMonth() + 1
+  const todayDate = nowDate.getDate()
+
   for (let day = 1; day <= daysInMonth; day++) {
     const date = new Date(year, month - 1, day)
     const dow = date.getDay()
@@ -605,6 +611,30 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const isHoliday = holidayMode === 'calendar'
       ? isCalendarHoliday(dateStr, year)
       : holidayDays.includes(dow)
+
+    const isFutureDate =
+      year > todayYear ||
+      (year === todayYear && (month > todayMonth || (month === todayMonth && day > todayDate)))
+    if (isFutureDate) {
+      days.push({
+        date: dateStr,
+        rawClockIn: null,
+        rawClockOut: null,
+        clockIn: null,
+        clockOut: null,
+        stampIn: null,
+        stampOut: null,
+        goOut: null,
+        goReturn: null,
+        workMinutes: 0,
+        overtimeMinutes: 0,
+        earlyOvertimeMinutes: 0,
+        isHoliday,
+        isHolidayWork: false,
+        dataSource: 'ipad',
+      })
+      continue
+    }
 
     if (isHoliday) {
       days.push({
@@ -1232,6 +1262,20 @@ export async function savePayslipsToDb(
   if (!hasApi()) return false
   const items = list.map((m) => mockToPayslipCreate(m, 'salary'))
   const res = await window.api.payslips.saveMonth(year, month, 'salary', items)
+  return res.success
+}
+
+/**
+ * 指定年月の給与明細(salary)を削除し「未作成」状態へ戻す。
+ * メモリキャッシュと SQLite の両方から除去する（空配列保存で月ごと一括削除）。
+ * Vite 単体では DB が無いためキャッシュのみ削除し true を返す。
+ */
+export async function deletePayslips(year: number, month: number): Promise<boolean> {
+  const key = `${year}-${month}`
+  payslipCache.delete(key)
+  createdMonths.delete(key)
+  if (!hasApi()) return true
+  const res = await window.api.payslips.saveMonth(year, month, 'salary', [])
   return res.success
 }
 

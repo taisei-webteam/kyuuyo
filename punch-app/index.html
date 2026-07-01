@@ -636,6 +636,9 @@
     // ── Punch ──
     function openPunch(emp) {
       selectedEmployee = emp;
+      // 打刻ボタン押下前（従業員選択のジェスチャー時）にオーディオを起こしておく。
+      // これにより doPunch 時点で AudioContext が running となり、効果音が確実に鳴る。
+      primePunchSound();
       document.getElementById('punchName').textContent = emp.name;
       document.getElementById('punchDept').textContent = `${emp.dept}`;
       showScreen('screenPunch');
@@ -676,6 +679,22 @@
       if (ctx?.state === 'suspended') {
         ctx.resume().catch(() => {});
       }
+    }
+
+    // iOS/Safari 対策: 最初のユーザー操作で AudioContext を生成し、無音バッファを
+    // 再生して完全に解錠する。これをしないとジェスチャー外の再生が無音化される。
+    function unlockAudioOnce() {
+      const ctx = getAudioContext();
+      if (!ctx) return;
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = ctx.createBuffer(1, 1, 22050);
+        source.connect(ctx.destination);
+        source.start(0);
+      } catch { /* 解錠失敗は無視（後続の resume で再試行される） */ }
+      document.removeEventListener('pointerdown', unlockAudioOnce);
+      document.removeEventListener('touchstart', unlockAudioOnce);
     }
 
     function playPunchSound(type) {
@@ -961,6 +980,10 @@
     document.getElementById('btnHistoryBack').onclick = () => { showScreen('screenList'); renderGrid(); };
     document.getElementById('historyEmployee').onchange = renderHistory;
     document.getElementById('historyDate').onchange = renderHistory;
+
+    // 初回タップ時にオーディオを解錠しておく（iOS Safari で効果音を鳴らすため）
+    document.addEventListener('pointerdown', unlockAudioOnce);
+    document.addEventListener('touchstart', unlockAudioOnce);
 
     loadCloudData()
       .catch((err) => {

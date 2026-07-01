@@ -7,7 +7,7 @@
  */
 
 import { neon } from '@neondatabase/serverless';
-import type { AttendanceSyncResult, AttendanceWarning } from '../../shared/types';
+import type { AttendanceWarning } from '../../shared/types';
 
 interface NeonConfig {
   databaseUrl: string;
@@ -148,10 +148,12 @@ export async function syncAttendanceFromNeon(
   year: number,
   month: number,
 ): Promise<{ pairs: DayPunches[]; warnings: AttendanceWarning[] }> {
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01T00:00:00`;
+  // 勤務日は JST で判定するため、問い合わせ範囲も JST の暦月境界(+09:00)で指定する。
+  // (UTC 素の境界にすると、月初 1日の午前の打刻 = 前日夜の UTC が範囲外に落ちて取りこぼす)
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01T00:00:00+09:00`;
   const endMonth = month === 12 ? 1 : month + 1;
   const endYear = month === 12 ? year + 1 : year;
-  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00`;
+  const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00+09:00`;
 
   const sql = neon(config.databaseUrl);
   const punches = await sql`

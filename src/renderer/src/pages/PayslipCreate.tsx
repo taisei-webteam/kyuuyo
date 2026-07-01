@@ -5,6 +5,7 @@ import {
   getEmployees,
   getPayslips,
   createPayslips,
+  deletePayslips,
   aggregateAttendanceRecords,
   isPayslipsCreated,
   isEmailSent,
@@ -76,6 +77,7 @@ export function PayslipCreate(): ReactElement {
   const [printing, setPrinting] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [createMessage, setCreateMessage] = useState<string | null>(null)
   const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
   // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
@@ -154,6 +156,15 @@ export function PayslipCreate(): ReactElement {
   }, [employees, selectedYear, selectedMonth, emailRefresh])
 
   const handleCreate = useCallback(async (): Promise<void> => {
+    // 未来月ガード: 当月より先の給与はまだ勤務実績が無いため作成させない
+    const n = new Date()
+    const isFuture =
+      selectedYear > n.getFullYear() ||
+      (selectedYear === n.getFullYear() && selectedMonth > n.getMonth() + 1)
+    if (isFuture) {
+      setCreateMessage('未来の月の給与は作成できません（まだ勤務実績がありません）')
+      return
+    }
     setCreating(true)
     setCreateMessage(null)
     try {
@@ -182,6 +193,32 @@ export function PayslipCreate(): ReactElement {
       setCreateMessage(`作成に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
       setCreating(false)
+    }
+  }, [selectedYear, selectedMonth])
+
+  const handleDelete = useCallback(async (): Promise<void> => {
+    const ok = window.confirm(
+      `${selectedYear}年${selectedMonth}月分の給与データを削除して「未作成」に戻します。\n` +
+        'この月に入力・編集した内容は失われます。よろしいですか？\n\n' +
+        '（月末に勤怠を同期してから作り直す場合などにご利用ください）',
+    )
+    if (!ok) return
+    setDeleting(true)
+    setCreateMessage(null)
+    try {
+      const done = await deletePayslips(selectedYear, selectedMonth)
+      dirtyRef.current = false
+      setEditPayslips([])
+      setRefreshKey((k) => k + 1)
+      setCreateMessage(
+        done
+          ? '給与データを削除しました。勤怠を確定・同期してから作り直してください。'
+          : '削除に失敗しました。もう一度お試しください。',
+      )
+    } catch (err) {
+      setCreateMessage(`削除に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setDeleting(false)
     }
   }, [selectedYear, selectedMonth])
 
@@ -283,6 +320,10 @@ export function PayslipCreate(): ReactElement {
     setPrinting(false)
   }, [])
 
+  const isFutureMonth =
+    selectedYear > now.getFullYear() ||
+    (selectedYear === now.getFullYear() && selectedMonth > now.getMonth() + 1)
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
@@ -310,6 +351,8 @@ export function PayslipCreate(): ReactElement {
           </div>
           {created ? (
             <span className={styles.createdBadge}>作成済み</span>
+          ) : isFutureMonth ? (
+            <span className={styles.futureBadge}>未来の月は作成できません</span>
           ) : (
             <button className={styles.btnCreate} onClick={handleCreate} disabled={creating}>
               {creating ? '作成中...' : `${selectedMonth}月分を作成`}
@@ -337,6 +380,14 @@ export function PayslipCreate(): ReactElement {
               onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
             >
               一括編集
+            </button>
+            <button
+              className={styles.btnDanger}
+              onClick={handleDelete}
+              disabled={deleting}
+              title="この月の給与データを削除して未作成に戻します"
+            >
+              {deleting ? '削除中...' : '削除して作り直す'}
             </button>
             {distributeMode === 'pdf' ? (
               <>
@@ -401,16 +452,25 @@ export function PayslipCreate(): ReactElement {
         </div>
       ) : (
         <div className={styles.notCreated}>
-          <div className={styles.notCreatedIcon}>📋</div>
+          <div className={styles.notCreatedIcon}>{isFutureMonth ? '🚫' : '📋'}</div>
           <h2 className={styles.notCreatedTitle}>{selectedYear}年{selectedMonth}月分の給与データ</h2>
-          <p className={styles.notCreatedDesc}>
-            まだ作成されていません。<br />
-            勤怠データと従業員マスタをもとに給与データを自動生成します。
-          </p>
-          <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
-            {creating ? '作成中...' : `${selectedMonth}月分を作成`}
-          </button>
-          {createMessage && <p className={styles.notCreatedDesc}>{createMessage}</p>}
+          {isFutureMonth ? (
+            <p className={styles.notCreatedDesc}>
+              未来の月の給与は作成できません。<br />
+              勤務実績が確定してから作成してください。
+            </p>
+          ) : (
+            <>
+              <p className={styles.notCreatedDesc}>
+                まだ作成されていません。<br />
+                勤怠データと従業員マスタをもとに給与データを自動生成します。
+              </p>
+              <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
+                {creating ? '作成中...' : `${selectedMonth}月分を作成`}
+              </button>
+              {createMessage && <p className={styles.notCreatedDesc}>{createMessage}</p>}
+            </>
+          )}
         </div>
       )}
 
