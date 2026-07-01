@@ -101,6 +101,7 @@
     .status-out { background: #f1f5f9; color: #64748b; }
     .status-in { background: #dcfce7; color: #16a34a; }
     .status-goout { background: #fff7ed; color: #ea580c; }
+    .status-done { background: #e0f2fe; color: #0369a1; }
 
     /* ── Punch Screen ── */
     .punch-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
@@ -408,6 +409,12 @@
       return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     }
 
+    // ISO文字列をローカル(端末TZ)の日付キー YYYY-MM-DD に変換する
+    function localDateKey(iso) {
+      const d = new Date(iso);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+
     function timeFromIso(iso) {
       const d = new Date(iso);
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -440,7 +447,7 @@
       const recs = getActiveRecords(empId);
       if (recs.length === 0) return 'out';
       const last = recs[recs.length - 1].type;
-      if (last === 'clockout') return 'out';
+      if (last === 'clockout') return 'done';
       if (last === 'goout') return 'goout';
       return 'in';
     }
@@ -450,11 +457,15 @@
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
+    // ローカル(端末TZ)の当日 00:00〜23:59 を UTC の ISO 文字列(Z付き)で返す。
+    // タイムゾーンなしの文字列を送るとサーバ側(UTC)で解釈がずれ、当日の記録が欠落するため。
     function todayRange() {
-      const key = todayKey();
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       return {
-        start: `${key}T00:00:00`,
-        end: `${key}T23:59:59`,
+        start: start.toISOString(),
+        end: end.toISOString(),
       };
     }
 
@@ -513,7 +524,7 @@
 
       punchRecords = {};
       for (const punch of punchData.punches) {
-        const recDate = punch.punched_at.slice(0, 10);
+        const recDate = localDateKey(punch.punched_at);
         const recs = getRecords(punch.employee_id, recDate);
         recs.push({
           remoteId: punch.id,
@@ -555,6 +566,19 @@
     }
 
     // ── Clock ──
+    let currentDayKey = todayKey();
+
+    // 0時0分をまたいだら当日実績をリセット（全員「未出勤」に戻す）
+    async function handleDayChange() {
+      punchRecords = {};
+      try {
+        await loadCloudData();
+      } catch (err) {
+        console.error(err);
+      }
+      renderGrid();
+    }
+
     function updateClock() {
       const now = new Date();
       document.getElementById('headerClock').textContent =
@@ -562,6 +586,12 @@
       const wd = ['日','月','火','水','木','金','土'];
       document.getElementById('headerDate').textContent =
         `${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${wd[now.getDay()]}）`;
+
+      const key = todayKey();
+      if (key !== currentDayKey) {
+        currentDayKey = key;
+        handleDayChange();
+      }
     }
     setInterval(updateClock, 1000);
     updateClock();
@@ -588,8 +618,8 @@
       grid.innerHTML = '';
       EMPLOYEES.forEach(emp => {
         const status = getStatus(emp.id);
-        const statusLabel = status === 'in' ? '出勤中' : status === 'goout' ? '外出中' : '未出勤';
-        const statusClass = status === 'in' ? 'status-in' : status === 'goout' ? 'status-goout' : 'status-out';
+        const statusLabel = status === 'in' ? '出勤中' : status === 'goout' ? '外出中' : status === 'done' ? '退勤済' : '未出勤';
+        const statusClass = status === 'in' ? 'status-in' : status === 'goout' ? 'status-goout' : status === 'done' ? 'status-done' : 'status-out';
         const card = document.createElement('div');
         card.className = 'employee-card';
         card.innerHTML = `
