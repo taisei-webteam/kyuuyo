@@ -537,14 +537,14 @@
       }
     }
 
-    async function createRemotePunch(type) {
+    async function createRemotePunch(type, emp = selectedEmployee) {
       const apiType = localTypeToApi(type);
-      if (!apiType || !selectedEmployee) return null;
+      if (!apiType || !emp) return null;
       const data = await apiJson('/api/punches', {
         method: 'POST',
         body: JSON.stringify({
-          employeeId: selectedEmployee.id,
-          employeeName: selectedEmployee.name,
+          employeeId: emp.id,
+          employeeName: emp.name,
           punchType: apiType,
         }),
       });
@@ -732,31 +732,55 @@
       setTimeout(() => overlay.remove(), 2600);
     }
 
-    async function doPunch(type) {
+    function doPunch(type) {
       if (!selectedEmployee) return;
+      const emp = selectedEmployee;
       primePunchSound();
-      try {
-        const remote = await createRemotePunch(type);
-        const recs = getRecords(selectedEmployee.id);
-        const punchedTime = remote ? formatApiTime(remote.punched_at) : nowTimeStr();
-        recs.push({
-          remoteId: remote?.id ?? null,
-          type,
-          time: punchedTime,
-          cancelled: false,
-          cancelReason: '',
-          cancelTime: '',
-        });
-        showToast(`${PUNCH_TYPES[type].label} ${punchedTime}`);
-        showMessage(type);
-        playPunchSound(type);
+
+      // 楽観的更新: 通信完了を待たず、押した瞬間にUIへ反映する
+      const recs = getRecords(emp.id);
+      const optimisticRec = {
+        remoteId: null,
+        type,
+        time: nowTimeStr(),
+        cancelled: false,
+        cancelReason: '',
+        cancelTime: '',
+        pending: true,
+      };
+      recs.push(optimisticRec);
+
+      showToast(`${PUNCH_TYPES[type].label} ${optimisticRec.time}`);
+      showMessage(type);
+      playPunchSound(type);
+      if (selectedEmployee?.id === emp.id) {
         updatePunchButtons();
         renderLog();
-        clearTimeout(autoReturnTimer);
-        autoReturnTimer = setTimeout(() => closePunch(), 3000);
-      } catch (err) {
-        showToast(`打刻に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`);
       }
+      clearTimeout(autoReturnTimer);
+      autoReturnTimer = setTimeout(() => closePunch(), 3000);
+
+      // 背後でサーバへ送信し、結果で確定 or ロールバック
+      createRemotePunch(type, emp)
+        .then((remote) => {
+          optimisticRec.pending = false;
+          if (remote) {
+            optimisticRec.remoteId = remote.id;
+            optimisticRec.time = formatApiTime(remote.punched_at);
+          }
+          if (selectedEmployee?.id === emp.id) renderLog();
+        })
+        .catch((err) => {
+          const idx = recs.indexOf(optimisticRec);
+          if (idx !== -1) recs.splice(idx, 1);
+          showToast(`打刻に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`);
+          if (selectedEmployee?.id === emp.id) {
+            updatePunchButtons();
+            renderLog();
+          } else if (document.getElementById('screenList').classList.contains('active')) {
+            renderGrid();
+          }
+        });
     }
 
     // ── Cancel Modal ──
