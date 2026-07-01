@@ -1,16 +1,16 @@
 /**
- * Supabase ⇔ ローカル SQLite の勤怠データ同期サービス
+ * Neon ⇔ ローカル SQLite の勤怠データ同期サービス
  *
- * iPad PWA で打刻されたデータを Supabase から取得し、
+ * iPad PWA で打刻されたデータを Neon から取得し、
  * ローカルの attendance_records テーブルに反映する。
- * 逆方向として、従業員マスタを Supabase に同期する。
+ * 逆方向として、従業員マスタを Neon に同期する。
  */
 
+import { neon } from '@neondatabase/serverless';
 import type { AttendanceSyncResult, AttendanceWarning } from '../../shared/types';
 
-interface SupabaseConfig {
-  url: string;
-  serviceRoleKey: string;
+interface NeonConfig {
+  databaseUrl: string;
 }
 
 interface PunchRow {
@@ -40,30 +40,6 @@ interface DayPunches {
   clockOut: string | null;
   goOut: string | null;
   goReturn: string | null;
-}
-
-async function supabaseFetch<T>(
-  config: SupabaseConfig,
-  path: string,
-  options?: RequestInit,
-): Promise<T> {
-  const res = await fetch(`${config.url}/rest/v1/${path}`, {
-    ...options,
-    headers: {
-      apikey: config.serviceRoleKey,
-      Authorization: `Bearer ${config.serviceRoleKey}`,
-      'Content-Type': 'application/json',
-      Prefer: options?.method === 'POST' ? 'resolution=merge-duplicates' : 'return=representation',
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Supabase API error ${res.status}: ${body}`);
-  }
-  // POST (UPSERT) など本文が空のレスポンスでも JSON.parse で落ちないようにする
-  const text = await res.text();
-  return (text ? JSON.parse(text) : null) as T;
 }
 
 /**
@@ -164,11 +140,11 @@ function validateDayPunches(pairs: DayPunches[]): AttendanceWarning[] {
 }
 
 /**
- * 指定年月の打刻データを Supabase から取得し、
+ * 指定年月の打刻データを Neon から取得し、
  * ペアリング + バリデーション済みの結果を返す。
  */
-export async function syncAttendanceFromSupabase(
-  config: SupabaseConfig,
+export async function syncAttendanceFromNeon(
+  config: NeonConfig,
   year: number,
   month: number,
 ): Promise<{ pairs: DayPunches[]; warnings: AttendanceWarning[] }> {
@@ -177,10 +153,14 @@ export async function syncAttendanceFromSupabase(
   const endYear = month === 12 ? year + 1 : year;
   const endDate = `${endYear}-${String(endMonth).padStart(2, '0')}-01T00:00:00`;
 
-  const punches = await supabaseFetch<PunchRow[]>(
-    config,
-    `punch_records?punched_at=gte.${startDate}&punched_at=lt.${endDate}&order=punched_at.asc`,
-  );
+  const sql = neon(config.databaseUrl);
+  const punches = await sql`
+    select id, employee_id, employee_name, punch_type, punched_at, device, cancelled
+    from public.punch_records
+    where punched_at >= ${startDate}::timestamptz
+      and punched_at < ${endDate}::timestamptz
+    order by punched_at asc
+  ` as PunchRow[];
 
   const pairs = groupPunchesByDay(punches);
   const warnings = validateDayPunches(pairs);
@@ -189,11 +169,24 @@ export async function syncAttendanceFromSupabase(
 }
 
 /**
- * 従業員マスタを Supabase の employees_sync テーブルに同期する。
- * Windows アプリ → Supabase 方向 (UPSERT)。
+ * Neon の employees_sync から従業員マスタを取得する。
+ * raw_punches は employees(id) へ外部キーを持つため、打刻同期前にローカルへ反映する。
  */
-export async function syncEmployeesToSupabase(
-  config: SupabaseConfig,
+export async function fetchEmployeesFromNeon(config: NeonConfig): Promise<EmployeeRow[]> {
+  const sql = neon(config.databaseUrl);
+  return await sql`
+    select id, name, name_kana, employee_type, display_order, is_active
+    from public.employees_sync
+    order by display_order asc, id asc
+  ` as EmployeeRow[];
+}
+
+/**
+ * 従業員マスタを Neon の employees_sync テーブルに同期する。
+ * Windows アプリ → Neon 方向 (UPSERT)。
+ */
+export async function syncEmployeesToNeon(
+  config: NeonConfig,
   employees: EmployeeRow[],
 ): Promise<void> {
   if (employees.length === 0) return;
@@ -208,10 +201,47 @@ export async function syncEmployeesToSupabase(
     updated_at: new Date().toISOString(),
   }));
 
-  await supabaseFetch(config, 'employees_sync?on_conflict=id', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  const sql = neon(config.databaseUrl);
+  await sql`
+    with src as (
+      select *
+      from jsonb_to_recordset(${JSON.stringify(body)}::jsonb)
+        as x(
+          id int,
+          name text,
+          name_kana text,
+          employee_type text,
+          display_order int,
+          is_active boolean,
+          updated_at timestamptz
+        )
+    )
+    insert into public.employees_sync (
+      id,
+      name,
+      name_kana,
+      employee_type,
+      display_order,
+      is_active,
+      updated_at
+    )
+    select
+      id,
+      name,
+      name_kana,
+      employee_type,
+      display_order,
+      is_active,
+      updated_at
+    from src
+    on conflict (id) do update set
+      name = excluded.name,
+      name_kana = excluded.name_kana,
+      employee_type = excluded.employee_type,
+      display_order = excluded.display_order,
+      is_active = excluded.is_active,
+      updated_at = excluded.updated_at
+  `;
 }
 
-export type { SupabaseConfig, DayPunches, PunchRow, EmployeeRow };
+export type { NeonConfig, DayPunches, PunchRow, EmployeeRow };

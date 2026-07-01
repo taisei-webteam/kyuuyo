@@ -1,17 +1,18 @@
 /**
  * 勤怠データ IPC ハンドラ
  *
- * Supabase 同期 → raw_punches (実打刻)
+ * Neon 同期 → raw_punches (実打刻)
  * 丸め処理 → attendance_records (勤怠データ)
  */
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/ipc-channels.js';
 import { getSqlite } from '../db/connection.js';
 import {
-  syncAttendanceFromSupabase,
-  syncEmployeesToSupabase,
+  fetchEmployeesFromNeon,
+  syncAttendanceFromNeon,
+  syncEmployeesToNeon,
   isoToJstTime,
-  type SupabaseConfig,
+  type NeonConfig,
 } from '../services/attendance.sync.js';
 import { validateAttendance } from '../services/attendance.validate.js';
 import {
@@ -31,13 +32,12 @@ import type {
   RawPunch,
 } from '../../shared/types.js';
 
-function getSupabaseConfig(): SupabaseConfig {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    throw new Error('Supabase の環境変数が未設定です (.env を確認してください)');
+function getNeonConfig(): NeonConfig {
+  const databaseUrl = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('Neon の DATABASE_URL が未設定です (.env を確認してください)');
   }
-  return { url, serviceRoleKey: key };
+  return { databaseUrl };
 }
 
 interface EmployeeRow {
@@ -57,6 +57,38 @@ interface CompanyRow {
   default_break_minutes: number;
   early_rounding_unit: number;
   overtime_rounding_unit: number;
+}
+
+interface EmployeeSyncRow {
+  id: number;
+  name: string;
+  name_kana: string;
+  employee_type: string;
+  display_order: number;
+  is_active: boolean;
+}
+
+function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
+  if (employees.length === 0) return;
+
+  const raw = getSqlite();
+  const upsertLocal = raw.prepare(`
+    INSERT INTO employees (id, name, name_kana, employee_type, display_order, is_active)
+    VALUES (@id, @name, @name_kana, @employee_type, @display_order, @is_active)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      name_kana = excluded.name_kana,
+      employee_type = excluded.employee_type,
+      display_order = excluded.display_order,
+      is_active = excluded.is_active,
+      updated_at = datetime('now','localtime')
+  `);
+  const txLocal = raw.transaction((emps: EmployeeSyncRow[]) => {
+    for (const e of emps) {
+      upsertLocal.run({ ...e, is_active: e.is_active ? 1 : 0 });
+    }
+  });
+  txLocal(employees);
 }
 
 function getCompanySettings(): CompanyRow {
@@ -226,14 +258,17 @@ function roundAndUpsertOne(
 
 export function registerAttendanceHandlers(): void {
   /**
-   * Supabase → raw_punches に同期（生データ保存のみ）
+   * Neon → raw_punches に同期（生データ保存のみ）
    */
   ipcMain.handle(
     IPC.ATTENDANCE.SYNC,
     async (_event, params: { year: number; month: number }): Promise<IpcResult<AttendanceSyncResult>> => {
       try {
-        const config = getSupabaseConfig();
-        const { pairs, warnings } = await syncAttendanceFromSupabase(
+        const config = getNeonConfig();
+        const employees = await fetchEmployeesFromNeon(config);
+        upsertLocalEmployees(employees);
+
+        const { pairs, warnings } = await syncAttendanceFromNeon(
           config,
           params.year,
           params.month,
@@ -393,7 +428,7 @@ export function registerAttendanceHandlers(): void {
   );
 
   /**
-   * 従業員マスタを Supabase に同期
+   * 従業員マスタを Neon に同期
    */
   ipcMain.handle(
     IPC.ATTENDANCE.SYNC_EMPLOYEES,
@@ -402,27 +437,10 @@ export function registerAttendanceHandlers(): void {
         // まずローカル SQLite の employees にも反映する。
         // (raw_punches / attendance_records は employees(id) を外部キー参照するため、
         //  ここで従業員が存在しないと打刻同期が外部キー制約で失敗する)
-        const raw = getSqlite();
-        const upsertLocal = raw.prepare(`
-          INSERT INTO employees (id, name, name_kana, employee_type, display_order, is_active)
-          VALUES (@id, @name, @name_kana, @employee_type, @display_order, @is_active)
-          ON CONFLICT(id) DO UPDATE SET
-            name = excluded.name,
-            name_kana = excluded.name_kana,
-            employee_type = excluded.employee_type,
-            display_order = excluded.display_order,
-            is_active = excluded.is_active,
-            updated_at = datetime('now','localtime')
-        `);
-        const txLocal = raw.transaction((emps: typeof params.employees) => {
-          for (const e of emps) {
-            upsertLocal.run({ ...e, is_active: e.is_active ? 1 : 0 });
-          }
-        });
-        txLocal(params.employees);
+        upsertLocalEmployees(params.employees);
 
-        const config = getSupabaseConfig();
-        await syncEmployeesToSupabase(config, params.employees);
+        const config = getNeonConfig();
+        await syncEmployeesToNeon(config, params.employees);
         return { success: true, data: { synced: params.employees.length } };
       } catch (err) {
         return {

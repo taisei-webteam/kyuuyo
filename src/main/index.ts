@@ -72,56 +72,56 @@ function createWindow(): void {
 }
 
 // 多重起動防止（本番で同一アプリの2重起動を抑止し、DB同時アクセスを防ぐ）
+// 開発版は配布版と userData/単一起動ロックを分離する。
+if (!app.isPackaged) {
+  app.setPath('userData', path.join(app.getPath('appData'), 'rakuraku-kyuuyo-alpha-dev'));
+}
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
   app.quit();
-}
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
-});
-
-app.whenReady().then(() => {
-  // 開発版は配布版とDBを分離（dev版↔配布版の同時起動による同一DB競合を防止）
-  if (!app.isPackaged) {
-    app.setPath('userData', path.join(app.getPath('appData'), 'rakuraku-kyuuyo-alpha-dev'));
-  }
-
-  getDb();
-
-  registerEmployeeHandlers();
-  registerPayslipHandlers();
-  registerCompanyHandlers();
-  registerAttendanceHandlers();
-  registerExportHandlers();
-  registerMailHandlers();
-  registerBackupHandlers();
-
-  // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）
-  void autoBackupDaily();
-
-  createWindow();
-
-  // 配布版のみ自動更新を確認（開発時は無効）
-  if (app.isPackaged) {
-    setupAutoUpdater();
-  }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
+  app.whenReady().then(() => {
+    getDb();
 
-app.on('will-quit', () => {
-  closeDb();
-});
+    registerEmployeeHandlers();
+    registerPayslipHandlers();
+    registerCompanyHandlers();
+    registerAttendanceHandlers();
+    registerExportHandlers();
+    registerMailHandlers();
+    registerBackupHandlers();
+
+    // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）
+    void autoBackupDaily();
+
+    createWindow();
+
+    // 配布版のみ自動更新を確認（開発時は無効）
+    if (app.isPackaged) {
+      setupAutoUpdater();
+    }
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('will-quit', () => {
+    closeDb();
+  });
+}

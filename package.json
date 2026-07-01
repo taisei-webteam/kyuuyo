@@ -18,7 +18,8 @@
     "typecheck:renderer": "cd src/renderer && npx tsc --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "better-sqlite3": "^12.11.1",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.38.0",
     "electron-updater": "^6.3.0"
