@@ -113,6 +113,8 @@ const api = {
       landscape?: boolean
     }): Promise<IpcResult<{ base64: string }>> =>
       ipcRenderer.invoke(IPC.EXPORT.PDF_BUFFER, params ?? {}),
+    csv: (params: { fileName?: string; content: string }): Promise<IpcResult<{ path: string | null }>> =>
+      ipcRenderer.invoke(IPC.EXPORT.CSV, params),
   },
 
   mail: {

@@ -108,6 +108,17 @@
   flex-shrink: 0;
 }
 
+/* 一括印刷プレビュー: 全員分のページを縦に並べて表示する */
+.bulkBody {
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.bulkItem {
+  flex-shrink: 0;
+}
+
 /* ============ 帳票本体 ============ */
 
 /* プレビューとPDFを一致させるため、A4寸法(mm)・フォントを画面/印刷で共通化する */
@@ -438,6 +449,17 @@
     box-shadow: none;
     page-break-after: avoid;
     page-break-inside: avoid;
+  }
+
+  /* 一括印刷: 従業員ごとに改ページする（最後の1名は余白改ページを避ける） */
+  .bulkItem {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .bulkItem:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 
   .block {

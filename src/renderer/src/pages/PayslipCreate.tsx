@@ -19,6 +19,7 @@ import {
 } from '@/lib/mock-data'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
+import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPrint'
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
@@ -28,6 +29,38 @@ const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
+}
+
+function csvCell(value: string | number): string {
+  const s = String(value)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** 月次給与明細を CSV 文字列へ変換する（金額は円単位の整数、カンマ区切りなし）。 */
+function buildPayslipCsv(
+  items: Array<{ employee: MockEmployee; payslip: MockPayslip }>,
+): string {
+  const headers = [
+    '氏名', 'フリガナ', '部署', '従業員区分',
+    '勤務日数', '勤務時間', '残業時間', '休日出勤日数',
+    '基本給', '時間外賃金', '交通費', '役職手当', '家族手当', '特別手当', '危険手当', '営業手当', 'その他手当', '総支給額',
+    '健康保険', '介護保険', '厚生年金', '雇用保険', '所得税', '住民税', '積立', '貸付', 'その他控除', '控除合計',
+    '差引支給額',
+  ]
+  const lines = [headers.join(',')]
+  for (const { employee: e, payslip: p } of items) {
+    const row: Array<string | number> = [
+      e.name, e.nameKana, e.departmentName, e.employeeType,
+      p.workDays, p.workHours, p.overtimeHours, p.holidayWorkDays,
+      p.basicSalary, p.overtimePay, p.transportAllowance, p.positionAllowance, p.familyAllowance,
+      p.specialAllowance, p.dangerAllowance, p.salesAllowance, p.otherAllowance, p.totalPayment,
+      p.healthInsurance, p.nursingInsurance, p.welfarePension, p.employmentInsurance,
+      p.incomeTax, p.residentTax, p.savingsDeduction, p.loanDeduction, p.otherDeduction, p.totalDeduction,
+      p.netPayment,
+    ]
+    lines.push(row.map(csvCell).join(','))
+  }
+  return lines.join('\r\n')
 }
 
 type DistributeMode = 'pdf' | 'email'
@@ -75,6 +108,8 @@ export function PayslipCreate(): ReactElement {
   const [editPayslips, setEditPayslips] = useState<MockPayslip[]>([])
   const [showBulkEmail, setShowBulkEmail] = useState(false)
   const [printing, setPrinting] = useState(false)
+  const [bulkPrinting, setBulkPrinting] = useState(false)
+  const [exportingCsv, setExportingCsv] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -320,6 +355,64 @@ export function PayslipCreate(): ReactElement {
     setPrinting(false)
   }, [])
 
+  // 一括印刷対象（従業員の表示順で、明細が存在する全員）
+  const bulkPrintItems = useMemo<BulkPrintItem[]>(() => {
+    const items: BulkPrintItem[] = []
+    for (const emp of employees) {
+      const ps = editPayslips.find((p) => p.employeeId === emp.id)
+      if (ps) items.push({ employee: emp, payslip: ps })
+    }
+    return items
+  }, [employees, editPayslips])
+
+  const handleBulkPrint = useCallback((): void => {
+    if (bulkPrintItems.length === 0) {
+      alert('印刷対象の明細がありません。先に給与データを作成してください。')
+      return
+    }
+    setBulkPrinting(true)
+  }, [bulkPrintItems])
+
+  const handleBulkPrintDone = useCallback((): void => {
+    setBulkPrinting(false)
+  }, [])
+
+  const handleExportCsv = useCallback(async (): Promise<void> => {
+    if (bulkPrintItems.length === 0) {
+      alert('出力対象の明細がありません。先に給与データを作成してください。')
+      return
+    }
+    const content = buildPayslipCsv(bulkPrintItems)
+    const mm = String(selectedMonth).padStart(2, '0')
+    const fileName = `${selectedYear}-${mm}_給与明細一覧`
+    const exportCsv = window.api?.export?.csv
+    if (typeof exportCsv !== 'function') {
+      // ブラウザ単体プレビュー時はブラウザのダウンロードにフォールバック
+      const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${fileName}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    setExportingCsv(true)
+    setCreateMessage(null)
+    try {
+      const result = await exportCsv({ fileName, content })
+      if (!result.success) {
+        setCreateMessage(`CSV出力に失敗しました: ${result.error}`)
+      } else if (result.data.path) {
+        setCreateMessage(`CSVを保存しました: ${result.data.path}`)
+      }
+    } catch (err) {
+      setCreateMessage(`CSV出力に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setExportingCsv(false)
+    }
+  }, [bulkPrintItems, selectedYear, selectedMonth])
+
   const isFutureMonth =
     selectedYear > now.getFullYear() ||
     (selectedYear === now.getFullYear() && selectedMonth > now.getMonth() + 1)
@@ -391,7 +484,15 @@ export function PayslipCreate(): ReactElement {
             </button>
             {distributeMode === 'pdf' ? (
               <>
-                <button className={styles.btnSecondary} onClick={() => alert('一括印刷します（モック）')}>一括印刷</button>
+                <button
+                  className={styles.btnSecondary}
+                  onClick={handleExportCsv}
+                  disabled={exportingCsv}
+                  title="この月の給与明細一覧をCSVで書き出します"
+                >
+                  {exportingCsv ? 'CSV出力中...' : 'CSV出力'}
+                </button>
+                <button className={styles.btnSecondary} onClick={handleBulkPrint}>一括印刷</button>
                 <button className={styles.btnPrimary} onClick={handlePrint}>印刷</button>
               </>
             ) : (
@@ -494,6 +595,16 @@ export function PayslipCreate(): ReactElement {
           year={selectedYear}
           month={selectedMonth}
           onDone={handlePrintDone}
+        />
+      )}
+
+      {bulkPrinting && (
+        <PayslipBulkPrint
+          items={bulkPrintItems}
+          year={selectedYear}
+          month={selectedMonth}
+          fileName={`${selectedYear}-${String(selectedMonth).padStart(2, '0')}_給与明細_一括`}
+          onDone={handleBulkPrintDone}
         />
       )}
     </div>

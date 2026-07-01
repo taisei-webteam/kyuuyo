@@ -148,6 +148,13 @@ interface ElectronExportApi {
     success: false;
     error: string;
   }>;
+  csv(params: { fileName?: string; content: string }): Promise<{
+    success: true;
+    data: { path: string | null };
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronMailApi {
@@ -290,12 +297,56 @@ interface ElectronBackupApi {
   }>;
 }
 
+interface ElectronCompanyApi {
+  get(): Promise<{
+    success: true;
+    data: import('../../shared/types').CompanySettings;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  update(data: import('../../shared/types').CompanySettingsUpdate): Promise<{
+    success: true;
+    data: import('../../shared/types').CompanySettings;
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
+interface ElectronCalendarApi {
+  list(year: number): Promise<{
+    success: true;
+    data: import('../../shared/types').CalendarEntry[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  set(date: string, isHoliday: boolean, holidayName?: string): Promise<{
+    success: true;
+    data: { saved: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  initYear(
+    year: number,
+    holidays: Array<{ date: string; isHoliday: boolean; holidayName: string | null }>,
+  ): Promise<{
+    success: true;
+    data: { count: number };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: ElectronEmployeesApi;
   payslips: ElectronPayslipsApi;
-  company: Record<string, (...args: unknown[]) => Promise<unknown>>;
-  calendar: Record<string, (...args: unknown[]) => Promise<unknown>>;
+  company: ElectronCompanyApi;
+  calendar: ElectronCalendarApi;
   export: ElectronExportApi;
   mail: ElectronMailApi;
   backup: ElectronBackupApi;

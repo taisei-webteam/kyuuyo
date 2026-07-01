@@ -551,6 +551,45 @@ export function resetCalendarYear(year: number): void {
   }
 }
 
+/**
+ * Electron 環境では DB(company_calendar) から会社カレンダーを読み込み、
+ * インメモリの calendarStore へ反映する。日曜・祝日は holidays-jp から
+ * 既定値を再計算し、DB に保存された会社休日設定で上書きする。
+ * Vite 単体では何もしない。
+ */
+export async function hydrateCalendarYearFromDb(year: number): Promise<boolean> {
+  if (typeof window === 'undefined' || !('api' in window)) return false
+  resetCalendarYear(year)
+  initCalendarYear(year)
+  const res = await window.api.calendar.list(year)
+  if (!res.success) return false
+  for (const entry of res.data) {
+    const existing = calendarStore.get(entry.date)
+    calendarStore.set(entry.date, {
+      isHoliday: !!entry.isHoliday,
+      holidayName: entry.holidayName ?? existing?.holidayName ?? null,
+      isNationalHoliday: existing?.isNationalHoliday ?? false,
+    })
+  }
+  return true
+}
+
+/**
+ * calendarStore の指定年の状態を DB 保存用の配列へ書き出す。
+ */
+export function exportCalendarYearForDb(
+  year: number,
+): Array<{ date: string; isHoliday: boolean; holidayName: string | null }> {
+  initCalendarYear(year)
+  const result: Array<{ date: string; isHoliday: boolean; holidayName: string | null }> = []
+  for (const [key, val] of calendarStore) {
+    if (key.startsWith(`${year}-`)) {
+      result.push({ date: key, isHoliday: val.isHoliday, holidayName: val.holidayName })
+    }
+  }
+  return result
+}
+
 function isCalendarHoliday(dateStr: string, year: number): boolean {
   if (!calendarStore.has(`${year}-01-01`)) {
     initCalendarYear(year)

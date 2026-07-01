@@ -5,7 +5,7 @@
  * 既定のPDFビューアで開く。Electron 標準印刷ダイアログのプレビュー非対応を
  * 回避し、確実なプレビュー＋印刷を提供する。
  */
-import { ipcMain, BrowserWindow, shell, app } from 'electron';
+import { ipcMain, BrowserWindow, dialog, shell, app } from 'electron';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { IPC } from '../../shared/ipc-channels.js';
@@ -87,6 +87,36 @@ export function registerExportHandlers(): void {
         return { success: true, data: { base64: pdfData.toString('base64') } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'PDF生成に失敗しました' };
+      }
+    },
+  );
+
+  // CSV 出力：保存先ダイアログでパスを選択し、UTF-8(BOM付き)で書き出す。
+  // BOM は Excel で日本語が文字化けしないために付与する。
+  ipcMain.handle(
+    IPC.EXPORT.CSV,
+    async (
+      event,
+      params: { fileName?: string; content: string },
+    ): Promise<IpcResult<{ path: string | null }>> => {
+      try {
+        const base = sanitizeFileName(params?.fileName ?? 'export');
+        const win = BrowserWindow.fromWebContents(event.sender);
+        const options: Electron.SaveDialogOptions = {
+          title: 'CSVの保存先を選択',
+          defaultPath: `${base}.csv`,
+          filters: [{ name: 'CSV (カンマ区切り)', extensions: ['csv'] }],
+        };
+        const { canceled, filePath } = win
+          ? await dialog.showSaveDialog(win, options)
+          : await dialog.showSaveDialog(options);
+        if (canceled || !filePath) {
+          return { success: true, data: { path: null } };
+        }
+        await writeFile(filePath, `\uFEFF${params.content}`, 'utf8');
+        return { success: true, data: { path: filePath } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'CSV出力に失敗しました' };
       }
     },
   );

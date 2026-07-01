@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactElement } from 'react'
 import {
   getCalendarYear,
@@ -6,12 +6,15 @@ import {
   loadNationalHolidays,
   resetCalendarYear,
   initCalendarYear,
+  hydrateCalendarYearFromDb,
+  exportCalendarYearForDb,
   type CalendarDay,
 } from '@/lib/mock-data'
-import { getHolidaysForYear } from '@/lib/holidays-jp'
 import styles from './CompanyCalendar.module.css'
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
+
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 function MonthGrid({
   year,
@@ -99,6 +102,18 @@ export function CompanyCalendar(): ReactElement {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   }, [])
 
+  useEffect(() => {
+    if (!hasElectronApi) return
+    let cancelled = false
+    void (async () => {
+      await hydrateCalendarYearFromDb(selectedYear)
+      if (!cancelled) setRefreshKey((k) => k + 1)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedYear])
+
   const calendarData = useMemo(() => {
     void refreshKey
     return getCalendarYear(selectedYear)
@@ -116,8 +131,12 @@ export function CompanyCalendar(): ReactElement {
     (dateStr: string) => {
       const current = calendarData.get(dateStr)
       if (!current) return
-      setCalendarDay(dateStr, !current.isHoliday)
+      const next = !current.isHoliday
+      setCalendarDay(dateStr, next)
       setRefreshKey((k) => k + 1)
+      if (hasElectronApi) {
+        void window.api.calendar.set(dateStr, next, current.holidayName ?? undefined)
+      }
     },
     [calendarData],
   )
@@ -125,12 +144,18 @@ export function CompanyCalendar(): ReactElement {
   const handleLoadHolidays = useCallback(() => {
     loadNationalHolidays(selectedYear)
     setRefreshKey((k) => k + 1)
+    if (hasElectronApi) {
+      void window.api.calendar.initYear(selectedYear, exportCalendarYearForDb(selectedYear))
+    }
   }, [selectedYear])
 
   const handleReset = useCallback(() => {
     resetCalendarYear(selectedYear)
     initCalendarYear(selectedYear)
     setRefreshKey((k) => k + 1)
+    if (hasElectronApi) {
+      void window.api.calendar.initYear(selectedYear, exportCalendarYearForDb(selectedYear))
+    }
   }, [selectedYear])
 
   const yearOptions = useMemo(() => {
