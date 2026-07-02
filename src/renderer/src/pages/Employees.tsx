@@ -7,10 +7,12 @@ import {
   reloadEmployeesFromDb,
   mockToEmployeeInput,
   calcAge,
+  isEmployeeRetired,
   type MockEmployee,
 } from '@/lib/mock-data'
 import { EmployeeForm } from '@/components/EmployeeForm'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
+import { StandardRemunerationModal } from '@/components/StandardRemunerationModal'
 import styles from './Employees.module.css'
 
 function yen(amount: number): string {
@@ -25,6 +27,7 @@ export function Employees(): ReactElement {
   const [editingEmployee, setEditingEmployee] = useState<MockEmployee | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isResidentTaxOpen, setIsResidentTaxOpen] = useState(false)
+  const [isStdRemunOpen, setIsStdRemunOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
@@ -41,6 +44,8 @@ export function Employees(): ReactElement {
         }
         return true
       })
+      // 退職者は一覧の最後にまとめる（在籍者内・退職者内の並びは表示順を維持）
+      .sort((a, b) => Number(isEmployeeRetired(a)) - Number(isEmployeeRetired(b)))
   }, [employees, searchQuery, filterType])
 
   function handleNew(): void {
@@ -100,13 +105,14 @@ export function Employees(): ReactElement {
     setSyncing(true)
     setSyncMessage(null)
     try {
+      // 退職者は is_active=false で送り、打刻アプリの一覧から外す（IDと過去の打刻データは保持）
       const payload = getEmployees().map((e) => ({
         id: e.id,
         name: e.name,
         name_kana: e.nameKana,
         employee_type: e.employeeType,
         display_order: e.displayOrder,
-        is_active: e.isActive,
+        is_active: !isEmployeeRetired(e),
       }))
       const result = await window.api.attendance.syncEmployees(payload)
       if (result.success) {
@@ -148,6 +154,9 @@ export function Employees(): ReactElement {
           </div>
         </div>
         <div className={styles.headerActions}>
+          <button className={styles.btnSecondary} onClick={() => setIsStdRemunOpen(true)}>
+            標準報酬の定時決定
+          </button>
           <button className={styles.btnSecondary} onClick={() => setIsResidentTaxOpen(true)}>
             住民税を一括入力
           </button>
@@ -182,11 +191,22 @@ export function Employees(): ReactElement {
           <tbody>
             {filtered.map((emp) => {
               const age = emp.birthDate ? calcAge(emp.birthDate) : null
+              const retired = isEmployeeRetired(emp)
               return (
-                <tr key={emp.id} className={styles.row}>
+                <tr
+                  key={emp.id}
+                  className={`${styles.row} ${retired ? styles.rowRetired : ''}`}
+                >
                   <td className={styles.tdFixed}>
                     <div className={styles.nameCell}>
-                      <span className={styles.namePrimary}>{emp.name}</span>
+                      <span className={styles.namePrimary}>
+                        {emp.name}
+                        {retired && (
+                          <span className={styles.badgeRetired}>
+                            退職{emp.resignDate ? `（${emp.resignDate}）` : ''}
+                          </span>
+                        )}
+                      </span>
                       <span className={styles.nameKana}>{emp.nameKana}</span>
                     </div>
                   </td>
@@ -241,6 +261,14 @@ export function Employees(): ReactElement {
         <ResidentTaxBulkModal
           employees={employees}
           onClose={() => setIsResidentTaxOpen(false)}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {isStdRemunOpen && (
+        <StandardRemunerationModal
+          employees={employees}
+          onClose={() => setIsStdRemunOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}

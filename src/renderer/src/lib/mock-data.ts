@@ -111,6 +111,8 @@ export interface MockEmployee {
   departmentName: string
   jobTitle: string
   hireDate: string
+  /** 退職日（在籍中は null）。入退社月の日割り・社会保険資格の判定に使用 */
+  resignDate?: string | null
   displayOrder: number
   basicSalary: number
   hourlyRate: number
@@ -875,12 +877,71 @@ export function aggregateAttendanceRecords(
   return result
 }
 
+/** 'YYYY-MM-DD' を数値の年月日に分解する。空・不正なら null。 */
+function parseYmd(s: string | null | undefined): { y: number; m: number; d: number } | null {
+  if (!s) return null
+  const mm = /^(\d{4})-(\d{2})-(\d{2})/.exec(s)
+  if (!mm) return null
+  return { y: Number(mm[1]), m: Number(mm[2]), d: Number(mm[3]) }
+}
+
+interface MonthlyEmployment {
+  /** その月に1日でも在籍していたか */
+  employed: boolean
+  /** 基本給の日割り係数（在籍日数 ÷ 暦日数、0〜1） */
+  prorationFactor: number
+  /** その月に社会保険料（健保・介護・厚年）を徴収するか */
+  socialInsuranceApplies: boolean
+}
+
+/**
+ * 入社日・退職日から、その月の在籍状況（日割り係数・社会保険資格）を判定する。
+ * - 基本給の日割り: 在籍日数 ÷ その月の暦日数（暦日ベース）
+ * - 社会保険料: 資格取得月から発生し、資格喪失月（退職日の翌日が属する月）以降は徴収しない
+ *   （＝月末退職はその月も徴収、月途中退職はその月は徴収しない）
+ * - 入社日・退職日が未設定なら常に在籍（従来どおり）として扱う
+ */
+function getMonthlyEmployment(
+  hireDate: string | null | undefined,
+  resignDate: string | null | undefined,
+  year: number,
+  month: number,
+): MonthlyEmployment {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const hire = parseYmd(hireDate)
+  const resign = parseYmd(resignDate)
+
+  const hireAfterMonth = !!hire && (hire.y > year || (hire.y === year && hire.m > month))
+  const resignBeforeMonth = !!resign && (resign.y < year || (resign.y === year && resign.m < month))
+  if (hireAfterMonth || resignBeforeMonth) {
+    return { employed: false, prorationFactor: 0, socialInsuranceApplies: false }
+  }
+
+  const hireInMonth = !!hire && hire.y === year && hire.m === month
+  const resignInMonth = !!resign && resign.y === year && resign.m === month
+  const startDay = hireInMonth ? hire!.d : 1
+  const endDay = resignInMonth ? resign!.d : daysInMonth
+  const enrolledDays = Math.max(0, endDay - startDay + 1)
+  const prorationFactor = enrolledDays === 0 ? 0 : Math.min(1, enrolledDays / daysInMonth)
+
+  // 月途中退職（退職日が月末より前）はその月の社会保険料を徴収しない。
+  // ※同月内の入社かつ退職（同月得喪）は本来徴収対象だが稀なため簡略化している。
+  const resignedMidMonth = resignInMonth && resign!.d < daysInMonth
+  const socialInsuranceApplies = enrolledDays > 0 && !resignedMidMonth
+
+  return { employed: enrolledDays > 0, prorationFactor, socialInsuranceApplies }
+}
+
 function generatePayslips(
   year: number,
   month: number,
   realAttendance?: Map<number, AttendanceAggregate>,
 ): MockPayslip[] {
-  return employeeData.map((emp, idx) => {
+  return employeeData
+    .map((emp, idx): MockPayslip | null => {
+      // 入退社月の在籍判定（日割り・社会保険資格）
+      const employment = getMonthlyEmployment(emp.hireDate, emp.resignDate, year, month)
+      if (!employment.employed) return null
     // 実勤怠 (Supabase 同期 → attendance_records) があれば優先し、
     // 無ければ従来どおりモック勤怠から算出する。
     const real = realAttendance?.get(emp.id)
@@ -916,6 +977,11 @@ function generatePayslips(
       basicSalary = emp.basicSalary
     }
 
+    // 入退社月は基本給を暦日で日割り（時給制は実労働時間ベースのため対象外）
+    if (!isPartTime && employment.prorationFactor < 1) {
+      basicSalary = Math.round(basicSalary * employment.prorationFactor)
+    }
+
     const overtimePay = Math.round(hourlyRate * 1.25 * overtimeHours)
 
     const totalPayment =
@@ -934,21 +1000,25 @@ function generatePayslips(
       totalPayment,
     )
 
+    // 社会保険の非対象月（月途中退職の当月など）は健保・介護・厚年を徴収しない。
+    // 雇用保険は実際の賃金に対して発生するため在籍している限り継続。
+    const healthInsurance = employment.socialInsuranceApplies ? premiums.healthInsurance : 0
+    const nursingInsurance = employment.socialInsuranceApplies ? premiums.nursingInsurance : 0
+    const welfarePension = employment.socialInsuranceApplies ? premiums.welfarePension : 0
+    const employmentInsurance = premiums.employmentInsurance
+
     // その月の社会保険料等控除後の給与等の金額（非課税通勤手当を除いた課税支給 − 社会保険料）
     const socialInsuranceTotal =
-      premiums.healthInsurance +
-      premiums.nursingInsurance +
-      premiums.welfarePension +
-      premiums.employmentInsurance
+      healthInsurance + nursingInsurance + welfarePension + employmentInsurance
     const taxableBase = totalPayment - emp.transportAllowance - socialInsuranceTotal
     // 源泉徴収税額（月額表・甲欄／電算機計算の特例）。扶養親族等の数で税額が変わる。
     const incomeTax = calcWithholdingTaxMonthly(taxableBase, emp.dependents)
 
     const totalDeduction =
-      premiums.healthInsurance +
-      premiums.nursingInsurance +
-      premiums.welfarePension +
-      premiums.employmentInsurance +
+      healthInsurance +
+      nursingInsurance +
+      welfarePension +
+      employmentInsurance +
       incomeTax +
       emp.residentTax +
       emp.savingsDeduction +
@@ -975,10 +1045,10 @@ function generatePayslips(
       salesAllowance: emp.salesAllowance,
       otherAllowance: 0,
       totalPayment,
-      healthInsurance: premiums.healthInsurance,
-      nursingInsurance: premiums.nursingInsurance,
-      welfarePension: premiums.welfarePension,
-      employmentInsurance: premiums.employmentInsurance,
+      healthInsurance,
+      nursingInsurance,
+      welfarePension,
+      employmentInsurance,
       incomeTax,
       residentTax: emp.residentTax,
       savingsDeduction: emp.savingsDeduction,
@@ -987,7 +1057,8 @@ function generatePayslips(
       totalDeduction,
       netPayment,
     }
-  })
+    })
+    .filter((p): p is MockPayslip => p !== null)
 }
 
 const payslipCache = new Map<string, MockPayslip[]>()
@@ -1051,6 +1122,21 @@ export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean
 }
 
 /**
+ * 退職者かどうかを判定する。
+ * - 論理削除（isActive=false）されている
+ * - もしくは退職日が設定済みで、その日が基準日（既定=今日）以前
+ * ※ID は変更しない。表示や打刻同期の「非アクティブ」判定に使う。
+ */
+export function isEmployeeRetired(
+  emp: Pick<MockEmployee, 'isActive' | 'resignDate'>,
+  asOf: string = new Date().toISOString().slice(0, 10),
+): boolean {
+  if (!emp.isActive) return true
+  if (emp.resignDate && emp.resignDate <= asOf) return true
+  return false
+}
+
+/**
  * MockEmployee を DB 登録/更新用の入力(EmployeeCreate)へ変換する。
  * holidayDays は DB に列が無いため除外する。
  */
@@ -1064,7 +1150,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     departmentName: m.departmentName,
     jobTitle: m.jobTitle,
     hireDate: m.hireDate || null,
-    resignDate: null,
+    resignDate: m.resignDate || null,
     displayOrder: m.displayOrder,
     basicSalary: m.basicSalary,
     hourlyRate: m.hourlyRate,
@@ -1108,6 +1194,7 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     departmentName: e.departmentName,
     jobTitle: e.jobTitle,
     hireDate: e.hireDate ?? '',
+    resignDate: e.resignDate ?? null,
     displayOrder: e.displayOrder,
     basicSalary: e.basicSalary,
     hourlyRate: e.hourlyRate,

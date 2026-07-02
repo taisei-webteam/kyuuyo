@@ -22,6 +22,7 @@ const emptyEmployee: MockEmployee = {
   departmentName: '',
   jobTitle: '',
   hireDate: '',
+  resignDate: null,
   displayOrder: 0,
   basicSalary: 0,
   hourlyRate: 0,
@@ -178,6 +179,15 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   <DateSelect
                     value={form.hireDate}
                     onChange={(value) => handleChange('hireDate', value)}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>退職年月日（在籍中は空欄）</label>
+                  <DateSelect
+                    value={form.resignDate ?? ''}
+                    onChange={(value) =>
+                      setForm((prev) => ({ ...prev, resignDate: value || null }))
+                    }
                   />
                 </div>
                 <div className={styles.field}>
