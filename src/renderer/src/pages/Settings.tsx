@@ -37,14 +37,6 @@ function formatBackupDate(iso: string): string {
   return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-interface CompanyRoundingDto {
-  roundingUnit: number
-  gracePeriod: number
-  defaultBreakMinutes: number
-  earlyRoundingUnit: number
-  overtimeRoundingUnit: number
-}
-
 const ROUNDING_OPTIONS = [
   { value: 5, label: '5分' },
   { value: 10, label: '10分' },
@@ -75,14 +67,17 @@ export default function Settings(): ReactElement {
     setForm(getSettings())
     if (!hasElectronApi) return
     void (async () => {
-      const res = (await window.api.company.get()) as {
-        success: boolean
-        data?: Partial<CompanyRoundingDto>
-      }
+      const res = await window.api.company.get()
       if (res.success && res.data) {
         const d = res.data
         setForm((prev) => ({
           ...prev,
+          companyName: d.name || prev.companyName,
+          representativeName: d.representativeName ?? prev.representativeName,
+          postalCode: d.postalCode ?? prev.postalCode,
+          address: d.address ?? prev.address,
+          phone: d.phone ?? prev.phone,
+          insuranceNumber: d.insuranceNumber ?? prev.insuranceNumber,
           roundingUnit: d.roundingUnit ?? prev.roundingUnit,
           gracePeriod: d.gracePeriod ?? prev.gracePeriod,
           defaultBreakMinutes: d.defaultBreakMinutes ?? prev.defaultBreakMinutes,
@@ -244,14 +239,19 @@ export default function Settings(): ReactElement {
   const handleSave = useCallback(async () => {
     updateSettings(form)
     if (hasElectronApi) {
-      const payload: CompanyRoundingDto = {
+      await window.api.company.update({
+        name: form.companyName,
+        representativeName: form.representativeName,
+        postalCode: form.postalCode,
+        address: form.address,
+        phone: form.phone,
+        insuranceNumber: form.insuranceNumber,
         roundingUnit: form.roundingUnit,
         gracePeriod: form.gracePeriod,
         defaultBreakMinutes: form.defaultBreakMinutes,
         earlyRoundingUnit: form.earlyRoundingUnit,
         overtimeRoundingUnit: form.overtimeRoundingUnit,
-      }
-      await window.api.company.update(payload)
+      })
     }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)

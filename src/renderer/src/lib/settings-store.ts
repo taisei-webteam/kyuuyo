@@ -92,3 +92,32 @@ export function subscribe(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+
+/**
+ * SQLite の会社情報(companies)をストアへ反映する。
+ * 給与明細・源泉徴収票などが参照する会社名・住所等を、再起動後も維持するため
+ * アプリ起動時に一度呼び出す。Electron 環境のみ動作。
+ */
+export async function hydrateCompanyFromDb(): Promise<void> {
+  if (typeof window === 'undefined' || !('api' in window)) return
+  try {
+    const res = await window.api.company.get()
+    if (!res.success || !res.data) return
+    const d = res.data
+    updateSettings({
+      companyName: d.name || current.companyName,
+      representativeName: d.representativeName ?? '',
+      postalCode: d.postalCode ?? '',
+      address: d.address ?? '',
+      phone: d.phone ?? '',
+      insuranceNumber: d.insuranceNumber ?? '',
+      roundingUnit: d.roundingUnit ?? current.roundingUnit,
+      gracePeriod: d.gracePeriod ?? current.gracePeriod,
+      defaultBreakMinutes: d.defaultBreakMinutes ?? current.defaultBreakMinutes,
+      earlyRoundingUnit: d.earlyRoundingUnit ?? current.earlyRoundingUnit,
+      overtimeRoundingUnit: d.overtimeRoundingUnit ?? current.overtimeRoundingUnit,
+    })
+  } catch {
+    // 取得失敗時は既定値のまま
+  }
+}

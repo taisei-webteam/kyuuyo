@@ -12,6 +12,7 @@ import { PayslipHistory } from './pages/PayslipHistory'
 // import { WithholdingCertificate } from './pages/WithholdingCertificate'
 import Settings from './pages/Settings'
 import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb } from './lib/mock-data'
+import { hydrateCompanyFromDb } from './lib/settings-store'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
@@ -26,6 +27,7 @@ export function App(): ReactElement {
     void (async () => {
       try {
         await reloadEmployeesFromDb()
+        await hydrateCompanyFromDb()
         await hydrateCalendarYearFromDb(new Date().getFullYear())
         await hydrateInsuranceRatesFromDb(new Date().getFullYear())
       } finally {
