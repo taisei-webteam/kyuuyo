@@ -9,7 +9,7 @@ import { PayslipCreate } from './pages/PayslipCreate'
 import { BonusCreate } from './pages/BonusCreate'
 import { PayslipHistory } from './pages/PayslipHistory'
 import Settings from './pages/Settings'
-import { reloadEmployeesFromDb, hydrateCalendarYearFromDb } from './lib/mock-data'
+import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb } from './lib/mock-data'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
@@ -25,6 +25,7 @@ export function App(): ReactElement {
       try {
         await reloadEmployeesFromDb()
         await hydrateCalendarYearFromDb(new Date().getFullYear())
+        await hydrateInsuranceRatesFromDb(new Date().getFullYear())
       } finally {
         if (!cancelled) setReady(true)
       }

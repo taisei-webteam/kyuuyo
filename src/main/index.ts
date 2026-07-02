@@ -38,6 +38,7 @@ import { registerAttendanceHandlers } from './ipc/attendance.ipc.js';
 import { registerExportHandlers } from './ipc/export.ipc.js';
 import { registerMailHandlers } from './ipc/mail.ipc.js';
 import { registerBackupHandlers } from './ipc/backup.ipc.js';
+import { registerInsuranceRateHandlers } from './ipc/insurance-rates.ipc.js';
 import { autoBackupDaily } from './services/backup.service.js';
 import { setupAutoUpdater } from './updater.js';
 
@@ -97,6 +98,7 @@ if (!gotSingleInstanceLock) {
     registerExportHandlers();
     registerMailHandlers();
     registerBackupHandlers();
+    registerInsuranceRateHandlers();
 
     // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）
     void autoBackupDaily();

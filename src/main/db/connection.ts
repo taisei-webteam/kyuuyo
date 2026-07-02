@@ -11,7 +11,7 @@ import { app } from 'electron';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
-import { seedEmployeesIfEmpty } from './seed.js';
+import { seedEmployeesIfEmpty, seedInsuranceRatesIfEmpty } from './seed.js';
 
 let sqlite: Database.Database | null = null;
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -215,6 +215,9 @@ function initTables(): void {
       prefecture TEXT NOT NULL DEFAULT '全国'
     );
 
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_insurance_rates_year_pref
+      ON insurance_rates(year, prefecture);
+
     CREATE TABLE IF NOT EXISTS work_schedules (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -255,6 +258,9 @@ function initTables(): void {
 
   // ローカル開発用: 従業員が未登録なら mock と同一の従業員を投入する
   seedEmployeesIfEmpty(raw);
+
+  // 社会保険料率が未登録なら初期値（令和6年度・折半後の参考値）を投入する
+  seedInsuranceRatesIfEmpty(raw);
 }
 
 /**

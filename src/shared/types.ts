@@ -265,6 +265,32 @@ export interface EmailLogInput {
 }
 
 // ========================================
+// 社会保険料率マスタ
+// ========================================
+
+/** 年度別の社会保険料率（いずれも被保険者負担分＝折半後の率） */
+export interface InsuranceRate {
+  id: number;
+  /** 適用年（例: 2024 = 令和6年度） */
+  year: number;
+  /** 適用開始月（協会けんぽは通常3月分＝4月納付。既定4） */
+  month: number;
+  /** 健康保険料率（被保険者負担分。都道府県ごとに異なる） */
+  healthRate: number;
+  /** 介護保険料率（被保険者負担分。40歳以上に適用） */
+  nursingRate: number;
+  /** 厚生年金保険料率（被保険者負担分。全国一律） */
+  pensionRate: number;
+  /** 雇用保険料率（被保険者負担分。総支給額ベース） */
+  employmentRate: number;
+  /** 都道府県（健康保険料率の根拠。既定 '全国'） */
+  prefecture: string;
+}
+
+/** 料率の新規登録／更新入力（id があれば更新、無ければ年度+都道府県で upsert） */
+export type InsuranceRateInput = Omit<InsuranceRate, 'id'> & { id?: number };
+
+// ========================================
 // データバックアップ
 // ========================================
 

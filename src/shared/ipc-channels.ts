@@ -55,4 +55,9 @@ export const IPC = {
     OPEN_DIR: 'backup:open-dir',
     RESTORE: 'backup:restore',
   },
+  INSURANCE_RATES: {
+    LIST: 'insurance-rates:list',
+    UPSERT: 'insurance-rates:upsert',
+    DELETE: 'insurance-rates:delete',
+  },
 } as const;

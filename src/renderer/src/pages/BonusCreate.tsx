@@ -4,7 +4,7 @@ import {
   isEmailSent,
   sendEmail,
   calculateInsurancePremiums,
-  calcAge,
+  calculateBonusInsurancePremiums,
   loadBonusFromDb,
   saveBonusToDb,
   loadEmailHistory,
@@ -109,12 +109,10 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
       const specialBonus = emp.employeeType === '役員' ? 100000 : 0
       const totalPayment = basicBonus + performanceBonus + specialBonus
 
-      // 賞与の社会保険料（標準賞与額ベース。介護保険は40歳以上のみ）
-      const age = emp.birthDate ? calcAge(emp.birthDate) : 0
-      const healthInsurance = Math.round(totalPayment * 0.04985)
-      const nursingInsurance = age >= 40 ? Math.round(totalPayment * 0.008) : 0
-      const welfarePension = Math.round(totalPayment * 0.0915)
-      const employmentInsurance = Math.round(totalPayment * 0.006)
+      // 賞与の社会保険料（介護保険は40歳以上のみ）。
+      // 料率は月次給与と共通の INSURANCE_RATES（insurance_rates マスタ）を参照する。
+      const { healthInsurance, nursingInsurance, welfarePension, employmentInsurance } =
+        calculateBonusInsurancePremiums(totalPayment, emp.birthDate ?? '')
       const socialInsurance = healthInsurance + nursingInsurance + welfarePension + employmentInsurance
 
       // 前月の社会保険料等控除後の給与等の金額（マスタから推計：課税支給 − 月次社会保険料）

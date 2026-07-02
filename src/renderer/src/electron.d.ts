@@ -341,6 +341,30 @@ interface ElectronCalendarApi {
   }>;
 }
 
+interface ElectronInsuranceRatesApi {
+  list(): Promise<{
+    success: true;
+    data: import('../../shared/types').InsuranceRate[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  upsert(data: import('../../shared/types').InsuranceRateInput): Promise<{
+    success: true;
+    data: import('../../shared/types').InsuranceRate;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  delete(id: number): Promise<{
+    success: true;
+    data: { deleted: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+}
+
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: ElectronEmployeesApi;
@@ -350,6 +374,7 @@ interface ElectronApi {
   export: ElectronExportApi;
   mail: ElectronMailApi;
   backup: ElectronBackupApi;
+  insuranceRates: ElectronInsuranceRatesApi;
 }
 
 interface Window {

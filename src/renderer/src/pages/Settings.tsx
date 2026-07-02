@@ -3,19 +3,21 @@ import type { ReactElement } from 'react'
 import { getSettings, updateSettings } from '../lib/settings-store'
 import type { AppSettings } from '../lib/settings-store'
 import { renderEmailTemplate } from '../lib/email-template'
+import { hydrateInsuranceRatesFromDb } from '../lib/mock-data'
 import { CompanyCalendar } from './CompanyCalendar'
-import type { MailConfigStatus, BackupInfo } from '../../../shared/types'
+import type { MailConfigStatus, BackupInfo, InsuranceRate } from '../../../shared/types'
 import styles from './Settings.module.css'
 
 const DEFAULT_CLIENT_ID = '1086473446602-fkcvs3f5n0lsmlfnlnlcnon79723jsmb.apps.googleusercontent.com'
 const DEFAULT_SENDER_ADDRESS = 'cskyuyomeisai@gmail.com'
 
-type SettingsTab = 'general' | 'email' | 'calendar'
+type SettingsTab = 'general' | 'email' | 'calendar' | 'insurance'
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: 'general', label: '基本設定', icon: '⚙️' },
   { key: 'email', label: 'メール設定', icon: '✉️' },
   { key: 'calendar', label: '休日カレンダー', icon: '📅' },
+  { key: 'insurance', label: '保険料率', icon: '🏥' },
 ]
 
 const EMAIL_PLACEHOLDERS = '{employeeName} {year} {month} {season} {companyName}'
@@ -701,6 +703,285 @@ export default function Settings(): ReactElement {
 
       {/* 休日カレンダータブ */}
       {activeTab === 'calendar' && <CompanyCalendar />}
+
+      {/* 保険料率タブ */}
+      {activeTab === 'insurance' && <InsuranceRatesSettings />}
+    </div>
+  )
+}
+
+// ========================================
+// 保険料率の編集
+// ========================================
+
+interface RateDraft {
+  id?: number
+  year: string
+  month: string
+  prefecture: string
+  healthPct: string
+  nursingPct: string
+  pensionPct: string
+  employmentPct: string
+}
+
+/** 小数の率(0.04985)を百分率の文字列("4.985")へ。浮動小数の誤差を除去する。 */
+function rateToPct(rate: number): string {
+  return String(Number((rate * 100).toFixed(4)))
+}
+
+/** 百分率の文字列("4.985")を小数の率(0.04985)へ。 */
+function pctToRate(pct: string): number {
+  const n = Number(pct)
+  if (Number.isNaN(n)) return NaN
+  return Number((n / 100).toFixed(6))
+}
+
+function toDraft(r: InsuranceRate): RateDraft {
+  return {
+    id: r.id,
+    year: String(r.year),
+    month: String(r.month),
+    prefecture: r.prefecture,
+    healthPct: rateToPct(r.healthRate),
+    nursingPct: rateToPct(r.nursingRate),
+    pensionPct: rateToPct(r.pensionRate),
+    employmentPct: rateToPct(r.employmentRate),
+  }
+}
+
+function emptyDraft(): RateDraft {
+  return {
+    year: String(new Date().getFullYear()),
+    month: '4',
+    prefecture: '全国',
+    healthPct: '',
+    nursingPct: '',
+    pensionPct: '',
+    employmentPct: '',
+  }
+}
+
+function InsuranceRatesSettings(): ReactElement {
+  const [drafts, setDrafts] = useState<RateDraft[]>([])
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
+  const reload = useCallback(async (): Promise<void> => {
+    if (!hasElectronApi) return
+    const res = await window.api.insuranceRates.list()
+    if (res.success) setDrafts(res.data.map(toDraft))
+  }, [])
+
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const updateField = useCallback(
+    (index: number, key: keyof RateDraft, value: string): void => {
+      setDrafts((prev) => prev.map((d, i) => (i === index ? { ...d, [key]: value } : d)))
+    },
+    [],
+  )
+
+  const handleAddRow = useCallback((): void => {
+    setDrafts((prev) => [emptyDraft(), ...prev])
+  }, [])
+
+  const handleSaveRow = useCallback(
+    async (index: number): Promise<void> => {
+      const d = drafts[index]
+      const year = Number(d.year)
+      const month = Number(d.month)
+      const health = pctToRate(d.healthPct)
+      const nursing = pctToRate(d.nursingPct)
+      const pension = pctToRate(d.pensionPct)
+      const employment = pctToRate(d.employmentPct)
+
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        setMessage({ text: '適用年を正しく入力してください', ok: false })
+        return
+      }
+      if ([health, nursing, pension, employment].some((v) => Number.isNaN(v) || v < 0 || v > 1)) {
+        setMessage({ text: '料率は数値（％）で入力してください', ok: false })
+        return
+      }
+      if (d.prefecture.trim().length === 0) {
+        setMessage({ text: '都道府県を入力してください', ok: false })
+        return
+      }
+
+      setBusy(true)
+      setMessage(null)
+      try {
+        const res = await window.api.insuranceRates.upsert({
+          id: d.id,
+          year,
+          month: Number.isInteger(month) && month >= 1 && month <= 12 ? month : 4,
+          healthRate: health,
+          nursingRate: nursing,
+          pensionRate: pension,
+          employmentRate: employment,
+          prefecture: d.prefecture.trim(),
+        })
+        if (res.success) {
+          await reload()
+          // 保存直後に有効料率へ反映（今期の給与計算に効かせる）
+          await hydrateInsuranceRatesFromDb(new Date().getFullYear())
+          setMessage({ text: `${year}年度の料率を保存しました`, ok: true })
+        } else {
+          setMessage({ text: res.error, ok: false })
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [drafts, reload],
+  )
+
+  const handleDeleteRow = useCallback(
+    async (index: number): Promise<void> => {
+      const d = drafts[index]
+      if (d.id === undefined) {
+        // 未保存の追加行はローカルから除去するだけ
+        setDrafts((prev) => prev.filter((_, i) => i !== index))
+        return
+      }
+      const ok = window.confirm(`${d.year}年度（${d.prefecture}）の料率を削除しますか？`)
+      if (!ok) return
+      setBusy(true)
+      try {
+        const res = await window.api.insuranceRates.delete(d.id)
+        if (res.success) {
+          await reload()
+          setMessage({ text: '料率を削除しました', ok: true })
+        } else {
+          setMessage({ text: res.error, ok: false })
+        }
+      } finally {
+        setBusy(false)
+      }
+    },
+    [drafts, reload],
+  )
+
+  const rateFields: { key: keyof RateDraft; label: string }[] = [
+    { key: 'healthPct', label: '健康保険 (%)' },
+    { key: 'nursingPct', label: '介護保険 (%)' },
+    { key: 'pensionPct', label: '厚生年金 (%)' },
+    { key: 'employmentPct', label: '雇用保険 (%)' },
+  ]
+
+  return (
+    <div className={styles.container}>
+      <div className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <span className={styles.sectionIcon}>🏥</span>
+          <span className={styles.sectionTitle}>社会保険料率マスタ</span>
+        </div>
+        <div className={styles.sectionBodySingle}>
+          {hasElectronApi ? (
+            <>
+              <p className={styles.fieldHint}>
+                給与計算で使用する社会保険料率を年度別に管理します。入力する率はすべて
+                <b>被保険者負担分（折半後）</b>です。健康保険・介護保険料率は都道府県（協会けんぽ）や
+                健保組合により異なります。厚生年金は全国一律、雇用保険は総支給額ベースで計算します。
+                料率は毎年度改定されるため、改定時にこの画面で新しい年度の行を追加してください。
+              </p>
+
+              <div className={styles.mailActions}>
+                <button className={styles.btnPrimary} onClick={handleAddRow} disabled={busy}>
+                  年度を追加
+                </button>
+              </div>
+
+              {message && (
+                <div
+                  className={`${styles.mailMessage} ${message.ok ? styles.mailMessageOk : styles.mailMessageNg}`}
+                >
+                  {message.text}
+                </div>
+              )}
+
+              {drafts.length > 0 ? (
+                <div className={styles.rateList}>
+                  {drafts.map((d, index) => (
+                    <div key={d.id ?? `new-${index}`} className={styles.rateCard}>
+                      <div className={styles.rateGrid}>
+                        <div className={styles.rateField}>
+                          <span className={styles.rateLabel}>適用年（西暦）</span>
+                          <input
+                            type="number"
+                            className={styles.input}
+                            value={d.year}
+                            onChange={(e) => updateField(index, 'year', e.target.value)}
+                          />
+                        </div>
+                        <div className={styles.rateField}>
+                          <span className={styles.rateLabel}>適用開始月</span>
+                          <input
+                            type="number"
+                            className={styles.input}
+                            value={d.month}
+                            min={1}
+                            max={12}
+                            onChange={(e) => updateField(index, 'month', e.target.value)}
+                          />
+                        </div>
+                        <div className={styles.rateField}>
+                          <span className={styles.rateLabel}>都道府県</span>
+                          <input
+                            className={styles.input}
+                            value={d.prefecture}
+                            onChange={(e) => updateField(index, 'prefecture', e.target.value)}
+                          />
+                        </div>
+                        {rateFields.map((f) => (
+                          <div key={f.key} className={styles.rateField}>
+                            <span className={styles.rateLabel}>{f.label}</span>
+                            <div className={styles.rateInputWrap}>
+                              <input
+                                type="number"
+                                step="0.001"
+                                className={styles.input}
+                                value={d[f.key] as string}
+                                onChange={(e) => updateField(index, f.key, e.target.value)}
+                              />
+                              <span className={styles.rateSuffix}>%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className={styles.rateActions}>
+                        <button
+                          className={styles.btnDanger}
+                          onClick={() => handleDeleteRow(index)}
+                          disabled={busy}
+                        >
+                          削除
+                        </button>
+                        <button
+                          className={styles.btnPrimary}
+                          onClick={() => handleSaveRow(index)}
+                          disabled={busy}
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.fieldHint}>まだ料率が登録されていません。「年度を追加」から登録してください。</p>
+              )}
+            </>
+          ) : (
+            <p className={styles.fieldHint}>
+              保険料率の編集はデスクトップアプリ版で利用できます（現在はプレビュー環境）。
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

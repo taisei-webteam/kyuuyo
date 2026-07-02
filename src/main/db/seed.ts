@@ -91,3 +91,33 @@ export function seedEmployeesIfEmpty(raw: Database.Database): void {
   });
   tx(SEED_EMPLOYEES);
 }
+
+/**
+ * insurance_rates テーブルが空の場合のみ、初期の社会保険料率を投入する。
+ *
+ * 値は令和8年度（2026年度）の協会けんぽ福岡支部＋全国一律の料率（いずれも
+ * 折半後の被保険者負担分）。会社所在地（筑豊＝福岡県）を前提とした既定値であり、
+ * 都道府県・年度が異なる場合は設定画面「保険料率」から更新する運用とする。
+ *
+ *   健康保険（福岡）  : 総額 10.11%  → 折半 5.055%
+ *   介護保険（全国）  : 総額  1.62%  → 折半 0.81%（40歳以上）
+ *   厚生年金（全国）  : 総額 18.30%  → 折半 9.15%
+ *   雇用保険（一般の事業）: 労働者負担 5/1000 = 0.5%
+ *
+ * 注: 令和8年4月分からの「子ども・子育て支援金率」(全国一律 総額0.23%/折半0.115%)
+ * は現行データモデルに専用項目が無いため未反映。厳密な手取り計算が必要な場合は
+ * 健康保険料率へ 0.115% を上乗せするか、別途対応する。
+ *
+ * 既に料率が 1 件でも存在する場合は何もしない (冪等)。
+ */
+export function seedInsuranceRatesIfEmpty(raw: Database.Database): void {
+  const row = raw.prepare('SELECT COUNT(*) AS count FROM insurance_rates').get() as { count: number };
+  if (row.count > 0) return;
+
+  raw
+    .prepare(`
+      INSERT INTO insurance_rates (year, month, health_rate, nursing_rate, pension_rate, employment_rate, prefecture)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    .run(2026, 3, 0.05055, 0.0081, 0.0915, 0.005, '福岡県');
+}

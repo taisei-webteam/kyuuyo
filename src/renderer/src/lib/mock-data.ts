@@ -1,10 +1,23 @@
-// 保険料率（令和6年度の参考値。本番では insurance_rates テーブルから取得）
-export const INSURANCE_RATES = {
+/** 社会保険料率（いずれも折半後の被保険者負担分） */
+export interface InsuranceRateValues {
+  healthRate: number
+  nursingRate: number
+  pensionRate: number
+  employmentRate: number
+}
+
+// 既定の保険料率（令和6年度＝2024年度の参考値）。
+// Electron 環境では起動時に hydrateInsuranceRatesFromDb() が
+// insurance_rates テーブルの値でこのオブジェクトを上書きする。
+const DEFAULT_INSURANCE_RATES: InsuranceRateValues = {
   healthRate: 0.04985,
   nursingRate: 0.008,
   pensionRate: 0.0915,
   employmentRate: 0.006,
-} as const
+}
+
+// 現在有効な保険料率。給与計算・料率表示はこの値を参照する（DB からの読み込みで更新）。
+export const INSURANCE_RATES: InsuranceRateValues = { ...DEFAULT_INSURANCE_RATES }
 
 /**
  * 社会保険料の端数処理: 50銭以下切捨て、50銭超切上げ
@@ -50,6 +63,38 @@ export function calculateInsurancePremiums(
     ? roundInsurance(standardMonthlyRemuneration * INSURANCE_RATES.nursingRate)
     : 0
   const welfarePension = roundInsurance(standardMonthlyRemuneration * INSURANCE_RATES.pensionRate)
+  const employmentInsurance = Math.floor(totalPayment * INSURANCE_RATES.employmentRate)
+  return { healthInsurance, nursingInsurance, welfarePension, employmentInsurance }
+}
+
+/** 厚生年金保険の標準賞与額の上限（1回の支払につき150万円） */
+const PENSION_BONUS_CAP = 1_500_000
+
+/**
+ * 賞与の社会保険料を自動計算する。
+ * 料率は月次給与と共通の INSURANCE_RATES（＝insurance_rates マスタ）を参照するため、
+ * 設定画面で料率を変更すると賞与にも反映される。
+ *
+ * 計算方法（法令準拠）:
+ * - 標準賞与額 = 賞与総額の1,000円未満切捨て（健康保険・介護保険・厚生年金の算定基礎）
+ * - 端数処理 = 被保険者負担分は50銭以下切捨て/50銭超切上げ（roundInsurance）
+ * - 厚生年金は標準賞与額に1回150万円の上限を適用
+ * - 雇用保険は賞与総額（実支給額）ベースで円未満切捨て
+ *
+ * ※健康保険の年間累計上限（573万円/年度）はスコープ外（複数賞与の累計管理が必要なため未実装）。
+ */
+export function calculateBonusInsurancePremiums(
+  totalPayment: number,
+  birthDate: string,
+): InsurancePremiums {
+  const age = birthDate ? calcAge(birthDate) : 0
+  // 標準賞与額（1,000円未満切捨て）
+  const standardBonus = Math.floor(totalPayment / 1000) * 1000
+  const pensionBase = Math.min(standardBonus, PENSION_BONUS_CAP)
+
+  const healthInsurance = roundInsurance(standardBonus * INSURANCE_RATES.healthRate)
+  const nursingInsurance = age >= 40 ? roundInsurance(standardBonus * INSURANCE_RATES.nursingRate) : 0
+  const welfarePension = roundInsurance(pensionBase * INSURANCE_RATES.pensionRate)
   const employmentInsurance = Math.floor(totalPayment * INSURANCE_RATES.employmentRate)
   return { healthInsurance, nursingInsurance, welfarePension, employmentInsurance }
 }
@@ -975,6 +1020,33 @@ export async function reloadEmployeesFromDb(): Promise<boolean> {
   const active = res.data.filter((e) => e.isActive)
   if (active.length === 0) return false
   setEmployees(active.map(mapDbEmployeeToMock).sort((a, b) => a.displayOrder - b.displayOrder))
+  return true
+}
+
+/**
+ * insurance_rates テーブルから指定年に適用する社会保険料率を読み込み、
+ * 有効料率(INSURANCE_RATES)を上書きする。給与計算・料率表示に反映される。
+ *
+ * 適用年の選び方: 指定 year 以下で最も新しい年度の行を採用する
+ * （例: 2024年度の行だけがある状態で 2026 を渡すと 2024年度を適用）。
+ * 該当年以下が無い場合は最古の登録年度をフォールバックに使う。
+ * Electron 環境のみ動作。読み込めた場合 true を返す。
+ * 給与キャッシュはクリアし、次回作成時に新料率で再計算されるようにする。
+ */
+export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean> {
+  if (typeof window === 'undefined' || !('api' in window)) return false
+  const res = await window.api.insuranceRates.list()
+  if (!res.success || res.data.length === 0) return false
+
+  const sorted = [...res.data].sort((a, b) => b.year - a.year)
+  const applicable = sorted.find((r) => r.year <= year) ?? sorted[sorted.length - 1]
+  if (!applicable) return false
+
+  INSURANCE_RATES.healthRate = applicable.healthRate
+  INSURANCE_RATES.nursingRate = applicable.nursingRate
+  INSURANCE_RATES.pensionRate = applicable.pensionRate
+  INSURANCE_RATES.employmentRate = applicable.employmentRate
+  payslipCache.clear()
   return true
 }
 

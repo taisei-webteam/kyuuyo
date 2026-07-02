@@ -27,6 +27,8 @@ import type {
   EmailLog,
   EmailLogInput,
   BackupInfo,
+  InsuranceRate,
+  InsuranceRateInput,
 } from '../shared/types.js';
 
 const api = {
@@ -143,6 +145,15 @@ const api = {
       ipcRenderer.invoke(IPC.BACKUP.OPEN_DIR),
     restore: (fileName: string): Promise<IpcResult<{ restored: boolean }>> =>
       ipcRenderer.invoke(IPC.BACKUP.RESTORE, { fileName }),
+  },
+
+  insuranceRates: {
+    list: (): Promise<IpcResult<InsuranceRate[]>> =>
+      ipcRenderer.invoke(IPC.INSURANCE_RATES.LIST),
+    upsert: (data: InsuranceRateInput): Promise<IpcResult<InsuranceRate>> =>
+      ipcRenderer.invoke(IPC.INSURANCE_RATES.UPSERT, data),
+    delete: (id: number): Promise<IpcResult<{ deleted: boolean }>> =>
+      ipcRenderer.invoke(IPC.INSURANCE_RATES.DELETE, { id }),
   },
 } as const;
 
