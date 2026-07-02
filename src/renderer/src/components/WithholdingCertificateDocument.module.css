@@ -1,0 +1,194 @@
+/* 源泉徴収票（実績集計版）レイアウト
+   給与明細と同じ HTML 印刷方式。A4 縦・1枚構成。 */
+
+.page {
+  box-sizing: border-box;
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 14mm 14mm;
+  background: #fff;
+  color: #111;
+  font-family: 'Yu Gothic', 'Hiragino Kaku Gothic Pro', 'Noto Sans JP', sans-serif;
+  font-size: 11px;
+}
+
+.sheet {
+  border: 2px solid #111;
+}
+
+.titleBar {
+  border-bottom: 2px solid #111;
+  padding: 8px 10px;
+  text-align: center;
+}
+
+.titleMain {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.receiver th,
+.receiver td {
+  border: 1px solid #111;
+  padding: 4px 6px;
+  vertical-align: middle;
+}
+
+.rLabel {
+  width: 96px;
+  background: #f1f5f9;
+  font-weight: 600;
+  text-align: center;
+}
+
+.rAddrHead,
+.rNoHead {
+  width: 88px;
+  background: #f8fafc;
+  text-align: center;
+  font-weight: 500;
+}
+
+.rAddr {
+  height: 34px;
+}
+
+.rName .kana {
+  font-size: 10px;
+  color: #475569;
+}
+
+.rName .name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.rName .sama {
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.rName .birth {
+  font-size: 10px;
+  color: #475569;
+  margin-top: 2px;
+}
+
+/* 金額メイン */
+.amounts {
+  border-top: none;
+}
+
+.amounts th,
+.amounts td {
+  border: 1px solid #111;
+  padding: 6px 6px;
+  text-align: center;
+}
+
+.amounts thead th {
+  background: #f1f5f9;
+  font-weight: 600;
+  font-size: 10.5px;
+}
+
+.kind {
+  width: 90px;
+  font-weight: 600;
+}
+
+.money {
+  text-align: right !important;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.yen {
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: 2px;
+}
+
+.blank {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* サブ（社会保険料等） */
+.sub th,
+.sub td {
+  border: 1px solid #111;
+  padding: 5px 6px;
+  text-align: center;
+}
+
+.sub th {
+  background: #f1f5f9;
+  font-weight: 600;
+  font-size: 10.5px;
+}
+
+/* 摘要 */
+.remarksTable th,
+.remarksTable td {
+  border: 1px solid #111;
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+.remarksLabel {
+  width: 96px;
+  background: #f1f5f9;
+  font-weight: 600;
+  text-align: center;
+}
+
+.remarksCell {
+  line-height: 1.6;
+  font-size: 10.5px;
+}
+
+/* 支払者 */
+.payerLabel {
+  width: 96px;
+  background: #f1f5f9;
+  font-weight: 600;
+  text-align: center;
+  border: 1px solid #111;
+}
+
+.payerBody {
+  border: 1px solid #111;
+  padding: 8px 10px;
+}
+
+.payerLine {
+  font-size: 11px;
+}
+
+.payerName {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 2px 0;
+}
+
+.payerSub {
+  font-size: 10.5px;
+  color: #334155;
+}
+
+.footnote {
+  margin-top: 8px;
+  font-size: 9.5px;
+  color: #64748b;
+  line-height: 1.5;
+}

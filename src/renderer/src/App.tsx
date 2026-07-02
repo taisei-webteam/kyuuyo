@@ -8,6 +8,7 @@ import { Attendance } from './pages/Attendance'
 import { PayslipCreate } from './pages/PayslipCreate'
 import { BonusCreate } from './pages/BonusCreate'
 import { PayslipHistory } from './pages/PayslipHistory'
+import { WithholdingCertificate } from './pages/WithholdingCertificate'
 import Settings from './pages/Settings'
 import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb } from './lib/mock-data'
 
@@ -52,6 +53,7 @@ export function App(): ReactElement {
         <Route path="/payslip" element={<PayslipCreate />} />
         <Route path="/bonus" element={<BonusCreate />} />
         <Route path="/history" element={<PayslipHistory />} />
+        <Route path="/withholding" element={<WithholdingCertificate />} />
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>
