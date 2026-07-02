@@ -10,6 +10,7 @@ import {
   type MockEmployee,
 } from '@/lib/mock-data'
 import { EmployeeForm } from '@/components/EmployeeForm'
+import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
 import styles from './Employees.module.css'
 
 function yen(amount: number): string {
@@ -23,6 +24,7 @@ export function Employees(): ReactElement {
   const [filterType, setFilterType] = useState<string>('all')
   const [editingEmployee, setEditingEmployee] = useState<MockEmployee | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
+  const [isResidentTaxOpen, setIsResidentTaxOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
@@ -146,6 +148,9 @@ export function Employees(): ReactElement {
           </div>
         </div>
         <div className={styles.headerActions}>
+          <button className={styles.btnSecondary} onClick={() => setIsResidentTaxOpen(true)}>
+            住民税を一括入力
+          </button>
           <button className={styles.btnSecondary} onClick={handleSyncToPunchApp} disabled={syncing}>
             {syncing ? '同期中...' : '打刻アプリへ同期'}
           </button>
@@ -229,6 +234,14 @@ export function Employees(): ReactElement {
           employee={editingEmployee}
           onSave={handleSave}
           onClose={handleClose}
+        />
+      )}
+
+      {isResidentTaxOpen && (
+        <ResidentTaxBulkModal
+          employees={employees}
+          onClose={() => setIsResidentTaxOpen(false)}
+          onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}
     </div>
