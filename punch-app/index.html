@@ -290,6 +290,40 @@
     .empty-state {
       text-align: center; padding: 40px 16px; color: var(--text-secondary); font-size: 0.875rem;
     }
+
+    /* 端末登録画面 */
+    .setup-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: var(--bg);
+      display: none; align-items: center; justify-content: center; padding: 24px;
+    }
+    .setup-overlay.show { display: flex; }
+    .setup-card {
+      width: 100%; max-width: 440px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12); padding: 32px;
+      display: flex; flex-direction: column; gap: 18px;
+    }
+    .setup-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+    .setup-desc { font-size: 0.95rem; line-height: 1.8; color: var(--text-secondary); }
+    .setup-field { display: flex; flex-direction: column; gap: 8px; }
+    .setup-label { font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); }
+    .setup-input {
+      font: inherit; padding: 14px 16px; border: 1px solid var(--border);
+      border-radius: 10px; background: var(--bg); color: var(--text);
+    }
+    .setup-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,0.15); }
+    .setup-error {
+      font-size: 0.9rem; color: #b91c1c; background: #fee2e2;
+      border: 1px solid #fecaca; border-radius: 10px; padding: 12px 14px; display: none;
+    }
+    .setup-error.show { display: block; }
+    .setup-btn {
+      margin-top: 4px; padding: 16px; border-radius: 10px; border: none;
+      background: var(--primary); color: #fff; font-weight: 700; font-size: 1.05rem; cursor: pointer;
+    }
+    .setup-btn:hover { background: var(--primary-hover); }
+    .setup-btn:disabled { opacity: 0.55; cursor: not-allowed; }
   </style>
   </head>
   <body>
@@ -366,10 +400,60 @@
     </div>
   </div>
 
+  <div class="setup-overlay" id="setupOverlay">
+    <div class="setup-card">
+      <div class="setup-title">端末の登録</div>
+      <div class="setup-desc">この端末で打刻を行うには、管理者による登録が必要です。管理パスワードを入力してください。登録は最初の一度だけです。</div>
+      <div class="setup-field">
+        <label class="setup-label" for="setupLabel">端末名（任意）</label>
+        <input class="setup-input" id="setupLabel" type="text" placeholder="例：事務所iPad" autocomplete="off" />
+      </div>
+      <div class="setup-field">
+        <label class="setup-label" for="setupPassword">管理パスワード</label>
+        <input class="setup-input" id="setupPassword" type="password" placeholder="管理パスワード" autocomplete="off" />
+      </div>
+      <div class="setup-error" id="setupError"></div>
+      <button class="setup-btn" id="setupBtn">この端末を登録する</button>
+    </div>
+  </div>
+
   <div class="toast" id="toast"></div>
 
   <script>
     const API_BASE_URL = '';
+
+    // ── 端末登録（デバイストークン）──
+    const DEVICE_TOKEN_KEY = 'punch_device_token';
+    function getDeviceToken() {
+      try { return localStorage.getItem(DEVICE_TOKEN_KEY); } catch (e) { return null; }
+    }
+    function setDeviceToken(token) {
+      try { localStorage.setItem(DEVICE_TOKEN_KEY, token); } catch (e) {}
+    }
+    function clearDeviceToken() {
+      try { localStorage.removeItem(DEVICE_TOKEN_KEY); } catch (e) {}
+    }
+    function showDeviceSetup() {
+      const el = document.getElementById('setupOverlay');
+      if (el) el.classList.add('show');
+    }
+    function hideDeviceSetup() {
+      const el = document.getElementById('setupOverlay');
+      if (el) el.classList.remove('show');
+    }
+    async function registerDevice(password, label) {
+      const res = await fetch(`${API_BASE_URL}/api/devices/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password, label }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.token) {
+        throw new Error(body.error ?? `登録に失敗しました (${res.status})`);
+      }
+      setDeviceToken(body.token);
+    }
+
     const DEFAULT_EMPLOYEES = [
       { id: 1, name: '藤原 誠一', dept: '総務部', type: '役員', color: '#3b82f6' },
       { id: 2, name: '中村 健太', dept: '営業部', type: '社員', color: '#ef4444' },
@@ -491,13 +575,22 @@
     }
 
     async function apiJson(path, options) {
+      const token = getDeviceToken();
       const res = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
         headers: {
           'Content-Type': 'application/json',
+          ...(token ? { 'x-device-token': token } : {}),
           ...(options?.headers ?? {}),
         },
       });
+      // 端末が未登録・失効している場合はトークンを破棄し、登録画面へ
+      if (res.status === 401) {
+        clearDeviceToken();
+        showDeviceSetup();
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'この端末は打刻を許可されていません');
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? `API error: ${res.status}`);
@@ -992,12 +1085,60 @@
       if (document.visibilityState === 'visible') ensureAudioReady();
     });
 
-    loadCloudData()
-      .catch((err) => {
-        console.error(err);
-        showToast('クラウド接続に失敗しました。デモ従業員を表示します');
-      })
-      .finally(renderGrid);
+    function bootApp() {
+      return loadCloudData()
+        .catch((err) => {
+          console.error(err);
+          // 未登録・失効時は登録画面が表示されるためトーストは出さない
+          if (!getDeviceToken()) return;
+          showToast('クラウド接続に失敗しました。デモ従業員を表示します');
+        })
+        .finally(renderGrid);
+    }
+
+    // 端末登録ボタン
+    (function wireDeviceSetup() {
+      const setupBtn = document.getElementById('setupBtn');
+      const errEl = document.getElementById('setupError');
+      const pwEl = document.getElementById('setupPassword');
+      const labelEl = document.getElementById('setupLabel');
+      if (!setupBtn) return;
+
+      async function submit() {
+        const password = pwEl.value;
+        const label = labelEl.value.trim();
+        errEl.classList.remove('show');
+        if (!password) {
+          errEl.textContent = '管理パスワードを入力してください';
+          errEl.classList.add('show');
+          return;
+        }
+        setupBtn.disabled = true;
+        setupBtn.textContent = '登録中...';
+        try {
+          await registerDevice(password, label);
+          pwEl.value = '';
+          hideDeviceSetup();
+          await bootApp();
+        } catch (err) {
+          errEl.textContent = (err && err.message) ? err.message : '登録に失敗しました';
+          errEl.classList.add('show');
+        } finally {
+          setupBtn.disabled = false;
+          setupBtn.textContent = 'この端末を登録する';
+        }
+      }
+
+      setupBtn.onclick = submit;
+      pwEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    })();
+
+    // 起動: 登録済みならデータ読込、未登録なら登録画面
+    if (getDeviceToken()) {
+      bootApp();
+    } else {
+      showDeviceSetup();
+    }
   </script>
   </body>
 </html>
