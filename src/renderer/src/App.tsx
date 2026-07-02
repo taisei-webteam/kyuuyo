@@ -8,7 +8,8 @@ import { Attendance } from './pages/Attendance'
 import { PayslipCreate } from './pages/PayslipCreate'
 import { BonusCreate } from './pages/BonusCreate'
 import { PayslipHistory } from './pages/PayslipHistory'
-import { WithholdingCertificate } from './pages/WithholdingCertificate'
+// 源泉徴収票: 要否確認中のため一時非表示（先方確認後に下記2行を復帰）
+// import { WithholdingCertificate } from './pages/WithholdingCertificate'
 import Settings from './pages/Settings'
 import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb } from './lib/mock-data'
 
@@ -53,7 +54,8 @@ export function App(): ReactElement {
         <Route path="/payslip" element={<PayslipCreate />} />
         <Route path="/bonus" element={<BonusCreate />} />
         <Route path="/history" element={<PayslipHistory />} />
-        <Route path="/withholding" element={<WithholdingCertificate />} />
+        {/* 源泉徴収票: 要否確認中のため一時非表示（先方確認後に復帰） */}
+        {/* <Route path="/withholding" element={<WithholdingCertificate />} /> */}
         <Route path="/settings" element={<Settings />} />
       </Routes>
     </Layout>
