@@ -72,6 +72,9 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
   if (employees.length === 0) return;
 
   const raw = getSqlite();
+  // 既存行の is_active はローカル(従業員管理の削除)が所有する。
+  // 打刻同期の is_active(退職者=false 等)でローカルの在籍状態を上書きしない。
+  // (退職者は打刻アプリからは外すが、Windows の従業員一覧には網掛けで残すため)
   const upsertLocal = raw.prepare(`
     INSERT INTO employees (id, name, name_kana, employee_type, display_order, is_active)
     VALUES (@id, @name, @name_kana, @employee_type, @display_order, @is_active)
@@ -80,7 +83,6 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
       name_kana = excluded.name_kana,
       employee_type = excluded.employee_type,
       display_order = excluded.display_order,
-      is_active = excluded.is_active,
       updated_at = datetime('now','localtime')
   `);
   const txLocal = raw.transaction((emps: EmployeeSyncRow[]) => {

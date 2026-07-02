@@ -304,6 +304,25 @@ function runMigrations(raw: Database.Database): void {
   //  Supabase 同期(int4)で範囲外エラーになるため、正常行の続き番号へ再採番)
   repairEmployeeIds(raw);
   repairDisplayOrder(raw);
+  repairRetiredActiveFlagOnce(raw);
+}
+
+/**
+ * 打刻同期の不具合修正（一度だけ）。
+ * 退職者を打刻アプリ用に is_active=false で同期していた際、ローカルの
+ * employees.is_active まで false になり、従業員一覧から退職者が消えていた。
+ * 「退職日あり かつ 無効(is_active=0)」の行を在籍(1)へ戻す。
+ * PRAGMA user_version で一度きり実行し、以降の意図的な削除は取り消さない。
+ */
+function repairRetiredActiveFlagOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 1) return;
+
+  raw.prepare(
+    "UPDATE employees SET is_active = 1 WHERE resign_date IS NOT NULL AND resign_date <> '' AND is_active = 0",
+  ).run();
+
+  raw.pragma('user_version = 1');
 }
 
 /**

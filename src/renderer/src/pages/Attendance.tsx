@@ -5,6 +5,7 @@ import {
   getAttendance,
   buildAttendanceDaysFromRecords,
   mapDbEmployeeToMock,
+  isEmployedInMonth,
   type MockEmployee,
   type MockAttendanceDay,
   type StampInType,
@@ -98,15 +99,26 @@ export function Attendance(): ReactElement {
     () =>
       employees.filter(
         (emp) =>
-          emp.name.includes(searchQuery) || emp.nameKana.includes(searchQuery),
+          // 退職翌月以降・入社前月は勤怠対象外（退職月までは表示）
+          isEmployedInMonth(emp, selectedYear, selectedMonth) &&
+          (emp.name.includes(searchQuery) || emp.nameKana.includes(searchQuery)),
       ),
-    [employees, searchQuery],
+    [employees, searchQuery, selectedYear, selectedMonth],
   )
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === selectedEmployeeId),
     [employees, selectedEmployeeId],
   )
+
+  // 選択中の従業員がその月の対象外（退職翌月以降など）になったら、
+  // 先頭の在籍者へ選択を切り替える。
+  useEffect(() => {
+    if (filteredEmployees.length === 0) return
+    if (!filteredEmployees.some((e) => e.id === selectedEmployeeId)) {
+      setSelectedEmployeeId(filteredEmployees[0].id)
+    }
+  }, [filteredEmployees, selectedEmployeeId])
 
   const [editData, setEditData] = useState<MockAttendanceDay[]>([])
   const [loading, setLoading] = useState(false)

@@ -1137,6 +1137,19 @@ export function isEmployeeRetired(
 }
 
 /**
+ * 指定年月に在籍していたか（1日でも在籍していれば true）。
+ * 入社月〜退職月までは true、退職翌月以降・入社前月は false。
+ * 勤怠管理などで「その月に対象となる従業員か」を判定するのに使う。
+ */
+export function isEmployedInMonth(
+  emp: Pick<MockEmployee, 'hireDate' | 'resignDate'>,
+  year: number,
+  month: number,
+): boolean {
+  return getMonthlyEmployment(emp.hireDate, emp.resignDate, year, month).employed
+}
+
+/**
  * MockEmployee を DB 登録/更新用の入力(EmployeeCreate)へ変換する。
  * holidayDays は DB に列が無いため除外する。
  */
