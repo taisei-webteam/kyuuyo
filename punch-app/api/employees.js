@@ -1,4 +1,4 @@
-import { getSql, sendError, setCorsHeaders } from './_db.js';
+import { getSql, sendError, setCorsHeaders, getDeviceFromRequest } from './_db.js';
 
 export default async function handler(req, res) {
   setCorsHeaders(res);
@@ -15,6 +15,14 @@ export default async function handler(req, res) {
 
   try {
     const sql = getSql();
+
+    // 登録済み端末のみ許可
+    const device = await getDeviceFromRequest(req, sql);
+    if (!device) {
+      sendError(res, 401, 'この端末は打刻を許可されていません');
+      return;
+    }
+
     const employees = await sql`
       select id, name, name_kana, employee_type, display_order, is_active
       from employees_sync

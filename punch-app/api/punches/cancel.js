@@ -1,4 +1,4 @@
-import { getSql, sendError, setCorsHeaders } from '../_db.js';
+import { getSql, sendError, setCorsHeaders, getDeviceFromRequest } from '../_db.js';
 
 function parseCancelBody(body) {
   const parsed = typeof body === 'string' ? JSON.parse(body) : body;
@@ -34,13 +34,21 @@ export default async function handler(req, res) {
   }
 
   try {
+    const sql = getSql();
+
+    // 登録済み端末のみ許可
+    const device = await getDeviceFromRequest(req, sql);
+    if (!device) {
+      sendError(res, 401, 'この端末は打刻を許可されていません');
+      return;
+    }
+
     const body = parseCancelBody(req.body);
     if (!body) {
       sendError(res, 400, 'Invalid request body');
       return;
     }
 
-    const sql = getSql();
     const rows = body.punchId
       ? await sql`
           update punch_records

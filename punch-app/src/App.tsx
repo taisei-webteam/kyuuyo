@@ -1,16 +1,35 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Clock } from '@/components/Clock';
 import { FilterBar } from '@/components/FilterBar';
 import { PunchCard } from '@/components/PunchCard';
 import { PunchConfirm } from '@/components/PunchConfirm';
+import { DeviceSetup } from '@/components/DeviceSetup';
 import { usePunchData } from '@/hooks/usePunchData';
 import { useDemoData } from '@/hooks/useDemoData';
+import { isDeviceRegistered } from '@/lib/api';
 import type { EmployeeWithStatus, FilterType } from '@/lib/types';
 import styles from './App.module.css';
 
 const IS_DEMO = import.meta.env.VITE_DEMO_MODE === 'true';
 
 export function App() {
+  const [registered, setRegistered] = useState(IS_DEMO || isDeviceRegistered());
+
+  useEffect(() => {
+    // トークン失効時（サーバーが 401 を返した時）は再登録画面へ戻す
+    const onUnauthorized = () => setRegistered(false);
+    window.addEventListener('punch-device-unauthorized', onUnauthorized);
+    return () => window.removeEventListener('punch-device-unauthorized', onUnauthorized);
+  }, []);
+
+  if (!registered) {
+    return <DeviceSetup onRegistered={() => setRegistered(true)} />;
+  }
+
+  return <PunchBoard />;
+}
+
+function PunchBoard() {
   const live = usePunchData();
   const demo = useDemoData();
   const { employees, loading, online, punch, cancelLastPunch } = IS_DEMO ? demo : live;

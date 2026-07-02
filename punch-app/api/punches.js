@@ -1,4 +1,4 @@
-import { getSql, sendError, setCorsHeaders } from './_db.js';
+import { getSql, sendError, setCorsHeaders, getDeviceFromRequest } from './_db.js';
 
 const PUNCH_TYPES = new Set(['clock_in', 'clock_out', 'go_out', 'go_return']);
 
@@ -19,15 +19,15 @@ function parseCreateBody(body) {
     return null;
   }
 
+  // 打刻時刻はサーバー側で確定する（クライアント送信の punchedAt は改ざん防止のため無視）。
   return {
     employeeId: parsed.employeeId,
     employeeName: parsed.employeeName,
     punchType: parsed.punchType,
-    punchedAt: typeof parsed.punchedAt === 'string' ? parsed.punchedAt : undefined,
   };
 }
 
-async function handleGet(req, res) {
+async function handleGet(req, res, sql) {
   const start = getQueryValue(req.query.start);
   const end = getQueryValue(req.query.end);
   const employeeIdRaw = getQueryValue(req.query.employeeId);
@@ -37,7 +37,6 @@ async function handleGet(req, res) {
     return;
   }
 
-  const sql = getSql();
   const employeeId = employeeIdRaw ? Number(employeeIdRaw) : null;
 
   const punches = employeeId
@@ -60,18 +59,17 @@ async function handleGet(req, res) {
   res.status(200).json({ punches });
 }
 
-async function handlePost(req, res) {
+async function handlePost(req, res, sql) {
   const body = parseCreateBody(req.body);
   if (!body) {
     sendError(res, 400, 'Invalid request body');
     return;
   }
 
-  const sql = getSql();
-  const punchedAt = body.punchedAt ?? new Date().toISOString();
+  // punched_at はサーバー時刻(now())で確定する。
   const rows = await sql`
     insert into punch_records (employee_id, employee_name, punch_type, punched_at, device)
-    values (${body.employeeId}, ${body.employeeName}, ${body.punchType}, ${punchedAt}::timestamptz, 'ipad')
+    values (${body.employeeId}, ${body.employeeName}, ${body.punchType}, now(), 'ipad')
     returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
   `;
 
@@ -87,13 +85,22 @@ export default async function handler(req, res) {
   }
 
   try {
+    const sql = getSql();
+
+    // 登録済み端末のみ許可（未登録ブラウザからの打刻・閲覧を弾く）
+    const device = await getDeviceFromRequest(req, sql);
+    if (!device) {
+      sendError(res, 401, 'この端末は打刻を許可されていません');
+      return;
+    }
+
     if (req.method === 'GET') {
-      await handleGet(req, res);
+      await handleGet(req, res, sql);
       return;
     }
 
     if (req.method === 'POST') {
-      await handlePost(req, res);
+      await handlePost(req, res, sql);
       return;
     }
 
