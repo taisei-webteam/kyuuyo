@@ -388,6 +388,7 @@
       <table class="history-table" id="historyTable">
         <thead>
           <tr>
+            <th>日付</th>
             <th>従業員</th>
             <th>種別</th>
             <th>時刻</th>
@@ -421,6 +422,11 @@
 
   <script>
     const API_BASE_URL = '';
+
+    // ── デモモード ──
+    // URL に ?demo=1 を付けたときだけ有効。バックエンド（/api）無しで動作確認するための
+    // ローカル専用モード。端末登録をスキップし、サンプルの1ヶ月分打刻を表示する。
+    const IS_DEMO = new URLSearchParams(location.search).has('demo');
 
     // ── 端末登録（デバイストークン）──
     const DEVICE_TOKEN_KEY = 'punch_device_token';
@@ -553,6 +559,18 @@
       };
     }
 
+    // 履歴閲覧用。ローカル(端末TZ)の「1ヶ月前の00:00」〜「当日の23:59」を ISO(Z付き)で返す。
+    function monthRange() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      start.setMonth(start.getMonth() - 1);
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      return {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      };
+    }
+
     function formatApiTime(iso) {
       const d = new Date(iso);
       return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
@@ -630,7 +648,52 @@
       }
     }
 
+    // 履歴画面用: 過去1ヶ月分の打刻を取得して punchRecords を差し替える。
+    // 当日分も含むため、グリッドの出退勤ステータス（当日キー参照）も維持される。
+    async function loadMonthData() {
+      const { start, end } = monthRange();
+      const punchData = await apiJson(`/api/punches?${new URLSearchParams({ start, end }).toString()}`);
+      punchRecords = {};
+      for (const punch of punchData.punches) {
+        const recDate = localDateKey(punch.punched_at);
+        const recs = getRecords(punch.employee_id, recDate);
+        recs.push({
+          remoteId: punch.id,
+          type: apiTypeToLocal(punch.punch_type),
+          time: formatApiTime(punch.punched_at),
+          cancelled: punch.cancelled,
+          cancelReason: punch.cancelled ? '取消済' : '',
+          cancelTime: '',
+        });
+      }
+    }
+
+    // デモモード用: 過去1ヶ月分（平日）のサンプル打刻を punchRecords に生成する。
+    function seedDemoData() {
+      EMPLOYEES = [...DEFAULT_EMPLOYEES];
+      rebuildEmployeeMap();
+      punchRecords = {};
+      const now = new Date();
+      for (let i = 0; i < 31; i++) {
+        const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        if (day.getDay() === 0 || day.getDay() === 6) continue; // 土日は除外
+        const dateKey = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
+        EMPLOYEES.forEach((emp, idx) => {
+          // 一部の従業員・日はランダムに休みにして変化をつける
+          if ((i + idx) % 7 === 3) return;
+          const recs = getRecords(emp.id, dateKey);
+          const inH = 8, inM = 20 + ((idx * 3 + i) % 20);
+          recs.push({ remoteId: `demo-${emp.id}-${i}-in`, type: 'clockin', time: `${String(inH).padStart(2,'0')}:${String(inM).padStart(2,'0')}`, cancelled: false, cancelReason: '', cancelTime: '' });
+          // 当日(i===0)は一部だけ退勤済みにして「出勤中」も見せる
+          if (i === 0 && idx % 2 === 0) return;
+          const outH = 17, outM = 25 + ((idx * 5 + i) % 30);
+          recs.push({ remoteId: `demo-${emp.id}-${i}-out`, type: 'clockout', time: `${String(outH).padStart(2,'0')}:${String(outM % 60).padStart(2,'0')}`, cancelled: false, cancelReason: '', cancelTime: '' });
+        });
+      }
+    }
+
     async function createRemotePunch(type, emp = selectedEmployee) {
+      if (IS_DEMO) return { id: `demo-${Date.now()}`, punched_at: new Date().toISOString() };
       const apiType = localTypeToApi(type);
       if (!apiType || !emp) return null;
       const data = await apiJson('/api/punches', {
@@ -645,6 +708,7 @@
     }
 
     async function cancelRemotePunch(rec) {
+      if (IS_DEMO) return;
       if (!selectedEmployee || !rec.remoteId) return;
       const { start, end } = todayRange();
       await apiJson('/api/punches/cancel', {
@@ -661,14 +725,16 @@
     // ── Clock ──
     let currentDayKey = todayKey();
 
-    // 0時0分をまたいだら当日実績をリセット（全員「未出勤」に戻す）
+    // 0時0分をまたいだときの処理。
+    // 本番: ページを丸ごとリロードして当日実績をリセットし、PWAの更新も取り込む。
+    //   （iPadがスリープしていてもタイマー復帰時 or 画面復帰時に日付変化を検知して発火）
+    // デモ: リロードせず当日実績だけリセット（動作確認を妨げないため）。
     async function handleDayChange() {
-      punchRecords = {};
-      try {
-        await loadCloudData();
-      } catch (err) {
-        console.error(err);
+      if (!IS_DEMO) {
+        location.reload();
+        return;
       }
+      punchRecords = {};
       renderGrid();
     }
 
@@ -1015,8 +1081,22 @@
     }
 
     // ── History Screen ──
-    function openHistory() {
+    async function openHistory() {
       showScreen('screenHistory');
+      const body = document.getElementById('historyBody');
+      body.innerHTML = '<tr><td colspan="5" class="empty-state">読み込み中...</td></tr>';
+
+      // 過去1ヶ月分を読み込む（デモモードは既に seed 済みなので取得不要）
+      if (!IS_DEMO) {
+        try {
+          await loadMonthData();
+        } catch (err) {
+          console.error(err);
+          body.innerHTML = `<tr><td colspan="5" class="empty-state">履歴の取得に失敗しました（${err && err.message ? err.message : '不明なエラー'}）</td></tr>`;
+          return;
+        }
+      }
+
       const empSelect = document.getElementById('historyEmployee');
       empSelect.innerHTML = '<option value="">全従業員</option>' +
         EMPLOYEES.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
@@ -1028,8 +1108,9 @@
         dates.add(parts.slice(1).join('-'));
       }
       const sorted = [...dates].sort().reverse();
-      if (sorted.length === 0) sorted.push(todayKey());
-      dateSelect.innerHTML = sorted.map(d => `<option value="${d}">${d}</option>`).join('');
+      // 「全期間（直近1ヶ月）」を先頭に、その後に日付ごとの選択肢
+      dateSelect.innerHTML = '<option value="">全期間（直近1ヶ月）</option>' +
+        sorted.map(d => `<option value="${d}">${d}</option>`).join('');
 
       renderHistory();
     }
@@ -1046,9 +1127,17 @@
       });
 
       if (all.length === 0) {
-        body.innerHTML = '<tr><td colspan="5" class="empty-state">履歴はありません</td></tr>';
+        body.innerHTML = '<tr><td colspan="6" class="empty-state">履歴はありません</td></tr>';
         return;
       }
+
+      const wd = ['日','月','火','水','木','金','土'];
+      const fmtDate = (iso) => {
+        const parts = iso.split('-');
+        if (parts.length !== 3) return iso;
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        return `${Number(parts[1])}/${Number(parts[2])}（${wd[d.getDay()]}）`;
+      };
 
       body.innerHTML = all.map(r => {
         const emp = EMP_MAP[r.empId];
@@ -1056,6 +1145,7 @@
         const status = r.cancelled ? `<span class="log-type log-type-cancel">取消済</span>` : '<span style="color:#16a34a;font-weight:600;font-size:0.75rem">有効</span>';
         const note = r.cancelled ? `${r.cancelReason}（${r.cancelTime}）` : '';
         return `<tr class="${rowClass}">
+          <td style="white-space:nowrap">${fmtDate(r.date)}</td>
           <td>${emp?.name ?? '---'}</td>
           <td><span class="log-type ${PUNCH_TYPES[r.type].cssClass}">${PUNCH_TYPES[r.type].label}</span></td>
           <td class="log-time">${r.time}</td>
@@ -1080,9 +1170,16 @@
     // スリープ/バックグラウンドから復帰した後に suspended のまま無音化するため。
     document.addEventListener('pointerdown', ensureAudioReady, { passive: true });
     document.addEventListener('touchstart', ensureAudioReady, { passive: true });
-    // バックグラウンド復帰時にも AudioContext を起こし直す
+    // バックグラウンド復帰時にも AudioContext を起こし直す。
+    // あわせて、スリープ中に日付が変わっていたら 0時リロード処理を発火させる
+    // （スリープ中は setInterval が止まるため、復帰時の検知が本命トリガー）。
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') ensureAudioReady();
+      if (document.visibilityState !== 'visible') return;
+      ensureAudioReady();
+      if (todayKey() !== currentDayKey) {
+        currentDayKey = todayKey();
+        handleDayChange();
+      }
     });
 
     function bootApp() {
@@ -1133,8 +1230,11 @@
       pwEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
     })();
 
-    // 起動: 登録済みならデータ読込、未登録なら登録画面
-    if (getDeviceToken()) {
+    // 起動: デモモードならサンプル表示、登録済みならデータ読込、未登録なら登録画面
+    if (IS_DEMO) {
+      seedDemoData();
+      renderGrid();
+    } else if (getDeviceToken()) {
       bootApp();
     } else {
       showDeviceSetup();
