@@ -602,16 +602,19 @@
           ...(options?.headers ?? {}),
         },
       });
-      // 端末が未登録・失効している場合はトークンを破棄し、登録画面へ
+      // 401 でも即トークン破棄はしない。呼び出し側（bootApp）が連続401を確認してから
+      // 再登録を促す。リロード直後の一時的な401でログアウトさせないための措置。
       if (res.status === 401) {
-        clearDeviceToken();
-        showDeviceSetup();
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'この端末は打刻を許可されていません');
+        const err = new Error(body.error ?? 'この端末は打刻を許可されていません');
+        err.status = 401;
+        throw err;
       }
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? `API error: ${res.status}`);
+        const err = new Error(body.error ?? `API error: ${res.status}`);
+        err.status = res.status;
+        throw err;
       }
       return res.json();
     }
@@ -1182,15 +1185,47 @@
       }
     });
 
-    function bootApp() {
-      return loadCloudData()
-        .catch((err) => {
-          console.error(err);
-          // 未登録・失効時は登録画面が表示されるためトーストは出さない
-          if (!getDeviceToken()) return;
-          showToast('クラウド接続に失敗しました。デモ従業員を表示します');
-        })
-        .finally(renderGrid);
+    // 起動時のデータ読込。登録済み端末は通信失敗で登録画面に戻さず、その場で再試行する。
+    // 401（トークン拒否）が連続で確認できた場合のみ、再登録を促す。
+    let bootRetryTimer = null;
+    let consecutive401 = 0;
+    const MAX_401_BEFORE_RELOGIN = 3;
+
+    async function bootApp() {
+      clearTimeout(bootRetryTimer);
+      try {
+        await loadCloudData();
+        consecutive401 = 0;
+        renderGrid();
+      } catch (err) {
+        console.error(err);
+
+        // トークンが無い（初回）なら登録画面
+        if (!getDeviceToken()) {
+          showDeviceSetup();
+          return;
+        }
+
+        // 登録済み: 画面は維持したまま再試行する（登録画面には戻さない）
+        renderGrid();
+
+        if (err && err.status === 401) {
+          consecutive401++;
+          if (consecutive401 >= MAX_401_BEFORE_RELOGIN) {
+            // 連続で拒否＝トークンが本当に無効。ここで初めて再登録を促す。
+            consecutive401 = 0;
+            clearDeviceToken();
+            showDeviceSetup();
+            return;
+          }
+        } else {
+          // ネットワーク/サーバ一時障害は 401 カウントに含めない
+          consecutive401 = 0;
+        }
+
+        showToast('接続に失敗しました。再試行します...');
+        bootRetryTimer = setTimeout(bootApp, 4000);
+      }
     }
 
     // 端末登録ボタン
