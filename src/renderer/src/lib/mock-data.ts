@@ -939,7 +939,7 @@ function generatePayslips(
 ): MockPayslip[] {
   return employeeData
     .map((emp, idx): MockPayslip | null => {
-      // 入退社月の在籍判定（日割り・社会保険資格）
+      // 入退社月の在籍判定（日割り・社会保険資格）。働いた月ベースで計算する。
       const employment = getMonthlyEmployment(emp.hireDate, emp.resignDate, year, month)
       if (!employment.employed) return null
     // 実勤怠 (Supabase 同期 → attendance_records) があれば優先し、
@@ -1147,6 +1147,25 @@ export function isEmployedInMonth(
   month: number,
 ): boolean {
   return getMonthlyEmployment(emp.hireDate, emp.resignDate, year, month).employed
+}
+
+/**
+ * 給与作成の対象月かどうか（一覧に表示するか）を判定する。
+ * - 入社前の月: 対象外
+ * - 退職者: 退職翌月（最終給与の計上月）までは対象、翌々月以降は対象外
+ * - それ以外: 対象
+ */
+export function isPayrollTargetInMonth(
+  emp: Pick<MockEmployee, 'hireDate' | 'resignDate'>,
+  year: number,
+  month: number,
+): boolean {
+  const targetIdx = year * 12 + (month - 1)
+  const hire = parseYmd(emp.hireDate)
+  if (hire && targetIdx < hire.y * 12 + (hire.m - 1)) return false
+  const resign = parseYmd(emp.resignDate)
+  if (resign && targetIdx > resign.y * 12 + (resign.m - 1) + 1) return false
+  return true
 }
 
 /**

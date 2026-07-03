@@ -14,6 +14,7 @@ import {
   savePayslipsToDb,
   setPayslips,
   loadEmailHistory,
+  isPayrollTargetInMonth,
   type MockEmployee,
   type MockPayslip,
 } from '@/lib/mock-data'
@@ -162,14 +163,24 @@ export function PayslipCreate(): ReactElement {
     setEditPayslips(rawPayslips.map((ps) => ({ ...ps })))
   }, [rawPayslips])
 
+  // 退職者は退職翌月（最終給与の計上月）まで表示し、翌々月以降は給与作成から除外する。
   const filteredEmployees = useMemo(
     () =>
       employees.filter(
         (emp) =>
-          emp.name.includes(searchQuery) || emp.nameKana.includes(searchQuery),
+          isPayrollTargetInMonth(emp, selectedYear, selectedMonth) &&
+          (emp.name.includes(searchQuery) || emp.nameKana.includes(searchQuery)),
       ),
-    [employees, searchQuery],
+    [employees, searchQuery, selectedYear, selectedMonth],
   )
+
+  // 選択中の従業員が対象外（退職者の翌々月など）になったら先頭へ切り替える。
+  useEffect(() => {
+    if (filteredEmployees.length === 0) return
+    if (!filteredEmployees.some((e) => e.id === selectedEmployeeId)) {
+      setSelectedEmployeeId(filteredEmployees[0].id)
+    }
+  }, [filteredEmployees, selectedEmployeeId])
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === selectedEmployeeId),
