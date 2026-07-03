@@ -70,6 +70,7 @@ export function BonusBulkEditModal({
   const initialData = useMemo((): EditableBonus[] => {
     const empMap = new Map(employees.map((e) => [e.id, e]))
     return bonuses
+      .filter((b) => empMap.has(b.employeeId))
       .map((b) => {
         const emp = empMap.get(b.employeeId)
         return {

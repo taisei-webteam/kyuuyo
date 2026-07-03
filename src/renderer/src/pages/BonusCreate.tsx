@@ -3,6 +3,7 @@ import {
   getEmployees,
   isEmailSent,
   sendEmail,
+  isBonusRecipient,
   calculateInsurancePremiums,
   calculateBonusInsurancePremiums,
   loadBonusFromDb,
@@ -140,10 +141,11 @@ function generateSampleBonuses(
   employees: MockEmployee[],
   year: number,
   season: '夏季' | '冬季',
+  paymentDate?: string | null,
 ): MockBonus[] {
   const multiplier = season === '夏季' ? 2.0 : 2.5
   return employees
-    .filter((emp) => emp.employeeType !== 'パート')
+    .filter((emp) => isBonusRecipient(emp, year, season, paymentDate))
     .map((emp, idx) => {
       const basicBonus = Math.round(emp.basicSalary * multiplier)
       const performanceBonus = Math.round(emp.basicSalary * 0.3)
@@ -207,10 +209,11 @@ function buildInitialBonuses(
   year: number,
   season: '夏季' | '冬季',
   previous?: MockBonus[],
+  paymentDate?: string | null,
 ): MockBonus[] {
   const prevMap = new Map<number, MockBonus>((previous ?? []).map((b) => [b.employeeId, b]))
   return employees
-    .filter((emp) => emp.employeeType !== 'パート')
+    .filter((emp) => isBonusRecipient(emp, year, season, paymentDate))
     .map((emp, idx) => {
       const prev = prevMap.get(emp.id)
       if (prev) {
@@ -235,9 +238,10 @@ export function BonusCreate(): React.ReactElement {
 
   const employees = useMemo(() => getEmployees(), [])
 
+  // 賞与は「支給月に在籍している人」が対象。パート・支給月より前に退職した人は除外する。
   const eligibleEmployees = useMemo(
-    () => employees.filter((emp) => emp.employeeType !== 'パート'),
-    [employees],
+    () => employees.filter((emp) => isBonusRecipient(emp, selectedYear, selectedSeason, paymentDate)),
+    [employees, selectedYear, selectedSeason, paymentDate],
   )
 
   const filteredEmployees = useMemo(
@@ -280,6 +284,15 @@ export function BonusCreate(): React.ReactElement {
     }
   }, [employees, selectedYear, selectedSeason])
 
+  // 支給月に在籍していない人（支給月より前に退職）を除外して保存対象を確定する。
+  const recipientBonuses = useCallback(
+    (list: MockBonus[]): MockBonus[] => {
+      const eligibleIds = new Set(eligibleEmployees.map((e) => e.id))
+      return list.filter((b) => eligibleIds.has(b.employeeId))
+    },
+    [eligibleEmployees],
+  )
+
   const handleSave = useCallback(async (): Promise<void> => {
     setSaveMessage('保存中...')
     if (!hasElectronApi) {
@@ -289,11 +302,11 @@ export function BonusCreate(): React.ReactElement {
     const ok = await saveBonusToDb(
       selectedYear,
       selectedSeason,
-      bonuses.map(bonusToPayslipShape),
+      recipientBonuses(bonuses).map(bonusToPayslipShape),
       paymentDate || null,
     )
     setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
-  }, [selectedYear, selectedSeason, bonuses, paymentDate])
+  }, [selectedYear, selectedSeason, bonuses, paymentDate, recipientBonuses])
 
   // この年・シーズンの賞与を削除して「未作成」に戻す。
   // 削除後は前回（同季）の入力値を引き継いだ初期表示に戻す。
@@ -319,9 +332,9 @@ export function BonusCreate(): React.ReactElement {
 
   // 【開発用】“それっぽい”サンプル賞与額を現在のシーズンに投入する（保存は別途「保存」で）。
   const handleFillSample = useCallback((): void => {
-    setBonuses(generateSampleBonuses(employees, selectedYear, selectedSeason))
+    setBonuses(generateSampleBonuses(employees, selectedYear, selectedSeason, paymentDate))
     setSaveMessage('サンプル値を入力しました（内容を確認して「保存」してください）')
-  }, [employees, selectedYear, selectedSeason])
+  }, [employees, selectedYear, selectedSeason, paymentDate])
 
   // 明細の金額欄を編集する（支給・控除）。変更後は合計・差引支給額を再計算する。
   const handleFieldChange = useCallback(
@@ -346,12 +359,12 @@ export function BonusCreate(): React.ReactElement {
       const ok = await saveBonusToDb(
         selectedYear,
         selectedSeason,
-        updated.map(bonusToPayslipShape),
+        recipientBonuses(updated).map(bonusToPayslipShape),
         paymentDate || null,
       )
       setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
     },
-    [selectedYear, selectedSeason, paymentDate],
+    [selectedYear, selectedSeason, paymentDate, recipientBonuses],
   )
 
   const selectedEmployee = useMemo(
@@ -363,6 +376,17 @@ export function BonusCreate(): React.ReactElement {
     () => bonuses.find((b) => b.employeeId === selectedEmployeeId),
     [bonuses, selectedEmployeeId],
   )
+
+  // 選択中の従業員が対象外（賞与支給月より前に退職など）になったら先頭へ切り替える。
+  useEffect(() => {
+    if (filteredEmployees.length === 0) return
+    if (!filteredEmployees.some((e) => e.id === selectedEmployeeId)) {
+      setSelectedEmployeeId(filteredEmployees[0].id)
+    }
+  }, [filteredEmployees, selectedEmployeeId])
+
+  // 一覧表・一括編集・PDF に渡す、支給対象者のみに絞った賞与データ。
+  const visibleBonuses = useMemo(() => recipientBonuses(bonuses), [recipientBonuses, bonuses])
 
   const emailSentMap = useMemo(() => {
     const map = new Map<number, boolean>()
@@ -569,7 +593,7 @@ export function BonusCreate(): React.ReactElement {
 
       {showReport && (
         <BonusReportModal
-          bonuses={bonuses}
+          bonuses={visibleBonuses}
           year={selectedYear}
           season={selectedSeason}
           paymentDate={paymentDate}
@@ -579,7 +603,7 @@ export function BonusCreate(): React.ReactElement {
 
       {showBulkEdit && (
         <BonusBulkEditModal
-          bonuses={bonuses}
+          bonuses={visibleBonuses}
           employees={eligibleEmployees}
           year={selectedYear}
           season={selectedSeason}

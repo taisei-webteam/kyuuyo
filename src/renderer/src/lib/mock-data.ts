@@ -1169,6 +1169,32 @@ export function isPayrollTargetInMonth(
 }
 
 /**
+ * 賞与の支給対象者かどうかを判定する（判定は「支給月」単位）。
+ * 賞与は支給月に在籍している人に支給するため、支給月より前に退職した人は対象外。
+ * - パートは賞与対象外
+ * - 支給月より後に入社する人（まだ在籍していない）は対象外
+ * - 支給月より前に退職している人は対象外（＝支給月内の退職は対象。例: 8月退職は8月支給に載り、9月支給では消える）
+ * 支給日(paymentDate, YYYY-MM-DD)があればその「月」を、未設定なら賞与月（夏季=7月/冬季=12月）を基準にする。
+ */
+export function isBonusRecipient(
+  emp: Pick<MockEmployee, 'employeeType' | 'hireDate' | 'resignDate'>,
+  year: number,
+  season: '夏季' | '冬季',
+  paymentDate?: string | null,
+): boolean {
+  if (emp.employeeType === 'パート') return false
+  const pay = parseYmd(paymentDate)
+  const refY = pay ? pay.y : year
+  const refM = pay ? pay.m : season === '夏季' ? 7 : 12
+  const refIdx = refY * 12 + (refM - 1)
+  const hire = parseYmd(emp.hireDate)
+  if (hire && hire.y * 12 + (hire.m - 1) > refIdx) return false
+  const resign = parseYmd(emp.resignDate)
+  if (resign && resign.y * 12 + (resign.m - 1) < refIdx) return false
+  return true
+}
+
+/**
  * MockEmployee を DB 登録/更新用の入力(EmployeeCreate)へ変換する。
  * holidayDays は DB に列が無いため除外する。
  */
