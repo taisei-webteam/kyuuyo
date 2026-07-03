@@ -4,8 +4,6 @@ import {
   isEmailSent,
   sendEmail,
   isBonusRecipient,
-  calculateInsurancePremiums,
-  calculateBonusInsurancePremiums,
   loadBonusFromDb,
   loadPreviousBonusFromDb,
   saveBonusToDb,
@@ -15,8 +13,6 @@ import {
 } from '@/lib/mock-data'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
-const isDev = import.meta.env.DEV
-import { calcBonusTax } from '../../../shared/bonus-tax-jp'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
@@ -130,72 +126,6 @@ function emptyBonus(emp: MockEmployee, year: number, season: '夏季' | '冬季'
     totalDeduction: 0,
     netPayment: 0,
   }
-}
-
-/**
- * 【開発用】動作確認のために“それっぽい”賞与額を概算生成する。
- * 基本給ベースの支給額に、賞与用の社会保険料と源泉所得税を自動算出して付与する。
- * ※本番では使用しない（開発プレビュー限定のサンプル入力ボタンからのみ呼ぶ）。
- */
-function generateSampleBonuses(
-  employees: MockEmployee[],
-  year: number,
-  season: '夏季' | '冬季',
-  paymentDate?: string | null,
-): MockBonus[] {
-  const multiplier = season === '夏季' ? 2.0 : 2.5
-  return employees
-    .filter((emp) => isBonusRecipient(emp, year, season, paymentDate))
-    .map((emp, idx) => {
-      const basicBonus = Math.round(emp.basicSalary * multiplier)
-      const performanceBonus = Math.round(emp.basicSalary * 0.3)
-      const specialBonus = emp.employeeType === '役員' ? 100000 : 0
-      const totalPayment = basicBonus + performanceBonus + specialBonus
-
-      const { healthInsurance, nursingInsurance, welfarePension, employmentInsurance } =
-        calculateBonusInsurancePremiums(totalPayment, emp.birthDate ?? '')
-      const socialInsurance = healthInsurance + nursingInsurance + welfarePension + employmentInsurance
-
-      const prevMonthlyTaxableGross =
-        emp.basicSalary +
-        emp.positionAllowance +
-        emp.familyAllowance +
-        emp.specialAllowance +
-        emp.dangerAllowance +
-        emp.salesAllowance
-      const prevPremiums = calculateInsurancePremiums(
-        emp.standardMonthlyRemuneration,
-        emp.birthDate,
-        prevMonthlyTaxableGross + emp.transportAllowance,
-      )
-      const prevMonthSalaryAfterSI =
-        prevMonthlyTaxableGross -
-        (prevPremiums.healthInsurance +
-          prevPremiums.nursingInsurance +
-          prevPremiums.welfarePension +
-          prevPremiums.employmentInsurance)
-
-      const incomeTax = calcBonusTax(totalPayment - socialInsurance, prevMonthSalaryAfterSI, emp.dependents)
-      const totalDeduction = socialInsurance + incomeTax
-
-      return {
-        id: idx + 1,
-        employeeId: emp.id,
-        year,
-        season,
-        basicBonus,
-        performanceBonus,
-        specialBonus,
-        totalPayment,
-        healthInsurance,
-        nursingInsurance,
-        welfarePension,
-        employmentInsurance,
-        incomeTax,
-        totalDeduction,
-        netPayment: totalPayment - totalDeduction,
-      }
-    })
 }
 
 /**
@@ -329,12 +259,6 @@ export function BonusCreate(): React.ReactElement {
     setEmailRefresh((k) => k + 1)
     setSaveMessage('削除しました（未作成に戻しました）')
   }, [selectedYear, selectedSeason, employees])
-
-  // 【開発用】“それっぽい”サンプル賞与額を現在のシーズンに投入する（保存は別途「保存」で）。
-  const handleFillSample = useCallback((): void => {
-    setBonuses(generateSampleBonuses(employees, selectedYear, selectedSeason, paymentDate))
-    setSaveMessage('サンプル値を入力しました（内容を確認して「保存」してください）')
-  }, [employees, selectedYear, selectedSeason, paymentDate])
 
   // 明細の金額欄を編集する（支給・控除）。変更後は合計・差引支給額を再計算する。
   const handleFieldChange = useCallback(
@@ -501,11 +425,6 @@ export function BonusCreate(): React.ReactElement {
         </div>
         <div className={styles.headerActions}>
           {saveMessage && <span className={styles.detailBadge}>{saveMessage}</span>}
-          {isDev && (
-            <button className={styles.btnSecondary} onClick={handleFillSample} title="開発用: 動作確認用のサンプル賞与額を入力">
-              サンプル入力
-            </button>
-          )}
           <button className={styles.btnSecondary} onClick={() => setShowBulkEdit(true)}>一括編集</button>
           <button className={styles.btnDanger} onClick={() => void handleClear()}>削除</button>
           <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
