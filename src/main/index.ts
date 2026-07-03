@@ -29,7 +29,14 @@ process.on('unhandledRejection', (reason) => {
   console.error('[main] unhandledRejection:', reason);
 });
 
-loadEnv({ path: path.resolve(__dirname, '../../../.env') });
+// 環境変数の読み込み:
+// - 開発版: プロジェクトルートの .env
+// - 配布版: .env は同梱しないため、userData 配下の .env を読む
+//   (例: %APPDATA%\rakuraku-kyuuyo-alpha\.env に DATABASE_URL を記載)
+const envPath = app.isPackaged
+  ? path.join(app.getPath('userData'), '.env')
+  : path.resolve(__dirname, '../../../.env');
+loadEnv({ path: envPath });
 import { getDb, closeDb } from './db/connection.js';
 import { registerEmployeeHandlers } from './ipc/employee.ipc.js';
 import { registerPayslipHandlers } from './ipc/payslip.ipc.js';
