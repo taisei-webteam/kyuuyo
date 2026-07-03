@@ -6,6 +6,7 @@ import {
   calculateInsurancePremiums,
   calculateBonusInsurancePremiums,
   loadBonusFromDb,
+  loadPreviousBonusFromDb,
   saveBonusToDb,
   loadEmailHistory,
   type MockEmployee,
@@ -13,10 +14,12 @@ import {
 } from '@/lib/mock-data'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+const isDev = import.meta.env.DEV
 import { calcBonusTax } from '../../../shared/bonus-tax-jp'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
+import { BonusBulkEditModal } from '@/components/BonusBulkEditModal'
 import { buildBonusEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
@@ -26,7 +29,7 @@ function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
 }
 
-interface MockBonus {
+export interface MockBonus {
   id: number
   employeeId: number
   year: number
@@ -42,6 +45,14 @@ interface MockBonus {
   incomeTax: number
   totalDeduction: number
   netPayment: number
+}
+
+/** 支給・控除の変更後に合計と差引支給額を再計算する。 */
+function recalcBonus(b: MockBonus): MockBonus {
+  const totalPayment = b.basicBonus + b.performanceBonus + b.specialBonus
+  const totalDeduction =
+    b.healthInsurance + b.nursingInsurance + b.welfarePension + b.employmentInsurance + b.incomeTax
+  return { ...b, totalPayment, totalDeduction, netPayment: totalPayment - totalDeduction }
 }
 
 function bonusToPayslipShape(b: MockBonus): MockPayslip {
@@ -99,7 +110,37 @@ function payslipShapeToBonus(p: MockPayslip, season: '夏季' | '冬季'): MockB
   }
 }
 
-function generateBonusData(employees: MockEmployee[], year: number, season: '夏季' | '冬季'): MockBonus[] {
+/** 金額が全て 0 の空の賞与明細を作る（前回データが無い場合の初期値）。 */
+function emptyBonus(emp: MockEmployee, year: number, season: '夏季' | '冬季', idx: number): MockBonus {
+  return {
+    id: idx + 1,
+    employeeId: emp.id,
+    year,
+    season,
+    basicBonus: 0,
+    performanceBonus: 0,
+    specialBonus: 0,
+    totalPayment: 0,
+    healthInsurance: 0,
+    nursingInsurance: 0,
+    welfarePension: 0,
+    employmentInsurance: 0,
+    incomeTax: 0,
+    totalDeduction: 0,
+    netPayment: 0,
+  }
+}
+
+/**
+ * 【開発用】動作確認のために“それっぽい”賞与額を概算生成する。
+ * 基本給ベースの支給額に、賞与用の社会保険料と源泉所得税を自動算出して付与する。
+ * ※本番では使用しない（開発プレビュー限定のサンプル入力ボタンからのみ呼ぶ）。
+ */
+function generateSampleBonuses(
+  employees: MockEmployee[],
+  year: number,
+  season: '夏季' | '冬季',
+): MockBonus[] {
   const multiplier = season === '夏季' ? 2.0 : 2.5
   return employees
     .filter((emp) => emp.employeeType !== 'パート')
@@ -109,13 +150,10 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
       const specialBonus = emp.employeeType === '役員' ? 100000 : 0
       const totalPayment = basicBonus + performanceBonus + specialBonus
 
-      // 賞与の社会保険料（介護保険は40歳以上のみ）。
-      // 料率は月次給与と共通の INSURANCE_RATES（insurance_rates マスタ）を参照する。
       const { healthInsurance, nursingInsurance, welfarePension, employmentInsurance } =
         calculateBonusInsurancePremiums(totalPayment, emp.birthDate ?? '')
       const socialInsurance = healthInsurance + nursingInsurance + welfarePension + employmentInsurance
 
-      // 前月の社会保険料等控除後の給与等の金額（マスタから推計：課税支給 − 月次社会保険料）
       const prevMonthlyTaxableGross =
         emp.basicSalary +
         emp.positionAllowance +
@@ -135,9 +173,7 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
           prevPremiums.welfarePension +
           prevPremiums.employmentInsurance)
 
-      // 賞与の源泉徴収税額（算出率の表・甲欄／令和8年分以降）
-      const bonusAfterSI = totalPayment - socialInsurance
-      const incomeTax = calcBonusTax(bonusAfterSI, prevMonthSalaryAfterSI, emp.dependents)
+      const incomeTax = calcBonusTax(totalPayment - socialInsurance, prevMonthSalaryAfterSI, emp.dependents)
       const totalDeduction = socialInsurance + incomeTax
 
       return {
@@ -160,6 +196,30 @@ function generateBonusData(employees: MockEmployee[], year: number, season: '夏
     })
 }
 
+/**
+ * 賞与作成時の初期表示データを組み立てる。
+ * - 前回（同季）の入力値があれば、その金額をそのまま初期値にする（従業員ごとにマッチング）。
+ * - 前回データが無い従業員（新入社員など）は 0 円で開始し、手入力してもらう。
+ * ※仮の賞与率による自動算出は廃止。以降は全て手入力で編集する運用。
+ */
+function buildInitialBonuses(
+  employees: MockEmployee[],
+  year: number,
+  season: '夏季' | '冬季',
+  previous?: MockBonus[],
+): MockBonus[] {
+  const prevMap = new Map<number, MockBonus>((previous ?? []).map((b) => [b.employeeId, b]))
+  return employees
+    .filter((emp) => emp.employeeType !== 'パート')
+    .map((emp, idx) => {
+      const prev = prevMap.get(emp.id)
+      if (prev) {
+        return recalcBonus({ ...prev, id: idx + 1, year, season })
+      }
+      return emptyBonus(emp, year, season, idx)
+    })
+}
+
 export function BonusCreate(): React.ReactElement {
   const [selectedYear, setSelectedYear] = useState(2026)
   const [selectedSeason, setSelectedSeason] = useState<'夏季' | '冬季'>('夏季')
@@ -167,6 +227,7 @@ export function BonusCreate(): React.ReactElement {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [showBulkEmail, setShowBulkEmail] = useState(false)
+  const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
@@ -188,9 +249,10 @@ export function BonusCreate(): React.ReactElement {
     [eligibleEmployees, searchQuery],
   )
 
-  // 賞与データ。DB に保存済みがあればそれを（発行時のまま）復元し、無ければ自動生成する。
+  // 賞与データ。DB に保存済みがあればそれを（発行時のまま）復元し、無ければ
+  // 前回（同季）の入力値をそのまま初期表示する。前回が無ければ 0 円で開始する。
   const [bonuses, setBonuses] = useState<MockBonus[]>(() =>
-    generateBonusData(employees, selectedYear, selectedSeason),
+    buildInitialBonuses(employees, selectedYear, selectedSeason),
   )
 
   useEffect(() => {
@@ -204,7 +266,12 @@ export function BonusCreate(): React.ReactElement {
         setBonuses(saved.list.map((p) => payslipShapeToBonus(p, selectedSeason)))
         setPaymentDate(saved.paymentDate ?? '')
       } else {
-        setBonuses(generateBonusData(employees, selectedYear, selectedSeason))
+        // 未作成のシーズンは、前回（同季）の入力値を初期値として引き継ぐ。
+        const prev = hasElectronApi ? await loadPreviousBonusFromDb(selectedYear, selectedSeason) : null
+        if (cancelled) return
+        const previousBonuses = prev?.list.map((p) => payslipShapeToBonus(p, selectedSeason))
+        setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason, previousBonuses))
+        setPaymentDate('')
       }
       setEmailRefresh((k) => k + 1)
     })()
@@ -227,6 +294,65 @@ export function BonusCreate(): React.ReactElement {
     )
     setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
   }, [selectedYear, selectedSeason, bonuses, paymentDate])
+
+  // この年・シーズンの賞与を削除して「未作成」に戻す。
+  // 削除後は前回（同季）の入力値を引き継いだ初期表示に戻す。
+  const handleClear = useCallback(async (): Promise<void> => {
+    const ok = window.confirm(
+      `${selectedYear}年 ${selectedSeason}賞与を削除して「未作成」に戻します。\n` +
+        'この賞与で入力・保存した内容は失われます。よろしいですか？',
+    )
+    if (!ok) return
+    setSaveMessage('削除中...')
+    if (hasElectronApi) {
+      await saveBonusToDb(selectedYear, selectedSeason, [], null)
+      const prev = await loadPreviousBonusFromDb(selectedYear, selectedSeason)
+      const previousBonuses = prev?.list.map((p) => payslipShapeToBonus(p, selectedSeason))
+      setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason, previousBonuses))
+    } else {
+      setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason))
+    }
+    setPaymentDate('')
+    setEmailRefresh((k) => k + 1)
+    setSaveMessage('削除しました（未作成に戻しました）')
+  }, [selectedYear, selectedSeason, employees])
+
+  // 【開発用】“それっぽい”サンプル賞与額を現在のシーズンに投入する（保存は別途「保存」で）。
+  const handleFillSample = useCallback((): void => {
+    setBonuses(generateSampleBonuses(employees, selectedYear, selectedSeason))
+    setSaveMessage('サンプル値を入力しました（内容を確認して「保存」してください）')
+  }, [employees, selectedYear, selectedSeason])
+
+  // 明細の金額欄を編集する（支給・控除）。変更後は合計・差引支給額を再計算する。
+  const handleFieldChange = useCallback(
+    (employeeId: number, field: keyof MockBonus, value: number): void => {
+      setBonuses((prev) =>
+        prev.map((b) => (b.employeeId === employeeId ? recalcBonus({ ...b, [field]: value }) : b)),
+      )
+    },
+    [],
+  )
+
+  // 一括編集モーダルの適用結果を state に反映し、そのまま DB へ保存する。
+  const handleBulkApply = useCallback(
+    async (updated: MockBonus[]): Promise<void> => {
+      setBonuses(updated)
+      setShowBulkEdit(false)
+      if (!hasElectronApi) {
+        setSaveMessage('保存しました')
+        return
+      }
+      setSaveMessage('保存中...')
+      const ok = await saveBonusToDb(
+        selectedYear,
+        selectedSeason,
+        updated.map(bonusToPayslipShape),
+        paymentDate || null,
+      )
+      setSaveMessage(ok ? '保存しました' : '保存に失敗しました')
+    },
+    [selectedYear, selectedSeason, paymentDate],
+  )
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.id === selectedEmployeeId),
@@ -351,6 +477,13 @@ export function BonusCreate(): React.ReactElement {
         </div>
         <div className={styles.headerActions}>
           {saveMessage && <span className={styles.detailBadge}>{saveMessage}</span>}
+          {isDev && (
+            <button className={styles.btnSecondary} onClick={handleFillSample} title="開発用: 動作確認用のサンプル賞与額を入力">
+              サンプル入力
+            </button>
+          )}
+          <button className={styles.btnSecondary} onClick={() => setShowBulkEdit(true)}>一括編集</button>
+          <button className={styles.btnDanger} onClick={() => void handleClear()}>削除</button>
           <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
           <button className={styles.btnSecondary} onClick={() => setShowBulkEmail(true)}>一括送信</button>
           <button className={styles.btnSecondary} onClick={handleEmailSend}>個別送信</button>
@@ -399,6 +532,7 @@ export function BonusCreate(): React.ReactElement {
               year={selectedYear}
               season={selectedSeason}
               paymentDate={paymentDate}
+              onChange={handleFieldChange}
             />
           ) : (
             <div className={styles.emptyState}>従業員を選択してください</div>
@@ -442,6 +576,17 @@ export function BonusCreate(): React.ReactElement {
           onClose={() => setShowReport(false)}
         />
       )}
+
+      {showBulkEdit && (
+        <BonusBulkEditModal
+          bonuses={bonuses}
+          employees={eligibleEmployees}
+          year={selectedYear}
+          season={selectedSeason}
+          onApply={handleBulkApply}
+          onClose={() => setShowBulkEdit(false)}
+        />
+      )}
     </div>
   )
 }
@@ -458,13 +603,23 @@ function BonusDetail({
   year,
   season,
   paymentDate,
+  onChange,
 }: {
   employee: MockEmployee
   bonus: MockBonus
   year: number
   season: string
   paymentDate: string
+  onChange: (employeeId: number, field: keyof MockBonus, value: number) => void
 }): React.ReactElement {
+  const handleChange = useCallback(
+    (field: keyof MockBonus) =>
+      (e: React.ChangeEvent<HTMLInputElement>): void => {
+        onChange(employee.id, field, Number(e.target.value))
+      },
+    [onChange, employee.id],
+  )
+
   return (
     <div className={styles.detailCard}>
       <div className={styles.detailHeader}>
@@ -481,9 +636,9 @@ function BonusDetail({
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>支給</div>
             <div className={styles.sectionBody}>
-              <Row label="基本賞与" value={yen(bonus.basicBonus)} />
-              <Row label="業績賞与" value={yen(bonus.performanceBonus)} />
-              <Row label="特別賞与" value={yen(bonus.specialBonus)} />
+              <EditableRow label="基本賞与" value={bonus.basicBonus} onChange={handleChange('basicBonus')} />
+              <EditableRow label="業績賞与" value={bonus.performanceBonus} onChange={handleChange('performanceBonus')} />
+              <EditableRow label="特別賞与" value={bonus.specialBonus} onChange={handleChange('specialBonus')} />
             </div>
             <div className={styles.sectionTotal}>
               <span>合計</span>
@@ -496,11 +651,11 @@ function BonusDetail({
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>控除</div>
             <div className={styles.sectionBody}>
-              <Row label="健康保険" value={yen(bonus.healthInsurance)} />
-              <Row label="介護保険" value={yen(bonus.nursingInsurance)} />
-              <Row label="厚生年金" value={yen(bonus.welfarePension)} />
-              <Row label="雇用保険" value={yen(bonus.employmentInsurance)} />
-              <Row label="所得税" value={yen(bonus.incomeTax)} />
+              <EditableRow label="健康保険" value={bonus.healthInsurance} onChange={handleChange('healthInsurance')} />
+              <EditableRow label="介護保険" value={bonus.nursingInsurance} onChange={handleChange('nursingInsurance')} />
+              <EditableRow label="厚生年金" value={bonus.welfarePension} onChange={handleChange('welfarePension')} />
+              <EditableRow label="雇用保険" value={bonus.employmentInsurance} onChange={handleChange('employmentInsurance')} />
+              <EditableRow label="所得税" value={bonus.incomeTax} onChange={handleChange('incomeTax')} />
             </div>
             <div className={styles.sectionTotal}>
               <span>合計</span>
@@ -518,17 +673,25 @@ function BonusDetail({
   )
 }
 
-function Row({
+function EditableRow({
   label,
   value,
+  onChange,
 }: {
   label: string
-  value: string
+  value: number
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
 }): React.ReactElement {
   return (
     <div className={styles.row}>
       <span className={styles.rowLabel}>{label}</span>
-      <span className={styles.rowValue}>{value}</span>
+      <input
+        type="number"
+        className={styles.rowInput}
+        value={value}
+        onChange={onChange}
+        min={0}
+      />
     </div>
   )
 }

@@ -163,7 +163,7 @@ export function PayslipCreate(): ReactElement {
     setEditPayslips(rawPayslips.map((ps) => ({ ...ps })))
   }, [rawPayslips])
 
-  // 退職者は退職翌月（最終給与の計上月）まで表示し、翌々月以降は給与作成から除外する。
+  // 退職者は退職月まで表示し、退職翌月以降は給与作成から除外する（翌月分の勤務が無く明細を作らないため）。
   const filteredEmployees = useMemo(
     () =>
       employees.filter(
@@ -174,7 +174,7 @@ export function PayslipCreate(): ReactElement {
     [employees, searchQuery, selectedYear, selectedMonth],
   )
 
-  // 選択中の従業員が対象外（退職者の翌々月など）になったら先頭へ切り替える。
+  // 選択中の従業員が対象外（退職者の退職翌月など）になったら先頭へ切り替える。
   useEffect(() => {
     if (filteredEmployees.length === 0) return
     if (!filteredEmployees.some((e) => e.id === selectedEmployeeId)) {

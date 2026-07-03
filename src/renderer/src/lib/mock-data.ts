@@ -1152,7 +1152,7 @@ export function isEmployedInMonth(
 /**
  * 給与作成の対象月かどうか（一覧に表示するか）を判定する。
  * - 入社前の月: 対象外
- * - 退職者: 退職翌月（最終給与の計上月）までは対象、翌々月以降は対象外
+ * - 退職者: 退職月までは対象、退職翌月以降は対象外（働いた月ベース。翌月分の勤務は無いため明細も作らない）
  * - それ以外: 対象
  */
 export function isPayrollTargetInMonth(
@@ -1164,7 +1164,7 @@ export function isPayrollTargetInMonth(
   const hire = parseYmd(emp.hireDate)
   if (hire && targetIdx < hire.y * 12 + (hire.m - 1)) return false
   const resign = parseYmd(emp.resignDate)
-  if (resign && targetIdx > resign.y * 12 + (resign.m - 1) + 1) return false
+  if (resign && targetIdx > resign.y * 12 + (resign.m - 1)) return false
   return true
 }
 
@@ -1532,6 +1532,24 @@ export async function loadBonusFromDb(
     list: res.data.map(payslipToMock),
     paymentDate: res.data[0]?.paymentDate ?? null,
   }
+}
+
+/**
+ * 直近の「同じ季節」の賞与明細を過去にさかのぼって探す（夏季と冬季は別々に扱う）。
+ * 新規シーズン作成時に、前回入力した金額をそのまま初期表示するために使用する。
+ * Electron 環境のみ動作。見つからなければ null を返す。
+ */
+export async function loadPreviousBonusFromDb(
+  year: number,
+  season: '夏季' | '冬季',
+  maxLookbackYears = 10,
+): Promise<{ list: MockPayslip[]; year: number } | null> {
+  if (!hasApi()) return null
+  for (let y = year - 1; y >= year - maxLookbackYears; y--) {
+    const res = await loadBonusFromDb(y, season)
+    if (res) return { list: res.list, year: y }
+  }
+  return null
 }
 
 /**

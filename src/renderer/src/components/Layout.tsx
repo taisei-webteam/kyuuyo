@@ -15,7 +15,7 @@ const navItems = [
   { to: '/payslip', icon: '💰', label: '給与作成' },
   { to: '/history', icon: '📋', label: '給与一括編集' },
   { to: '/bonus', icon: '🎁', label: '賞与作成' },
-  // 源泉徴収票: 要否確認中のため一時非表示（先方確認後に復帰）
+  // 源泉徴収票: 今回スコープ外（別途料金の追加機能。2026-07-03 決定）。将来対応時に復帰
   // { to: '/withholding', icon: '📄', label: '源泉徴収票' },
   { to: '/settings', icon: '⚙️', label: '設定' },
 ]
@@ -27,7 +27,7 @@ const pageTitles: Record<string, string> = {
   '/payslip': '給与作成',
   '/history': '給与一括編集',
   '/bonus': '賞与作成',
-  // 源泉徴収票: 要否確認中のため一時非表示（先方確認後に復帰）
+  // 源泉徴収票: 今回スコープ外（別途料金の追加機能。2026-07-03 決定）。将来対応時に復帰
   // '/withholding': '源泉徴収票',
   '/settings': '設定',
 }

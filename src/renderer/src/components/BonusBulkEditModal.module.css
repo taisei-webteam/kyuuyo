@@ -1,0 +1,221 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1100px, 96vw);
+  max-height: 90vh;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modalHeader h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.saveButton {
+  padding: 8px 16px;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.saveButton:hover {
+  opacity: 0.9;
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.closeButton {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.tableWrapper {
+  overflow: auto;
+  padding: 12px 16px 20px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  border: 1px solid var(--color-border);
+  padding: 4px 6px;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.groupRow th {
+  background: var(--color-bg);
+}
+
+.thGroupPay,
+.thGroupDeduct {
+  text-align: center;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.th {
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  text-align: center;
+}
+
+.thTotal {
+  color: var(--color-text);
+}
+
+.thName {
+  background: var(--color-bg);
+  text-align: left;
+  color: var(--color-text);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+}
+
+.thNetPay {
+  background: var(--color-bg);
+  text-align: right;
+  color: var(--color-text);
+}
+
+.bodyRow:nth-child(even) td {
+  background: color-mix(in srgb, var(--color-bg) 40%, transparent);
+}
+
+.tdName {
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text);
+  position: sticky;
+  left: 0;
+  background: var(--color-surface);
+}
+
+.tdNetPay {
+  text-align: right;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.tdTotal {
+  text-align: right;
+  font-weight: 700;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+}
+
+.tdEditable {
+  padding: 2px;
+}
+
+.cellInput {
+  width: 84px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cellInput:hover {
+  border-color: var(--color-primary);
+}
+
+.cellInput:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.cellInput::-webkit-inner-spin-button,
+.cellInput::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.totalRow td {
+  background: var(--color-bg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.tdNameFoot {
+  text-align: left;
+  position: sticky;
+  left: 0;
+  background: var(--color-bg);
+}
+
+.tdNetPayFoot {
+  text-align: right;
+}
+
+.tdFoot {
+  text-align: right;
+}
