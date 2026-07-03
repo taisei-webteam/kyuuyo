@@ -525,7 +525,7 @@
       }
       return all.sort((a, b) => {
         if (a.date !== b.date) return b.date.localeCompare(a.date);
-        return a.time.localeCompare(b.time);
+        return b.time.localeCompare(a.time);
       });
     }
 
