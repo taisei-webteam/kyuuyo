@@ -13,6 +13,7 @@ import {
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { PayrollReportModal } from '@/components/PayrollReportModal'
+import { getYearOptions } from '@/lib/year-options'
 import styles from './PayslipHistory.module.css'
 
 function num(amount: number): string {
@@ -222,7 +223,7 @@ export function PayslipHistory(): ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {[2024, 2025, 2026].map((y) => (
+              {getYearOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>

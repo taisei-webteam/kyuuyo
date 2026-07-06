@@ -20,6 +20,7 @@ import { BonusBulkEditModal } from '@/components/BonusBulkEditModal'
 import { buildBonusEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
+import { getYearOptions } from '@/lib/year-options'
 import styles from './BonusCreate.module.css'
 
 function yen(amount: number): string {
@@ -400,7 +401,7 @@ export function BonusCreate(): React.ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {[2024, 2025, 2026].map((y) => (
+              {getYearOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>

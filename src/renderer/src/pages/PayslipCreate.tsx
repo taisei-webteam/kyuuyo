@@ -24,6 +24,7 @@ import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPr
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
+import { getYearOptions } from '@/lib/year-options'
 import styles from './PayslipCreate.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -439,7 +440,7 @@ export function PayslipCreate(): ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {[2024, 2025, 2026].map((y) => (
+              {getYearOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>

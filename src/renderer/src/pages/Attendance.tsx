@@ -14,6 +14,7 @@ import {
 import { RawPunchModal } from '@/components/RawPunchModal'
 import { getSettings } from '@/lib/settings-store'
 import { floorToUnit } from '@/lib/time-rounding'
+import { getYearOptions } from '@/lib/year-options'
 import styles from './Attendance.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -252,7 +253,7 @@ export function Attendance(): ReactElement {
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
           >
-            {[2024, 2025, 2026].map((y) => (
+            {getYearOptions().map((y) => (
               <option key={y} value={y}>{y}年</option>
             ))}
           </select>
