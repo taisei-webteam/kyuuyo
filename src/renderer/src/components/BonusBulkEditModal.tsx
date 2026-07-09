@@ -3,6 +3,7 @@ import type { ReactElement, ChangeEvent, KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import type { MockEmployee } from '@/lib/mock-data'
+import { sumExtraLines, firstExtraLineLabel, visibleExtraLines } from '@/lib/mock-data'
 import type { MockBonus } from '@/pages/BonusCreate'
 import styles from './BonusBulkEditModal.module.css'
 
@@ -11,11 +12,34 @@ function num(amount: number): string {
   return amount.toLocaleString('ja-JP')
 }
 
+function numOrBlank(amount: number): string {
+  if (amount === 0) return ''
+  return amount.toLocaleString('ja-JP')
+}
+
+const EXTRA_PAY_LABEL_DEFAULT = '追加支給'
+const EXTRA_DEDUCT_LABEL_DEFAULT = '追加控除'
+
+function extraPaymentAmount(row: MockBonus): number {
+  return sumExtraLines(visibleExtraLines(row.extraPaymentLines))
+}
+
+function extraDeductionAmount(row: MockBonus): number {
+  return sumExtraLines(visibleExtraLines(row.extraDeductionLines))
+}
+
 /** 支給・控除の変更後に合計と差引支給額を再計算する。 */
 function recalcBonus(b: MockBonus): MockBonus {
-  const totalPayment = b.basicBonus + b.performanceBonus + b.specialBonus
+  const extraPaymentTotal = sumExtraLines(b.extraPaymentLines)
+  const extraDeductionTotal = sumExtraLines(b.extraDeductionLines)
+  const totalPayment = b.basicBonus + b.performanceBonus + b.specialBonus + extraPaymentTotal
   const totalDeduction =
-    b.healthInsurance + b.nursingInsurance + b.welfarePension + b.employmentInsurance + b.incomeTax
+    b.healthInsurance +
+    b.nursingInsurance +
+    b.welfarePension +
+    b.employmentInsurance +
+    b.incomeTax +
+    extraDeductionTotal
   return { ...b, totalPayment, totalDeduction, netPayment: totalPayment - totalDeduction }
 }
 
@@ -44,6 +68,9 @@ const DEDUCT_COLUMNS: Column[] = [
 ]
 
 const ALL_COLUMNS: Column[] = [...PAY_COLUMNS, ...DEDUCT_COLUMNS]
+
+const PAY_BASE_COLUMNS = PAY_COLUMNS.filter((c) => c.key !== 'totalPayment')
+const DEDUCT_BASE_COLUMNS = DEDUCT_COLUMNS.filter((c) => c.key !== 'totalDeduction')
 
 interface EditableBonus extends MockBonus {
   employeeName: string
@@ -110,14 +137,26 @@ export function BonusBulkEditModal({
   )
 
   const totals = useMemo(() => {
-    const t: Record<string, number> = { netPayment: 0 }
+    const t: Record<string, number> = { netPayment: 0, extraPayment: 0, extraDeduction: 0 }
     for (const col of ALL_COLUMNS) t[col.key] = 0
     for (const r of editData) {
       t.netPayment += r.netPayment
+      t.extraPayment += extraPaymentAmount(r)
+      t.extraDeduction += extraDeductionAmount(r)
       for (const col of ALL_COLUMNS) t[col.key] += r[col.key] as number
     }
     return t
   }, [editData])
+
+  const paymentExtraLabel = useMemo(
+    () => firstExtraLineLabel(editData.map((r) => r.extraPaymentLines)) || EXTRA_PAY_LABEL_DEFAULT,
+    [editData],
+  )
+
+  const deductionExtraLabel = useMemo(
+    () => firstExtraLineLabel(editData.map((r) => r.extraDeductionLines)) || EXTRA_DEDUCT_LABEL_DEFAULT,
+    [editData],
+  )
 
   const handleSave = useCallback(async (): Promise<void> => {
     setBusy(true)
@@ -130,6 +169,8 @@ export function BonusBulkEditModal({
         basicBonus: r.basicBonus,
         performanceBonus: r.performanceBonus,
         specialBonus: r.specialBonus,
+        extraPaymentLines: r.extraPaymentLines ?? [],
+        extraDeductionLines: r.extraDeductionLines ?? [],
         totalPayment: r.totalPayment,
         healthInsurance: r.healthInsurance,
         nursingInsurance: r.nursingInsurance,
@@ -166,18 +207,20 @@ export function BonusBulkEditModal({
               <tr className={styles.groupRow}>
                 <th rowSpan={2} className={styles.thName}>氏名</th>
                 <th rowSpan={2} className={styles.thNetPay}>振込額</th>
-                <th colSpan={PAY_COLUMNS.length} className={styles.thGroupPay}>支　給</th>
-                <th colSpan={DEDUCT_COLUMNS.length} className={styles.thGroupDeduct}>控　除</th>
+                <th colSpan={PAY_BASE_COLUMNS.length + 2} className={styles.thGroupPay}>支　給</th>
+                <th colSpan={DEDUCT_BASE_COLUMNS.length + 2} className={styles.thGroupDeduct}>控　除</th>
               </tr>
               <tr>
-                {ALL_COLUMNS.map((col) => {
-                  const isTotal = !col.editable
-                  return (
-                    <th key={col.key} className={`${styles.th} ${isTotal ? styles.thTotal : ''}`}>
-                      {col.label}
-                    </th>
-                  )
-                })}
+                {PAY_BASE_COLUMNS.map((col) => (
+                  <th key={col.key} className={styles.th}>{col.label}</th>
+                ))}
+                <th className={`${styles.th} ${styles.thExtra}`}>{paymentExtraLabel}</th>
+                <th className={`${styles.th} ${styles.thTotal}`}>支給合計</th>
+                {DEDUCT_BASE_COLUMNS.map((col) => (
+                  <th key={col.key} className={styles.th}>{col.label}</th>
+                ))}
+                <th className={`${styles.th} ${styles.thExtra}`}>{deductionExtraLabel}</th>
+                <th className={`${styles.th} ${styles.thTotal}`}>控除合計</th>
               </tr>
             </thead>
             <tbody>
@@ -185,30 +228,49 @@ export function BonusBulkEditModal({
                 <tr key={row.employeeId} className={styles.bodyRow}>
                   <td className={styles.tdName}>{row.employeeName}</td>
                   <td className={styles.tdNetPay}>{num(row.netPayment)}</td>
-                  {ALL_COLUMNS.map((col, colIdx) => {
+                  {PAY_BASE_COLUMNS.map((col, colIdx) => {
                     const val = row[col.key] as number
-                    if (col.editable) {
-                      return (
-                        <td key={col.key} className={styles.tdEditable}>
-                          <input
-                            type="number"
-                            className={styles.cellInput}
-                            value={val}
-                            data-row={rowIdx}
-                            data-col={colIdx}
-                            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                              handleChange(rowIdx, col.key, Number(e.target.value))
-                            }
-                            onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
-                            min={0}
-                          />
-                        </td>
-                      )
-                    }
                     return (
-                      <td key={col.key} className={styles.tdTotal}>{num(val)}</td>
+                      <td key={col.key} className={styles.tdEditable}>
+                        <input
+                          type="number"
+                          className={styles.cellInput}
+                          value={val}
+                          data-row={rowIdx}
+                          data-col={colIdx}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                            handleChange(rowIdx, col.key, Number(e.target.value))
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
+                          min={0}
+                        />
+                      </td>
                     )
                   })}
+                  <td className={styles.tdReadonly}>{numOrBlank(extraPaymentAmount(row))}</td>
+                  <td className={styles.tdTotal}>{num(row.totalPayment)}</td>
+                  {DEDUCT_BASE_COLUMNS.map((col, colIdx) => {
+                    const val = row[col.key] as number
+                    const dataCol = PAY_BASE_COLUMNS.length + 1 + colIdx
+                    return (
+                      <td key={col.key} className={styles.tdEditable}>
+                        <input
+                          type="number"
+                          className={styles.cellInput}
+                          value={val}
+                          data-row={rowIdx}
+                          data-col={dataCol}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                            handleChange(rowIdx, col.key, Number(e.target.value))
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
+                          min={0}
+                        />
+                      </td>
+                    )
+                  })}
+                  <td className={styles.tdReadonly}>{numOrBlank(extraDeductionAmount(row))}</td>
+                  <td className={styles.tdTotal}>{num(row.totalDeduction)}</td>
                 </tr>
               ))}
             </tbody>
@@ -216,9 +278,16 @@ export function BonusBulkEditModal({
               <tr className={styles.totalRow}>
                 <td className={styles.tdNameFoot}>合計</td>
                 <td className={styles.tdNetPayFoot}>{num(totals.netPayment)}</td>
-                {ALL_COLUMNS.map((col) => (
+                {PAY_BASE_COLUMNS.map((col) => (
                   <td key={col.key} className={styles.tdFoot}>{num(Math.round(totals[col.key]))}</td>
                 ))}
+                <td className={styles.tdFoot}>{numOrBlank(totals.extraPayment)}</td>
+                <td className={styles.tdFoot}>{num(Math.round(totals.totalPayment))}</td>
+                {DEDUCT_BASE_COLUMNS.map((col) => (
+                  <td key={col.key} className={styles.tdFoot}>{num(Math.round(totals[col.key]))}</td>
+                ))}
+                <td className={styles.tdFoot}>{numOrBlank(totals.extraDeduction)}</td>
+                <td className={styles.tdFoot}>{num(Math.round(totals.totalDeduction))}</td>
               </tr>
             </tfoot>
           </table>

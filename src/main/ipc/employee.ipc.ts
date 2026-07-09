@@ -55,6 +55,7 @@ export function registerEmployeeHandlers(): void {
           hourlyRate: params.hourlyRate,
           standardMonthlyRemuneration: params.standardMonthlyRemuneration,
           transportAllowance: params.transportAllowance,
+          taxableTransport: params.taxableTransport,
           positionAllowance: params.positionAllowance,
           familyAllowance: params.familyAllowance,
           specialAllowance: params.specialAllowance,
@@ -71,6 +72,9 @@ export function registerEmployeeHandlers(): void {
           holidayMode: params.holidayMode,
           earlyWorkStart: params.earlyWorkStart,
           earlyWorkEnd: params.earlyWorkEnd,
+          bonusEligible: params.bonusEligible,
+          employmentInsuranceOverage: params.employmentInsuranceOverage,
+          paidLeaveBalance: params.paidLeaveBalance,
           isActive: params.isActive,
         }).run();
         return { success: true, data: { id: Number(result.lastInsertRowid) } };

@@ -1,7 +1,7 @@
 import type { FilterType } from '@/lib/types';
 import styles from './FilterBar.module.css';
 
-const filters: FilterType[] = ['全員', '社員', '役員', 'パート'];
+const filters: FilterType[] = ['全員', '社員', 'パート'];
 
 interface Props {
   current: FilterType;

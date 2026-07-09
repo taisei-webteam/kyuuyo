@@ -1,7 +1,6 @@
 import type { EmployeeWithStatus } from './types';
 
 export const DEMO_EMPLOYEES: EmployeeWithStatus[] = [
-  { id: 1, name: '谷口 正向', nameKana: 'タニグチ マサムキ', employeeType: '役員', displayOrder: 1, status: 'idle', clockInTime: null, clockOutTime: null },
   { id: 2, name: '田中 好徳', nameKana: 'タナカ ヨシノリ', employeeType: '社員', displayOrder: 2, status: 'clocked_in', clockInTime: '8:30', clockOutTime: null },
   { id: 3, name: '有馬 優子', nameKana: 'アリマ ユウコ', employeeType: '社員', displayOrder: 3, status: 'idle', clockInTime: null, clockOutTime: null },
   { id: 4, name: '銭花 貴文', nameKana: 'ゼニハナ タカフミ', employeeType: '社員', displayOrder: 4, status: 'clocked_in', clockInTime: '8:25', clockOutTime: null },

@@ -464,8 +464,9 @@ export function registerAttendanceHandlers(): void {
         const result = raw.prepare(`
           INSERT INTO attendance_records
             (employee_id, date, clock_in, clock_out, go_out, go_return, work_minutes, overtime_minutes,
-             early_overtime_minutes, break_minutes, is_holiday, is_holiday_work, data_source, note)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             early_overtime_minutes, break_minutes, is_holiday, is_holiday_work,
+             paid_leave_usage, paid_leave_status, data_source, note)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(employee_id, date) DO UPDATE SET
             clock_in = excluded.clock_in,
             clock_out = excluded.clock_out,
@@ -477,6 +478,8 @@ export function registerAttendanceHandlers(): void {
             break_minutes = excluded.break_minutes,
             is_holiday = excluded.is_holiday,
             is_holiday_work = excluded.is_holiday_work,
+            paid_leave_usage = excluded.paid_leave_usage,
+            paid_leave_status = excluded.paid_leave_status,
             data_source = excluded.data_source,
             note = excluded.note,
             updated_at = datetime('now','localtime')
@@ -485,6 +488,7 @@ export function registerAttendanceHandlers(): void {
           params.goOut, params.goReturn,
           params.workMinutes, params.overtimeMinutes, params.earlyOvertimeMinutes,
           params.breakMinutes, params.isHoliday ? 1 : 0, params.isHolidayWork ? 1 : 0,
+          params.paidLeaveUsage, params.paidLeaveStatus,
           params.dataSource, params.note,
         );
         return { success: true, data: { id: Number(result.lastInsertRowid) } };
@@ -519,6 +523,8 @@ export function registerAttendanceHandlers(): void {
                  break_minutes AS breakMinutes,
                  is_holiday AS isHoliday,
                  is_holiday_work AS isHolidayWork,
+                 paid_leave_usage AS paidLeaveUsage,
+                 paid_leave_status AS paidLeaveStatus,
                  data_source AS dataSource,
                  note,
                  created_at AS createdAt,

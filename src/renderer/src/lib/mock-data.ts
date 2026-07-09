@@ -13,7 +13,7 @@ const DEFAULT_INSURANCE_RATES: InsuranceRateValues = {
   healthRate: 0.04985,
   nursingRate: 0.008,
   pensionRate: 0.0915,
-  employmentRate: 0.006,
+  employmentRate: 0.005,
 }
 
 // 現在有効な保険料率。給与計算・料率表示はこの値を参照する（DB からの読み込みで更新）。
@@ -118,6 +118,8 @@ export interface MockEmployee {
   hourlyRate: number
   standardMonthlyRemuneration: number
   transportAllowance: number
+  /** 通勤手当のうち課税対象額（非課税限度超過分）。未指定/0 は全額非課税。 */
+  taxableTransport?: number
   positionAllowance: number
   familyAllowance: number
   specialAllowance: number
@@ -139,6 +141,12 @@ export interface MockEmployee {
   overtimeAllowed: boolean
   overtimeStart: string | null
   overtimeEnd: string | null
+  /** 賞与を支給するか。役員のみ判定に使用（社員は常に対象・パートは対象外）。 */
+  bonusEligible?: boolean
+  /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
+  employmentInsuranceOverage?: number
+  /** 有給残日数（手入力。0.5日単位可） */
+  paidLeaveBalance?: number | null
 }
 
 export type StampInType = '出勤' | '早出' | '遅刻'
@@ -159,6 +167,8 @@ export interface MockAttendanceDay {
   earlyOvertimeMinutes: number
   isHoliday: boolean
   isHolidayWork: boolean
+  paidLeaveUsage: PaidLeaveUsage | null
+  paidLeaveStatus: PaidLeaveStatus | null
   dataSource: 'ipad' | 'manual'
 }
 
@@ -171,6 +181,7 @@ export interface MockPayslip {
   workHours: number
   overtimeHours: number
   holidayWorkDays: number
+  paidLeaveDays: number
   basicSalary: number
   overtimePay: number
   transportAllowance: number
@@ -179,7 +190,10 @@ export interface MockPayslip {
   specialAllowance: number
   dangerAllowance: number
   salesAllowance: number
+  /** 追加支給行の合計（後方互換・CSV 用） */
   otherAllowance: number
+  extraPaymentLines: PayslipExtraLine[]
+  extraDeductionLines: PayslipExtraLine[]
   totalPayment: number
   healthInsurance: number
   nursingInsurance: number
@@ -192,6 +206,82 @@ export interface MockPayslip {
   otherDeduction: number
   totalDeduction: number
   netPayment: number
+}
+
+export function parseExtraLines(json: string | null | undefined): PayslipExtraLine[] {
+  if (!json || json === '[]') return []
+  try {
+    const parsed = JSON.parse(json) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+      .map((item, idx) => ({
+        id: typeof item.id === 'string' ? item.id : `line-${idx}`,
+        label: typeof item.label === 'string' ? item.label : '',
+        amount: typeof item.amount === 'number' && Number.isFinite(item.amount) ? item.amount : 0,
+      }))
+  } catch {
+    return []
+  }
+}
+
+export function serializeExtraLines(lines: PayslipExtraLine[]): string {
+  return JSON.stringify(lines)
+}
+
+export function sumExtraLines(lines: PayslipExtraLine[] | undefined): number {
+  if (!Array.isArray(lines)) return 0
+  return lines.reduce((sum, line) => sum + (line.amount ?? 0), 0)
+}
+
+/** 一覧表・印刷に表示する追加行（空行・0円のみは除外） */
+export function visibleExtraLines(lines: PayslipExtraLine[] | undefined): PayslipExtraLine[] {
+  if (!lines?.length) return []
+  return lines.filter((line) => line.label.trim() !== '' || line.amount > 0)
+}
+
+/** 追加行の先頭ラベル（全明細を走査。無ければ空文字＝空白列見出し） */
+export function firstExtraLineLabel(allLines: (PayslipExtraLine[] | undefined)[]): string {
+  for (const lines of allLines) {
+    for (const line of visibleExtraLines(lines)) {
+      const label = line.label.trim()
+      if (label) return label
+    }
+  }
+  return ''
+}
+
+/** 給与明細の追加支給行（後方互換: otherAllowance のみの場合も含む） */
+export function resolveSalaryPaymentExtras(
+  ps: Pick<MockPayslip, 'extraPaymentLines' | 'otherAllowance'>,
+): PayslipExtraLine[] {
+  if (ps.extraPaymentLines?.length) return visibleExtraLines(ps.extraPaymentLines)
+  if (ps.otherAllowance > 0) {
+    return [{ id: 'legacy-payment', label: '雇用保険料超過分', amount: ps.otherAllowance }]
+  }
+  return []
+}
+
+export function newExtraLine(label = '', amount = 0): PayslipExtraLine {
+  return {
+    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `extra-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+    label,
+    amount,
+  }
+}
+
+/** DB 保存前の otherAllowance 等を追加行から同期する */
+export function syncPayslipExtraTotals(ps: MockPayslip): MockPayslip {
+  const extraPaymentLines = ps.extraPaymentLines ?? []
+  const extraDeductionLines = ps.extraDeductionLines ?? []
+  return {
+    ...ps,
+    extraPaymentLines,
+    extraDeductionLines,
+    otherAllowance: sumExtraLines(extraPaymentLines),
+  }
 }
 
 const employees: MockEmployee[] = [
@@ -501,8 +591,11 @@ import { getHolidaysForYear } from './holidays-jp'
 import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
-import { calcWithholdingTaxMonthly } from '../../../shared/income-tax-jp'
-import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, Payslip, PayslipCreate } from '../../../shared/types'
+import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
+import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus } from '../../../shared/types'
+import { confirmedPaidLeaveDays } from '../../../shared/types'
+
+export type { PayslipExtraLine } from '../../../shared/types'
 
 export interface CalendarDay {
   isHoliday: boolean
@@ -717,6 +810,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
         earlyOvertimeMinutes: 0,
         isHoliday,
         isHolidayWork: false,
+        paidLeaveUsage: null,
+        paidLeaveStatus: null,
         dataSource: 'ipad',
       })
       continue
@@ -738,6 +833,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
         earlyOvertimeMinutes: 0,
         isHoliday: true,
         isHolidayWork: false,
+        paidLeaveUsage: null,
+        paidLeaveStatus: null,
         dataSource: 'ipad',
       })
       continue
@@ -826,6 +923,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
       earlyOvertimeMinutes,
       isHoliday: false,
       isHolidayWork: false,
+      paidLeaveUsage: null,
+      paidLeaveStatus: null,
       dataSource: day % 5 === 0 ? 'manual' : 'ipad',
     })
   }
@@ -841,6 +940,7 @@ export interface AttendanceAggregate {
   workHours: number
   overtimeHours: number
   holidayWorkDays: number
+  paidLeaveDays: number
 }
 
 /**
@@ -850,10 +950,11 @@ export interface AttendanceAggregate {
 export function aggregateAttendanceRecords(
   records: AttendanceRecord[],
 ): Map<number, AttendanceAggregate> {
-  const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number }>()
+  const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number; paidLeaveDays: number }>()
   for (const r of records) {
-    const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0 }
+    const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0, paidLeaveDays: 0 }
     if (!r.isHoliday && r.workMinutes > 0) cur.workDays++
+    cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
     cur.totalWork += r.workMinutes
     // 残業時間 = 通常残業 + 早出 + 休日出勤(全労働時間)。いずれも割増(1.25倍)の対象。
     if (r.isHolidayWork) {
@@ -872,6 +973,7 @@ export function aggregateAttendanceRecords(
       workHours: Math.round((v.totalWork / 60) * 10) / 10,
       overtimeHours: Math.round((v.totalOvertime / 60) * 10) / 10,
       holidayWorkDays: v.holidayWorkDays,
+      paidLeaveDays: Math.round(v.paidLeaveDays * 2) / 2,
     })
   }
   return result
@@ -949,11 +1051,13 @@ function generatePayslips(
     let workHours: number
     let overtimeHours: number
     let holidayWorkDays: number
+    let paidLeaveDays: number
     if (real) {
       workDays = real.workDays
       workHours = real.workHours
       overtimeHours = real.overtimeHours
       holidayWorkDays = real.holidayWorkDays
+      paidLeaveDays = real.paidLeaveDays
     } else {
       const attendance = generateAttendance(emp.id, year, month)
       workDays = attendance.filter(d => !d.isHoliday && d.workMinutes > 0).length
@@ -962,6 +1066,12 @@ function generatePayslips(
       workHours = Math.round(totalWorkMinutes / 60 * 10) / 10
       overtimeHours = Math.round(totalOvertimeMinutes / 60 * 10) / 10
       holidayWorkDays = 0
+      paidLeaveDays = Math.round(
+        attendance.reduce(
+          (sum, d) => sum + confirmedPaidLeaveDays(d.paidLeaveUsage, d.paidLeaveStatus),
+          0,
+        ) * 2,
+      ) / 2
     }
 
     const isPartTime = emp.employeeType === 'パート'
@@ -973,7 +1083,9 @@ function generatePayslips(
       hourlyRate = emp.hourlyRate
       basicSalary = Math.round(hourlyRate * regularHours)
     } else {
-      hourlyRate = Math.round(emp.basicSalary / 160)
+      // 月給者の時間外単価 = 基本給 ÷ 1か月平均所定労働時間数（会社設定・労基則19条）
+      const monthlyHours = getSettings().monthlyWorkHours || 173.6
+      hourlyRate = Math.round(emp.basicSalary / monthlyHours)
       basicSalary = emp.basicSalary
     }
 
@@ -984,7 +1096,8 @@ function generatePayslips(
 
     const overtimePay = Math.round(hourlyRate * 1.25 * overtimeHours)
 
-    const totalPayment =
+    // 超過分を除く支給合計（雇用保険控除の算定基数）
+    const subtotalPayment =
       basicSalary +
       overtimePay +
       emp.transportAllowance +
@@ -994,25 +1107,33 @@ function generatePayslips(
       emp.dangerAllowance +
       emp.salesAllowance
 
-    const premiums = calculateInsurancePremiums(
-      emp.standardMonthlyRemuneration,
-      emp.birthDate,
-      totalPayment,
-    )
+    const employmentInsuranceOverage = emp.employmentInsuranceOverage ?? 0
+    const extraPaymentLines: PayslipExtraLine[] = employmentInsuranceOverage > 0
+      ? [{ id: `ei-overage-${emp.id}`, label: '雇用保険料超過分', amount: employmentInsuranceOverage }]
+      : []
+    const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 社会保険の非対象月（月途中退職の当月など）は健保・介護・厚年を徴収しない。
-    // 雇用保険は実際の賃金に対して発生するため在籍している限り継続。
-    const healthInsurance = employment.socialInsuranceApplies ? premiums.healthInsurance : 0
-    const nursingInsurance = employment.socialInsuranceApplies ? premiums.nursingInsurance : 0
-    const welfarePension = employment.socialInsuranceApplies ? premiums.welfarePension : 0
-    const employmentInsurance = premiums.employmentInsurance
+    const age = calcAge(emp.birthDate)
+    const healthInsurance = employment.socialInsuranceApplies
+      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.healthRate)
+      : 0
+    const nursingInsurance = employment.socialInsuranceApplies && age >= 40
+      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.nursingRate)
+      : 0
+    const welfarePension = employment.socialInsuranceApplies
+      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.pensionRate)
+      : 0
+    // 雇用保険: 超過分を除く支給合計 × 料率（円未満切捨て）
+    const employmentInsurance = Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
 
-    // その月の社会保険料等控除後の給与等の金額（非課税通勤手当を除いた課税支給 − 社会保険料）
+    // その月の社会保険料等控除後の給与等の金額（課税支給 − 社会保険料）。
+    // 通勤手当は非課税限度額まで非課税。課税対象額(taxableTransport)のみ課税支給に残す。
     const socialInsuranceTotal =
       healthInsurance + nursingInsurance + welfarePension + employmentInsurance
-    const taxableBase = totalPayment - emp.transportAllowance - socialInsuranceTotal
-    // 源泉徴収税額（月額表・甲欄／電算機計算の特例）。扶養親族等の数で税額が変わる。
-    const incomeTax = calcWithholdingTaxMonthly(taxableBase, emp.dependents)
+    const nonTaxableTransport = emp.transportAllowance - (emp.taxableTransport ?? 0)
+    const taxableBase = totalPayment - nonTaxableTransport - socialInsuranceTotal
+    // 源泉徴収税額（令和8年分 月額表・甲欄の実額）。扶養親族等の数で税額が変わる。
+    const incomeTax = calcWithholdingTaxByTable(taxableBase, emp.dependents)
 
     const totalDeduction =
       healthInsurance +
@@ -1035,6 +1156,7 @@ function generatePayslips(
       workHours,
       overtimeHours,
       holidayWorkDays,
+      paidLeaveDays,
       basicSalary,
       overtimePay,
       transportAllowance: emp.transportAllowance,
@@ -1043,7 +1165,9 @@ function generatePayslips(
       specialAllowance: emp.specialAllowance,
       dangerAllowance: emp.dangerAllowance,
       salesAllowance: emp.salesAllowance,
-      otherAllowance: 0,
+      otherAllowance: employmentInsuranceOverage,
+      extraPaymentLines,
+      extraDeductionLines: [],
       totalPayment,
       healthInsurance,
       nursingInsurance,
@@ -1177,12 +1301,14 @@ export function isPayrollTargetInMonth(
  * 支給日(paymentDate, YYYY-MM-DD)があればその「月」を、未設定なら賞与月（夏季=7月/冬季=12月）を基準にする。
  */
 export function isBonusRecipient(
-  emp: Pick<MockEmployee, 'employeeType' | 'hireDate' | 'resignDate'>,
+  emp: Pick<MockEmployee, 'employeeType' | 'hireDate' | 'resignDate' | 'bonusEligible'>,
   year: number,
   season: '夏季' | '冬季',
   paymentDate?: string | null,
 ): boolean {
   if (emp.employeeType === 'パート') return false
+  // 役員は「賞与を支給する」にチェックした人のみ対象（社員は常に対象）。
+  if (emp.employeeType === '役員' && !emp.bonusEligible) return false
   const pay = parseYmd(paymentDate)
   const refY = pay ? pay.y : year
   const refM = pay ? pay.m : season === '夏季' ? 7 : 12
@@ -1214,6 +1340,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     hourlyRate: m.hourlyRate,
     standardMonthlyRemuneration: m.standardMonthlyRemuneration,
     transportAllowance: m.transportAllowance,
+    taxableTransport: m.taxableTransport ?? 0,
     positionAllowance: m.positionAllowance,
     familyAllowance: m.familyAllowance,
     specialAllowance: m.specialAllowance,
@@ -1233,6 +1360,9 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     overtimeAllowed: m.overtimeAllowed,
     overtimeStart: m.overtimeStart,
     overtimeEnd: m.overtimeEnd,
+    bonusEligible: m.bonusEligible ?? false,
+    employmentInsuranceOverage: m.employmentInsuranceOverage ?? 0,
+    paidLeaveBalance: m.paidLeaveBalance ?? null,
     isActive: m.isActive,
   }
 }
@@ -1258,6 +1388,7 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     hourlyRate: e.hourlyRate,
     standardMonthlyRemuneration: e.standardMonthlyRemuneration,
     transportAllowance: e.transportAllowance,
+    taxableTransport: e.taxableTransport,
     positionAllowance: e.positionAllowance,
     familyAllowance: e.familyAllowance,
     specialAllowance: e.specialAllowance,
@@ -1279,6 +1410,9 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     overtimeAllowed: e.overtimeAllowed,
     overtimeStart: e.overtimeStart,
     overtimeEnd: e.overtimeEnd,
+    bonusEligible: e.bonusEligible,
+    employmentInsuranceOverage: e.employmentInsuranceOverage,
+    paidLeaveBalance: e.paidLeaveBalance,
   }
 }
 
@@ -1370,6 +1504,8 @@ export function buildAttendanceDaysFromRecords(
       earlyOvertimeMinutes: rec?.earlyOvertimeMinutes ?? 0,
       isHoliday,
       isHolidayWork: rec ? !!rec.isHolidayWork : false,
+      paidLeaveUsage: rec?.paidLeaveUsage ?? null,
+      paidLeaveStatus: rec?.paidLeaveStatus ?? null,
       dataSource: (rec?.dataSource ?? 'ipad') as 'ipad' | 'manual',
     })
   }
@@ -1393,6 +1529,33 @@ export function isPayslipsCreated(year: number, month: number): boolean {
   return createdMonths.has(`${year}-${month}`)
 }
 
+/** メモリ上の作成済み年月から最新の給与作成分を返す */
+function latestSalaryPeriodFromMemory(): { year: number; month: number } | null {
+  let latest: { year: number; month: number } | null = null
+  for (const key of createdMonths) {
+    const [y, m] = key.split('-').map(Number)
+    if (!latest || y > latest.year || (y === latest.year && m > latest.month)) {
+      latest = { year: y, month: m }
+    }
+  }
+  return latest
+}
+
+/**
+ * 給与一括編集などで初期表示する年月を決定する。
+ * DB の最新作成分 → メモリキャッシュ → フォールバック（現在月）の順で採用。
+ */
+export async function resolveLatestSalaryPeriod(): Promise<{ year: number; month: number }> {
+  if (typeof window !== 'undefined' && 'api' in window) {
+    const res = await window.api.payslips.latestSalaryPeriod()
+    if (res.success && res.data) return res.data
+  }
+  const fromMemory = latestSalaryPeriodFromMemory()
+  if (fromMemory) return fromMemory
+  const now = new Date()
+  return { year: now.getFullYear(), month: now.getMonth() + 1 }
+}
+
 export function getPayslip(employeeId: number, year: number, month: number): MockPayslip | undefined {
   const all = getPayslips(year, month)
   return all.find(p => p.employeeId === employeeId)
@@ -1414,6 +1577,11 @@ const hasApi = (): boolean => typeof window !== 'undefined' && 'api' in window
 
 /** DB の Payslip を画面用 MockPayslip に変換する。 */
 function payslipToMock(p: Payslip): MockPayslip {
+  let extraPaymentLines = parseExtraLines(p.extraPaymentLines)
+  const extraDeductionLines = parseExtraLines(p.extraDeductionLines)
+  if (extraPaymentLines.length === 0 && p.otherAllowance > 0 && p.payslipType === 'salary') {
+    extraPaymentLines = [{ id: 'legacy-payment', label: '雇用保険料超過分', amount: p.otherAllowance }]
+  }
   return {
     id: p.id,
     employeeId: p.employeeId,
@@ -1423,6 +1591,7 @@ function payslipToMock(p: Payslip): MockPayslip {
     workHours: p.workHours,
     overtimeHours: p.overtimeHours,
     holidayWorkDays: p.holidayWorkDays,
+    paidLeaveDays: p.paidLeaveDays ?? 0,
     basicSalary: p.basicSalary,
     overtimePay: p.overtimePay,
     transportAllowance: p.transportAllowance,
@@ -1431,7 +1600,9 @@ function payslipToMock(p: Payslip): MockPayslip {
     specialAllowance: p.specialAllowance,
     dangerAllowance: p.dangerAllowance,
     salesAllowance: p.salesAllowance,
-    otherAllowance: p.otherAllowance,
+    otherAllowance: sumExtraLines(extraPaymentLines),
+    extraPaymentLines,
+    extraDeductionLines,
     totalPayment: p.totalPayment,
     healthInsurance: p.healthInsurance,
     nursingInsurance: p.nursingInsurance,
@@ -1449,38 +1620,50 @@ function payslipToMock(p: Payslip): MockPayslip {
 
 /** 画面用 MockPayslip を DB 保存用 PayslipCreate に変換する。 */
 function mockToPayslipCreate(m: MockPayslip, type: 'salary' | 'bonus' = 'salary'): PayslipCreate {
+  // 賞与は otherAllowance=業績賞与のため、給与の追加行合計で上書きしない
+  const synced =
+    type === 'bonus'
+      ? {
+          ...m,
+          extraPaymentLines: m.extraPaymentLines ?? [],
+          extraDeductionLines: m.extraDeductionLines ?? [],
+        }
+      : syncPayslipExtraTotals(m)
   return {
-    employeeId: m.employeeId,
-    year: m.year,
-    month: m.month,
+    employeeId: synced.employeeId,
+    year: synced.year,
+    month: synced.month,
     paymentDate: null,
     payslipType: type,
     bonusSeason: null,
-    workDays: m.workDays,
-    workHours: m.workHours,
-    overtimeHours: m.overtimeHours,
-    holidayWorkDays: m.holidayWorkDays,
-    basicSalary: m.basicSalary,
-    overtimePay: m.overtimePay,
-    transportAllowance: m.transportAllowance,
-    positionAllowance: m.positionAllowance,
-    familyAllowance: m.familyAllowance,
-    specialAllowance: m.specialAllowance,
-    dangerAllowance: m.dangerAllowance,
-    salesAllowance: m.salesAllowance,
-    otherAllowance: m.otherAllowance,
-    totalPayment: m.totalPayment,
-    healthInsurance: m.healthInsurance,
-    nursingInsurance: m.nursingInsurance,
-    welfarePension: m.welfarePension,
-    employmentInsurance: m.employmentInsurance,
-    incomeTax: m.incomeTax,
-    residentTax: m.residentTax,
-    savingsDeduction: m.savingsDeduction,
-    loanDeduction: m.loanDeduction,
-    otherDeduction: m.otherDeduction,
-    totalDeduction: m.totalDeduction,
-    netPayment: m.netPayment,
+    workDays: synced.workDays,
+    workHours: synced.workHours,
+    overtimeHours: synced.overtimeHours,
+    holidayWorkDays: synced.holidayWorkDays,
+    paidLeaveDays: synced.paidLeaveDays,
+    basicSalary: synced.basicSalary,
+    overtimePay: synced.overtimePay,
+    transportAllowance: synced.transportAllowance,
+    positionAllowance: synced.positionAllowance,
+    familyAllowance: synced.familyAllowance,
+    specialAllowance: synced.specialAllowance,
+    dangerAllowance: synced.dangerAllowance,
+    salesAllowance: synced.salesAllowance,
+    otherAllowance: synced.otherAllowance,
+    extraPaymentLines: serializeExtraLines(synced.extraPaymentLines),
+    extraDeductionLines: serializeExtraLines(synced.extraDeductionLines),
+    totalPayment: synced.totalPayment,
+    healthInsurance: synced.healthInsurance,
+    nursingInsurance: synced.nursingInsurance,
+    welfarePension: synced.welfarePension,
+    employmentInsurance: synced.employmentInsurance,
+    incomeTax: synced.incomeTax,
+    residentTax: synced.residentTax,
+    savingsDeduction: synced.savingsDeduction,
+    loanDeduction: synced.loanDeduction,
+    otherDeduction: synced.otherDeduction,
+    totalDeduction: synced.totalDeduction,
+    netPayment: synced.netPayment,
   }
 }
 

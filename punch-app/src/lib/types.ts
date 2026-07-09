@@ -11,4 +11,4 @@ export interface EmployeeWithStatus {
   clockOutTime: string | null;
 }
 
-export type FilterType = '全員' | '社員' | '役員' | 'パート';
+export type FilterType = '全員' | '社員' | 'パート';

@@ -65,6 +65,8 @@ const api = {
       ipcRenderer.invoke(IPC.PAYSLIPS.UPDATE, data),
     delete: (id: number): Promise<IpcResult<{ deleted: boolean }>> =>
       ipcRenderer.invoke(IPC.PAYSLIPS.DELETE, { id }),
+    latestSalaryPeriod: (): Promise<IpcResult<{ year: number; month: number } | null>> =>
+      ipcRenderer.invoke(IPC.PAYSLIPS.LATEST_SALARY_PERIOD),
   },
 
   attendance: {

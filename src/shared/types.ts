@@ -29,6 +29,8 @@ export interface Employee {
   hourlyRate: number;
   standardMonthlyRemuneration: number;
   transportAllowance: number;
+  /** 通勤手当のうち課税対象となる額（非課税限度超過分）。0=全額非課税。源泉所得税の課税ベースに算入する。 */
+  taxableTransport: number;
   positionAllowance: number;
   familyAllowance: number;
   specialAllowance: number;
@@ -48,6 +50,12 @@ export interface Employee {
   overtimeAllowed: boolean;
   overtimeStart: string | null;
   overtimeEnd: string | null;
+  /** 賞与を支給するか。役員のみ判定に使用（社員は常に対象・パートは対象外）。 */
+  bonusEligible: boolean;
+  /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
+  employmentInsuranceOverage: number;
+  /** 有給残日数（手入力。0.5日単位可。自動計算は未実装） */
+  paidLeaveBalance: number | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -78,6 +86,40 @@ export interface RawPunch {
 
 export type DataSource = 'ipad' | 'manual';
 
+/** 有給の取得区分（1日あたり） */
+export type PaidLeaveUsage = 'full' | 'am' | 'pm';
+
+/** 有給の確定状態（実績 or 予定） */
+export type PaidLeaveStatus = 'confirmed' | 'planned';
+
+/** 有給区分を消化日数に換算する（全日=1、半日=0.5） */
+export function paidLeaveUsageToDays(usage: PaidLeaveUsage | null | undefined): number {
+  if (!usage) return 0;
+  return usage === 'full' ? 1 : 0.5;
+}
+
+/** 確定済み有給のみ消化日数に換算する（予定は0） */
+export function confirmedPaidLeaveDays(
+  usage: PaidLeaveUsage | null | undefined,
+  status: PaidLeaveStatus | null | undefined,
+): number {
+  if (!usage || status === 'planned') return 0;
+  return paidLeaveUsageToDays(usage);
+}
+
+/** 有給日数の表示用文字列（0.5単位。0は「-」） */
+export function formatPaidLeaveDays(days: number): string {
+  if (days <= 0) return '-';
+  const rounded = Math.round(days * 2) / 2;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
+export const PAID_LEAVE_USAGE_LABELS: Record<PaidLeaveUsage, string> = {
+  full: '全日',
+  am: '午前',
+  pm: '午後',
+};
+
 export interface AttendanceRecord {
   id: number;
   employeeId: number;
@@ -92,6 +134,8 @@ export interface AttendanceRecord {
   breakMinutes: number;
   isHoliday: boolean;
   isHolidayWork: boolean;
+  paidLeaveUsage: PaidLeaveUsage | null;
+  paidLeaveStatus: PaidLeaveStatus | null;
   dataSource: DataSource;
   note: string | null;
   createdAt: string;
@@ -118,6 +162,13 @@ export interface AttendanceWarning {
 // 給与明細
 // ========================================
 
+/** 給与明細の追加行（雇用保険料超過分など、頻度の低い項目） */
+export interface PayslipExtraLine {
+  id: string;
+  label: string;
+  amount: number;
+}
+
 export interface Payslip {
   id: number;
   employeeId: number;
@@ -130,6 +181,8 @@ export interface Payslip {
   workHours: number;
   overtimeHours: number;
   holidayWorkDays: number;
+  /** 当月の確定有給取得日数（0.5日単位） */
+  paidLeaveDays: number;
   basicSalary: number;
   overtimePay: number;
   transportAllowance: number;
@@ -139,6 +192,10 @@ export interface Payslip {
   dangerAllowance: number;
   salesAllowance: number;
   otherAllowance: number;
+  /** JSON: PayslipExtraLine[] */
+  extraPaymentLines: string;
+  /** JSON: PayslipExtraLine[] */
+  extraDeductionLines: string;
   totalPayment: number;
   healthInsurance: number;
   nursingInsurance: number;
@@ -175,6 +232,11 @@ export interface CompanySettings {
   clockOutRounding: string;
   earlyRoundingUnit: number;
   overtimeRoundingUnit: number;
+  monthlyWorkHours: number;
+  /** 有給残日数のリセット基準月（1〜12）。未設定時は手動管理 */
+  paidLeaveResetMonth: number | null;
+  /** 有給休暇規程・運用メモ（自由記述） */
+  paidLeavePolicy: string | null;
 }
 
 export type CompanySettingsUpdate = Partial<Omit<CompanySettings, 'id'>>;

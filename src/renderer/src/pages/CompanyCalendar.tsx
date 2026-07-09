@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
+import { buildYearSelectOptions } from '@/lib/year-options'
 import type { ReactElement } from 'react'
 import {
   getCalendarYear,
@@ -35,7 +36,7 @@ function MonthGrid({
   const cells: ReactElement[] = []
 
   for (let i = 0; i < firstDow; i++) {
-    cells.push(<div key={`pad-${i}`} className={`${styles.dayCell} ${styles.dayEmpty}`} />)
+    cells.push(<div key={`pad-${i}`} className={styles.daySlot} />)
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
@@ -62,15 +63,16 @@ function MonthGrid({
     }
 
     cells.push(
-      <button
-        key={dateStr}
-        className={cellClass}
-        onClick={() => onToggle(dateStr)}
-        title={holidayName ?? undefined}
-      >
-        {day}
-        {holidayName && <span className={styles.tooltip}>{holidayName}</span>}
-      </button>,
+      <div key={dateStr} className={styles.daySlot}>
+        <button
+          className={cellClass}
+          onClick={() => onToggle(dateStr)}
+          title={holidayName ?? undefined}
+        >
+          <span className={styles.dayNum}>{day}</span>
+          {holidayName && <span className={styles.holidayName}>{holidayName}</span>}
+        </button>
+      </div>,
     )
   }
 
@@ -112,7 +114,7 @@ export function CompanyCalendar(): ReactElement {
     return () => {
       cancelled = true
     }
-  }, [selectedYear])
+  }, [])
 
   const calendarData = useMemo(() => {
     void refreshKey
@@ -158,13 +160,10 @@ export function CompanyCalendar(): ReactElement {
     }
   }, [selectedYear])
 
-  const yearOptions = useMemo(() => {
-    const years: number[] = []
-    for (let y = currentYear - 2; y <= currentYear + 2; y++) {
-      years.push(y)
-    }
-    return years
-  }, [currentYear])
+  const yearOptions = useMemo(
+    () => buildYearSelectOptions(),
+    [selectedYear],
+  )
 
   return (
     <div className={styles.page}>
@@ -173,6 +172,7 @@ export function CompanyCalendar(): ReactElement {
           ◀ 前年
         </button>
         <select
+          className={styles.yearSelect}
           value={selectedYear}
           onChange={(e) => setSelectedYear(Number(e.target.value))}
         >

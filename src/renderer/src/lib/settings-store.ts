@@ -18,6 +18,12 @@ export interface AppSettings {
   clockOutRounding: 'down'
   earlyRoundingUnit: number
   overtimeRoundingUnit: number
+  monthlyWorkHours: number
+
+  /** 有給残日数のリセット基準月（1〜12）。未設定時は手動管理 */
+  paidLeaveResetMonth: number | null
+  /** 有給休暇規程・運用メモ（自由記述） */
+  paidLeavePolicy: string
 
   emailSenderName: string
   emailSenderAddress: string
@@ -42,6 +48,10 @@ const defaultSettings: AppSettings = {
   clockOutRounding: 'down',
   earlyRoundingUnit: 15,
   overtimeRoundingUnit: 15,
+  monthlyWorkHours: 173.6,
+
+  paidLeaveResetMonth: null,
+  paidLeavePolicy: '',
 
   emailSenderName: 'チクホーシーリング',
   emailSenderAddress: 'payroll@example.co.jp',
@@ -116,6 +126,9 @@ export async function hydrateCompanyFromDb(): Promise<void> {
       defaultBreakMinutes: d.defaultBreakMinutes ?? current.defaultBreakMinutes,
       earlyRoundingUnit: d.earlyRoundingUnit ?? current.earlyRoundingUnit,
       overtimeRoundingUnit: d.overtimeRoundingUnit ?? current.overtimeRoundingUnit,
+      monthlyWorkHours: d.monthlyWorkHours ?? current.monthlyWorkHours,
+      paidLeaveResetMonth: d.paidLeaveResetMonth ?? null,
+      paidLeavePolicy: d.paidLeavePolicy ?? '',
     })
   } catch {
     // 取得失敗時は既定値のまま

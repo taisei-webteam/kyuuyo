@@ -12,7 +12,7 @@
   flex-wrap: wrap;
 }
 
-.toolbar select {
+.yearSelect {
   padding: 6px 12px;
   border: 1px solid #d1d5db;
   border-radius: 8px;
@@ -33,6 +33,7 @@
 .navBtn:hover {
   background: #f1f5f9;
 }
+
 
 .loadBtn {
   padding: 6px 16px;
@@ -136,9 +137,24 @@
   gap: 2px;
 }
 
-.dayCell {
+.daySlot {
+  width: 100%;
   aspect-ratio: 1;
   display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: visible;
+}
+
+.dayCell {
+  width: 1.35rem;
+  height: 1.35rem;
+  max-width: 82%;
+  max-height: 82%;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   font-size: 0.75rem;
@@ -152,6 +168,30 @@
   padding: 0;
   font-family: inherit;
   color: #0f172a;
+}
+
+.dayNum {
+  line-height: 1;
+}
+
+.holidayName {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 5.5em;
+  background: #1e293b;
+  color: #fff;
+  font-size: 0.5rem;
+  font-weight: 500;
+  line-height: 1.15;
+  padding: 1px 3px;
+  border-radius: 3px;
+  white-space: normal;
+  text-align: center;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .dayCell:hover {

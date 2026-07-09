@@ -165,6 +165,8 @@ function pairToAttendanceDay(
       earlyOvertimeMinutes: 0,
       isHoliday,
       isHolidayWork: isHoliday,
+      paidLeaveUsage: null,
+      paidLeaveStatus: null,
       dataSource: 'ipad',
     }
   }
@@ -233,6 +235,8 @@ function pairToAttendanceDay(
     earlyOvertimeMinutes,
     isHoliday,
     isHolidayWork: isHoliday && workMinutes > 0,
+    paidLeaveUsage: null,
+    paidLeaveStatus: null,
     dataSource: 'ipad',
   }
 }
@@ -311,6 +315,8 @@ export async function syncAttendanceMonth(
         earlyOvertimeMinutes: 0,
         isHoliday,
         isHolidayWork: false,
+        paidLeaveUsage: null,
+        paidLeaveStatus: null,
         dataSource: 'manual',
       })
     }

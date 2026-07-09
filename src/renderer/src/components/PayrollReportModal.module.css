@@ -109,13 +109,21 @@
   min-width: 1100px;
 }
 
-/* ヘッダー */
+/* ヘッダー（表頭の1行目として各ページに繰り返し表示） */
+.reportHeaderRow th.reportHeaderCell {
+  padding: 0 0 10px;
+  border: none;
+  background: #fff;
+  font-weight: normal;
+  text-align: left;
+}
+
 .reportHeader {
   position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 0;
 }
 
 .reportTitle {
@@ -215,6 +223,22 @@
   background: #dce6f5 !important;
 }
 
+.thExtra {
+  min-width: 52px;
+  max-width: 72px;
+  background: #f8fafc !important;
+  color: #64748b;
+}
+
+/* thead の nowrap より優先して追加項目名を折り返す */
+.table thead th.thExtra {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+  vertical-align: middle;
+}
+
 /* データ行 */
 .tdName {
   text-align: left;
@@ -249,6 +273,47 @@
   border-top: 2px solid #475569;
 }
 
+/* printToPDF: @media print が効かないため is-printing-modal 時にも印刷レイアウトを適用 */
+:global(body.is-printing-modal) .reportHeaderRow th.reportHeaderCell {
+  padding: 0 0 3mm;
+  border: none;
+  background: #fff !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+:global(body.is-printing-modal) .reportTitle {
+  font-size: 21px;
+}
+
+:global(body.is-printing-modal) .reportDate {
+  font-size: 22px;
+}
+
+:global(body.is-printing-modal) .reportCompany {
+  font-size: 20px;
+}
+
+:global(body.is-printing-modal) .reportLogo {
+  height: 6mm;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+:global(body.is-printing-modal) .table {
+  font-size: 11px;
+  line-height: 1.15;
+  page-break-inside: auto;
+}
+
+:global(body.is-printing-modal) .table thead {
+  display: table-header-group;
+}
+
+:global(body.is-printing-modal) .table tfoot {
+  display: table-row-group;
+}
+
 /* 印刷用 */
 @media print {
   .overlay {
@@ -278,6 +343,14 @@
   }
 
   /* 見出し（〇年〇月分一覧表 / 支給日 / 会社名）を拡大 */
+  .reportHeaderRow th.reportHeaderCell {
+    padding: 0 0 3mm;
+    border: none;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
   .reportTitle {
     font-size: 21px;
   }
@@ -338,8 +411,9 @@
     display: table-header-group;
   }
 
+  /* 合計行は最終ページのみ（各ページのフッター繰り返しを無効化） */
   .table tfoot {
-    display: table-footer-group;
+    display: table-row-group;
   }
 
   .table th,

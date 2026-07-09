@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import type { ReactElement } from 'react'
 import {
   getEmployees,
@@ -31,6 +31,13 @@ export function Employees(): ReactElement {
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!hasElectronApi) return
+    void reloadEmployeesFromDb().then((ok) => {
+      if (ok) setRefreshKey((k) => k + 1)
+    })
+  }, [])
 
   const employees = useMemo(() => getEmployees(), [refreshKey])
 
@@ -105,14 +112,14 @@ export function Employees(): ReactElement {
     setSyncing(true)
     setSyncMessage(null)
     try {
-      // 退職者は is_active=false で送り、打刻アプリの一覧から外す（IDと過去の打刻データは保持）
+      // 退職者・役員は is_active=false で送り、打刻アプリの一覧から外す（IDと過去の打刻データは保持）
       const payload = getEmployees().map((e) => ({
         id: e.id,
         name: e.name,
         name_kana: e.nameKana,
         employee_type: e.employeeType,
         display_order: e.displayOrder,
-        is_active: !isEmployeeRetired(e),
+        is_active: !isEmployeeRetired(e) && e.employeeType !== '役員',
       }))
       const result = await window.api.attendance.syncEmployees(payload)
       if (result.success) {
@@ -182,6 +189,7 @@ export function Employees(): ReactElement {
               <th>メール</th>
               <th className={styles.thRight}>基本給/時給</th>
               <th className={styles.thRight}>標準報酬月額</th>
+              <th className={styles.thRight}>有給残</th>
               <th className={styles.thRight}>交通費</th>
               <th className={styles.thRight}>健康保険</th>
               <th className={styles.thRight}>厚生年金</th>
@@ -221,6 +229,9 @@ export function Employees(): ReactElement {
                   <td className={styles.emailCell}>{emp.email || '-'}</td>
                   <td className={styles.tdRight}>{yen(emp.basicSalary)}</td>
                   <td className={styles.tdRight}>{yen(emp.standardMonthlyRemuneration)}</td>
+                  <td className={styles.tdRight}>
+                    {emp.paidLeaveBalance != null ? `${emp.paidLeaveBalance}日` : '-'}
+                  </td>
                   <td className={styles.tdRight}>{yen(emp.transportAllowance)}</td>
                   <td className={styles.tdRight}>{yen(emp.healthInsurance)}</td>
                   <td className={styles.tdRight}>{yen(emp.welfarePension)}</td>

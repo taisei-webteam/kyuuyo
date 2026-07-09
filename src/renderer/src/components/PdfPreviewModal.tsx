@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import type { MockEmployee, MockPayslip } from '@/lib/mock-data'
+import { formatPaidLeaveDays } from '../../../shared/types'
 import { getSettings } from '@/lib/settings-store'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PdfPreviewModal.module.css'
@@ -82,14 +83,14 @@ function PayslipHalf({
         <thead>
           <tr>
             <th>出勤日数</th><th>労働時間</th><th>残業時間</th>
-            <th>休日出勤</th><th>有休残</th><th>欠勤</th>
+            <th>休日出勤</th><th>有給</th><th>欠勤</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td>{payslip.workDays}日</td><td>{payslip.workHours}h</td>
-            <td>{payslip.overtimeHours}h</td><td>{payslip.holidayWorkDays}日</td>
-            <td>-</td><td>-</td>
+            <td>{payslip.overtimeHours}h</td>            <td>{payslip.holidayWorkDays}日</td>
+            <td>{formatPaidLeaveDays(payslip.paidLeaveDays)}</td><td>-</td>
           </tr>
         </tbody>
       </table>

@@ -162,15 +162,21 @@
 
 /* ---------- Group Header (1st row) ---------- */
 
+.table thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #e8eef8;
+  box-shadow: 0 1px 0 #94a3b8;
+}
+
 .groupRow th {
   background: #e8eef8;
   color: #1e3a5f;
   font-weight: 700;
   text-align: center;
   white-space: nowrap;
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  vertical-align: middle;
 }
 
 .thGroupPay {
@@ -206,9 +212,6 @@
 /* ---------- Column Header (2nd row) ---------- */
 
 .th {
-  position: sticky;
-  top: 28px;
-  z-index: 19;
   background: #e8eef8;
   color: #1e3a5f;
   font-weight: 700;
@@ -216,10 +219,25 @@
   white-space: nowrap;
   min-width: 56px;
   font-size: 10px;
+  vertical-align: middle;
 }
 
 .thTotal {
   background: #dce6f5;
+}
+
+.thExtra {
+  background: #f8fafc;
+  color: #64748b;
+  min-width: 52px;
+  max-width: 72px;
+}
+
+.th.thExtra {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 /* ---------- Body Rows ---------- */
@@ -460,10 +478,12 @@
 
   .table thead {
     display: table-header-group;
+    position: static;
   }
 
+  /* 合計行は最終ページのみ（各ページのフッター繰り返しを無効化） */
   .table tfoot {
-    display: table-footer-group;
+    display: table-row-group;
   }
 
   .groupRow th,

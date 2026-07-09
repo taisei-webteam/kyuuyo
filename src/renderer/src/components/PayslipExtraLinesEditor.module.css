@@ -1,0 +1,92 @@
+.sectionExtra {
+  padding: 6px 0 8px;
+  border-top: 1px dashed var(--color-border);
+  background: var(--color-surface);
+}
+
+.extraRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.extraLabelInput {
+  flex: 1 1 140px;
+  min-width: 140px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8125rem;
+  outline: none;
+  pointer-events: auto;
+  caret-color: var(--color-text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.extraLabelInput:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.amountInput {
+  width: 110px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.amountInput:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+.extraRemoveBtn {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.extraRemoveBtn:hover {
+  color: #dc2626;
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.addLineBtn {
+  align-self: flex-start;
+  margin: 2px 14px 0;
+  padding: 4px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.addLineBtn:hover {
+  border-color: var(--color-primary);
+  background: rgba(59, 130, 246, 0.06);
+}

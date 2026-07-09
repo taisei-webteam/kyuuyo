@@ -1,5 +1,27 @@
 /* 印刷共通スタイル */
 
+/* printToPDF は @media print を使わないため、PDF生成中は画面側でも余白を除去する */
+body.is-printing-modal .previewHeader {
+  display: none !important;
+}
+
+body.is-printing-modal .previewBody {
+  padding: 0 !important;
+  background: #fff !important;
+  max-height: none !important;
+}
+
+body.is-printing-modal .previewModal {
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  max-width: none !important;
+}
+
+/* PDF/印刷: 合計行を各ページフッターに繰り返さず、表の末尾（最終ページ）のみに表示 */
+body.is-printing-modal .table tfoot {
+  display: table-row-group !important;
+}
+
 @media print {
   html,
   body {

@@ -17,14 +17,17 @@ import {
   isPayrollTargetInMonth,
   type MockEmployee,
   type MockPayslip,
+  type PayslipExtraLine,
+  sumExtraLines,
 } from '@/lib/mock-data'
+import { buildYearSelectOptions } from '@/lib/year-options'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPrint'
+import { ExtraLinesSection } from '@/components/PayslipExtraLinesEditor'
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
 import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
-import { getYearOptions } from '@/lib/year-options'
 import styles from './PayslipCreate.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -44,7 +47,7 @@ function buildPayslipCsv(
 ): string {
   const headers = [
     '氏名', 'フリガナ', '部署', '従業員区分',
-    '勤務日数', '勤務時間', '残業時間', '休日出勤日数',
+    '勤務日数', '勤務時間', '残業時間', '休日出勤日数', '有給日数',
     '基本給', '時間外賃金', '交通費', '役職手当', '家族手当', '特別手当', '危険手当', '営業手当', 'その他手当', '総支給額',
     '健康保険', '介護保険', '厚生年金', '雇用保険', '所得税', '住民税', '積立', '貸付', 'その他控除', '控除合計',
     '差引支給額',
@@ -53,7 +56,7 @@ function buildPayslipCsv(
   for (const { employee: e, payslip: p } of items) {
     const row: Array<string | number> = [
       e.name, e.nameKana, e.departmentName, e.employeeType,
-      p.workDays, p.workHours, p.overtimeHours, p.holidayWorkDays,
+      p.workDays, p.workHours, p.overtimeHours, p.holidayWorkDays, p.paidLeaveDays,
       p.basicSalary, p.overtimePay, p.transportAllowance, p.positionAllowance, p.familyAllowance,
       p.specialAllowance, p.dangerAllowance, p.salesAllowance, p.otherAllowance, p.totalPayment,
       p.healthInsurance, p.nursingInsurance, p.welfarePension, p.employmentInsurance,
@@ -67,7 +70,45 @@ function buildPayslipCsv(
 
 type DistributeMode = 'pdf' | 'email'
 
+const PAYSLIP_CREATE_PERIOD_KEY = 'rakuraku-kyuuyo:payslip-create-period'
+
+interface StoredPayslipCreatePeriod {
+  year: number
+  month: number
+  employeeId?: number
+}
+
+function readStoredPayslipCreatePeriod(): StoredPayslipCreatePeriod | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(PAYSLIP_CREATE_PERIOD_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== 'object' || parsed === null) return null
+    const { year, month, employeeId } = parsed as Record<string, unknown>
+    if (typeof year !== 'number' || typeof month !== 'number') return null
+    if (month < 1 || month > 12) return null
+    return {
+      year,
+      month,
+      employeeId: typeof employeeId === 'number' ? employeeId : undefined,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeStoredPayslipCreatePeriod(period: StoredPayslipCreatePeriod): void {
+  try {
+    window.localStorage.setItem(PAYSLIP_CREATE_PERIOD_KEY, JSON.stringify(period))
+  } catch {
+    // ストレージ不可時は無視
+  }
+}
+
 function recalcTotals(ps: MockPayslip): MockPayslip {
+  const extraPaymentTotal = sumExtraLines(ps.extraPaymentLines ?? [])
+  const extraDeductionTotal = sumExtraLines(ps.extraDeductionLines ?? [])
   const totalPayment =
     ps.basicSalary +
     ps.overtimePay +
@@ -77,7 +118,7 @@ function recalcTotals(ps: MockPayslip): MockPayslip {
     ps.specialAllowance +
     ps.dangerAllowance +
     ps.salesAllowance +
-    ps.otherAllowance
+    extraPaymentTotal
 
   const totalDeduction =
     ps.healthInsurance +
@@ -88,10 +129,12 @@ function recalcTotals(ps: MockPayslip): MockPayslip {
     ps.residentTax +
     ps.savingsDeduction +
     ps.loanDeduction +
-    ps.otherDeduction
+    ps.otherDeduction +
+    extraDeductionTotal
 
   return {
     ...ps,
+    otherAllowance: extraPaymentTotal,
     totalPayment,
     totalDeduction,
     netPayment: totalPayment - totalDeduction,
@@ -101,9 +144,10 @@ function recalcTotals(ps: MockPayslip): MockPayslip {
 export function PayslipCreate(): ReactElement {
   const navigate = useNavigate()
   const now = new Date()
+  const storedPeriod = readStoredPayslipCreatePeriod()
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
+  const [selectedMonth, setSelectedMonth] = useState(storedPeriod?.month ?? now.getMonth() + 1)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(storedPeriod?.employeeId ?? 1)
   const [searchQuery, setSearchQuery] = useState('')
   const [distributeMode, setDistributeMode] = useState<DistributeMode>('pdf')
   const [refreshKey, setRefreshKey] = useState(0)
@@ -121,6 +165,15 @@ export function PayslipCreate(): ReactElement {
   const dirtyRef = useRef(false)
 
   const employees = useMemo(() => getEmployees(), [])
+
+  // リロード後も編集中の年月・従業員選択を維持する
+  useEffect(() => {
+    writeStoredPayslipCreatePeriod({
+      year: selectedYear,
+      month: selectedMonth,
+      employeeId: selectedEmployeeId,
+    })
+  }, [selectedYear, selectedMonth, selectedEmployeeId])
 
   // 年月の切替時に SQLite から保存済み明細を読み込み、メモリキャッシュへ反映する。
   useEffect(() => {
@@ -160,9 +213,12 @@ export function PayslipCreate(): ReactElement {
     [selectedYear, selectedMonth, refreshKey],
   )
 
+  // 年月切替・DB再読込(refreshKey)時のみ編集バッファを初期化する（入力中の再同期を防ぐ）
   useEffect(() => {
-    setEditPayslips(rawPayslips.map((ps) => ({ ...ps })))
-  }, [rawPayslips])
+    setEditPayslips(rawPayslips.map((ps) => normalizePayslipForEdit({ ...ps })))
+    dirtyRef.current = false
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, selectedMonth, refreshKey])
 
   // 退職者は退職月まで表示し、退職翌月以降は給与作成から除外する（翌月分の勤務が無く明細を作らないため）。
   const filteredEmployees = useMemo(
@@ -282,13 +338,43 @@ export function PayslipCreate(): ReactElement {
     [],
   )
 
+  const handleExtraLinesCommit = useCallback(
+    (
+      employeeId: number,
+      kind: 'payment' | 'deduction',
+      updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[],
+    ): void => {
+      dirtyRef.current = true
+      setEditPayslips((prev) =>
+        prev.map((ps) => {
+          if (ps.employeeId !== employeeId) return ps
+          const current =
+            kind === 'payment'
+              ? cloneExtraLines(ps.extraPaymentLines)
+              : cloneExtraLines(ps.extraDeductionLines)
+          const nextLines = updater(current)
+          const next =
+            kind === 'payment'
+              ? { ...ps, extraPaymentLines: nextLines }
+              : { ...ps, extraDeductionLines: nextLines }
+          return recalcTotals(next)
+        }),
+      )
+    },
+    [],
+  )
+
   // 編集内容を自動保存する（デバウンス）。DB ロード直後や未編集時は保存しない。
   useEffect(() => {
     if (!dirtyRef.current || editPayslips.length === 0) return
     const timer = setTimeout(() => {
-      setPayslips(selectedYear, selectedMonth, editPayslips)
-      void savePayslipsToDb(selectedYear, selectedMonth, editPayslips)
-      dirtyRef.current = false
+      void (async () => {
+        const ok = await savePayslipsToDb(selectedYear, selectedMonth, editPayslips)
+        if (ok) {
+          setPayslips(selectedYear, selectedMonth, editPayslips)
+          dirtyRef.current = false
+        }
+      })()
     }, 800)
     return () => clearTimeout(timer)
   }, [editPayslips, selectedYear, selectedMonth])
@@ -440,7 +526,7 @@ export function PayslipCreate(): ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {getYearOptions().map((y) => (
+              {buildYearSelectOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>
@@ -550,8 +636,10 @@ export function PayslipCreate(): ReactElement {
                 payslip={selectedPayslip}
                 year={selectedYear}
                 month={selectedMonth}
+                syncKey={`${selectedYear}-${selectedMonth}-${refreshKey}-${selectedEmployee.id}`}
                 distributeMode={distributeMode}
                 onChange={handleFieldChange}
+                onExtraLinesCommit={handleExtraLinesCommit}
               />
             ) : (
               <div className={styles.emptyState}>従業員を選択してください</div>
@@ -628,15 +716,23 @@ function PayslipDetail({
   payslip,
   year,
   month,
+  syncKey,
   distributeMode,
   onChange,
+  onExtraLinesCommit,
 }: {
   employee: MockEmployee
   payslip: MockPayslip
   year: number
   month: number
+  syncKey: string
   distributeMode: DistributeMode
   onChange: (employeeId: number, field: keyof MockPayslip, value: number) => void
+  onExtraLinesCommit: (
+    employeeId: number,
+    kind: 'payment' | 'deduction',
+    updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[],
+  ) => void
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
   const regularHours = Math.max(0, payslip.workHours - payslip.overtimeHours)
@@ -654,6 +750,20 @@ function PayslipDetail({
         onChange(employee.id, field, Number(e.target.value))
       },
     [onChange, employee.id],
+  )
+
+  const handlePaymentExtrasCommit = useCallback(
+    (updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[]) => {
+      onExtraLinesCommit(employee.id, 'payment', updater)
+    },
+    [onExtraLinesCommit, employee.id],
+  )
+
+  const handleDeductionExtrasCommit = useCallback(
+    (updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[]) => {
+      onExtraLinesCommit(employee.id, 'deduction', updater)
+    },
+    [onExtraLinesCommit, employee.id],
   )
 
   return (
@@ -693,6 +803,7 @@ function PayslipDetail({
         <AttendanceInput label="労働時間" value={payslip.workHours} unit="h" onChange={handleChange('workHours')} step={0.5} />
         <AttendanceInput label="残業時間" value={payslip.overtimeHours} unit="h" onChange={handleChange('overtimeHours')} step={0.5} />
         <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onChange={handleChange('holidayWorkDays')} />
+        <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onChange={handleChange('paidLeaveDays')} step={0.5} />
       </div>
 
       <div className={styles.columns}>
@@ -716,8 +827,12 @@ function PayslipDetail({
               <EditableRow label="特別手当" value={payslip.specialAllowance} onChange={handleChange('specialAllowance')} />
               <EditableRow label="危険手当" value={payslip.dangerAllowance} onChange={handleChange('dangerAllowance')} />
               <EditableRow label="営業手当" value={payslip.salesAllowance} onChange={handleChange('salesAllowance')} />
-              <EditableRow label="その他手当" value={payslip.otherAllowance} onChange={handleChange('otherAllowance')} />
             </div>
+            <ExtraLinesSection
+              lines={payslip.extraPaymentLines ?? []}
+              syncKey={syncKey}
+              onCommit={handlePaymentExtrasCommit}
+            />
             <div className={styles.sectionTotal}>
               <span>総支給額</span>
               <span>{yen(payslip.totalPayment)}</span>
@@ -742,6 +857,11 @@ function PayslipDetail({
               <EditableRow label="貸付返済" value={payslip.loanDeduction} onChange={handleChange('loanDeduction')} />
               <EditableRow label="共済掛金" value={payslip.otherDeduction} onChange={handleChange('otherDeduction')} />
             </div>
+            <ExtraLinesSection
+              lines={payslip.extraDeductionLines ?? []}
+              syncKey={syncKey}
+              onCommit={handleDeductionExtrasCommit}
+            />
             <div className={styles.sectionTotal}>
               <span>控除合計</span>
               <span>{yen(payslip.totalDeduction)}</span>
@@ -815,6 +935,19 @@ function EditableRow({
       />
     </div>
   )
+}
+
+function normalizePayslipForEdit(ps: MockPayslip): MockPayslip {
+  return {
+    ...ps,
+    extraPaymentLines: cloneExtraLines(ps.extraPaymentLines),
+    extraDeductionLines: cloneExtraLines(ps.extraDeductionLines),
+  }
+}
+
+function cloneExtraLines(lines: PayslipExtraLine[] | undefined): PayslipExtraLine[] {
+  if (!Array.isArray(lines)) return []
+  return lines.map((line) => ({ ...line }))
 }
 
 function EmployeeList({

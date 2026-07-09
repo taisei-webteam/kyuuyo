@@ -28,6 +28,8 @@ const emptyEmployee: MockEmployee = {
   hourlyRate: 0,
   standardMonthlyRemuneration: 0,
   transportAllowance: 0,
+  taxableTransport: 0,
+  employmentInsuranceOverage: 0,
   positionAllowance: 0,
   familyAllowance: 0,
   specialAllowance: 0,
@@ -49,6 +51,8 @@ const emptyEmployee: MockEmployee = {
   overtimeAllowed: true,
   overtimeStart: '18:00',
   overtimeEnd: '22:00',
+  bonusEligible: false,
+  paidLeaveBalance: null,
 }
 
 function yen(amount: number): string {
@@ -156,6 +160,18 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     <option value="パート">パート</option>
                   </select>
                 </div>
+                {form.employeeType === '役員' && (
+                  <div className={styles.field}>
+                    <label className={styles.checkboxLabel}>
+                      <input
+                        type="checkbox"
+                        checked={form.bonusEligible ?? false}
+                        onChange={(e) => handleChange('bonusEligible', e.target.checked)}
+                      />
+                      賞与を支給する
+                    </label>
+                  </div>
+                )}
                 <div className={styles.field}>
                   <label>部署名</label>
                   <input
@@ -342,6 +358,31 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             </div>
 
             <div className={styles.section}>
+              <div className={styles.sectionTitle}>有給休暇</div>
+              <div className={styles.fieldGrid}>
+                <div className={styles.field}>
+                  <label>有給残日数</label>
+                  <input
+                    type="number"
+                    value={form.paidLeaveBalance ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        paidLeaveBalance: e.target.value === '' ? null : Number(e.target.value),
+                      }))
+                    }
+                    min={0}
+                    step={0.5}
+                    placeholder="例: 12.5"
+                  />
+                  <p className={styles.fieldNote}>
+                    付与時・年度始めの残日数をここで設定します。勤怠管理で有給を確定保存すると自動で減算され、この値が更新されます（予定は減算されません）。
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.section}>
               <div className={styles.sectionTitle}>給与情報</div>
               <div className={styles.fieldGrid}>
                 {form.employeeType === 'パート' ? (
@@ -383,6 +424,16 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     value={form.transportAllowance}
                     onChange={(e) => handleChange('transportAllowance', Number(e.target.value))}
                     min={0}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>うち課税分（非課税限度超過）</label>
+                  <input
+                    type="number"
+                    value={form.taxableTransport ?? 0}
+                    onChange={(e) => handleChange('taxableTransport', Number(e.target.value))}
+                    min={0}
+                    max={form.transportAllowance}
                   />
                 </div>
                 <div className={styles.field}>

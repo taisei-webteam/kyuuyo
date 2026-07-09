@@ -1,14 +1,8 @@
-/**
- * 年プルダウン用の選択肢を生成する。
- *
- * 開始年（既定 2024）から現在の年までを昇順で返す。
- * 現在の年を基準に算出するため、年が変わると自動的に新しい年が選択肢に加わる。
- */
-export function getYearOptions(startYear = 2024): number[] {
-  const currentYear = new Date().getFullYear()
-  const from = Math.min(startYear, currentYear)
+﻿/** 生年月日（DateSelect）と同様に、当年から過去100年分を新しい順で列挙する */
+export function buildYearSelectOptions(asOf: Date = new Date()): number[] {
+  const current = asOf.getFullYear()
   const years: number[] = []
-  for (let y = from; y <= currentYear; y++) {
+  for (let y = current; y >= current - 100; y--) {
     years.push(y)
   }
   return years

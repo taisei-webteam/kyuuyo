@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import { getEmployees, type MockEmployee, type MockPayslip } from '@/lib/mock-data'
+import { getEmployees, type MockEmployee, type MockPayslip, resolveSalaryPaymentExtras, firstExtraLineLabel, sumExtraLines, visibleExtraLines } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
@@ -17,6 +17,12 @@ const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.defaul
 
 function num(amount: number): string {
   if (amount === 0) return '0'
+  return amount.toLocaleString('ja-JP')
+}
+
+/** 予備列: 0円は空欄 */
+function numOrBlank(amount: number): string {
+  if (amount === 0) return ''
   return amount.toLocaleString('ja-JP')
 }
 
@@ -46,6 +52,7 @@ interface ReportRow {
   transportAllowance: number
   salesAllowance: number
   dangerAllowance: number
+  extraPayment: number
   totalPayment: number
   healthInsurance: number
   nursingInsurance: number
@@ -56,6 +63,7 @@ interface ReportRow {
   savingsDeduction: number
   loanDeduction: number
   otherDeduction: number
+  extraDeduction: number
   totalDeduction: number
 }
 
@@ -65,6 +73,9 @@ interface PayrollReportModalProps {
   month: number
   onClose: () => void
 }
+
+/** 固定3列 + 支払10列 + 控除11列 */
+const PAYROLL_TABLE_COLS = 24
 
 export function PayrollReportModal({
   payslips,
@@ -84,6 +95,8 @@ export function PayrollReportModal({
     return payslips
       .map((ps) => {
         const emp = empMap.get(ps.employeeId)
+        const paymentExtras = resolveSalaryPaymentExtras(ps)
+        const deductionExtras = visibleExtraLines(ps.extraDeductionLines)
         return {
           name: emp?.name ?? '',
           displayOrder: emp?.displayOrder ?? 99,
@@ -97,6 +110,7 @@ export function PayrollReportModal({
           transportAllowance: ps.transportAllowance,
           salesAllowance: ps.salesAllowance,
           dangerAllowance: ps.dangerAllowance,
+          extraPayment: sumExtraLines(paymentExtras),
           totalPayment: ps.totalPayment,
           healthInsurance: ps.healthInsurance,
           nursingInsurance: ps.nursingInsurance,
@@ -107,20 +121,31 @@ export function PayrollReportModal({
           savingsDeduction: ps.savingsDeduction,
           loanDeduction: ps.loanDeduction,
           otherDeduction: ps.otherDeduction,
+          extraDeduction: sumExtraLines(deductionExtras),
           totalDeduction: ps.totalDeduction,
         }
       })
       .sort((a, b) => a.displayOrder - b.displayOrder)
   }, [payslips, employees])
 
+  const paymentExtraLabel = useMemo(
+    () => firstExtraLineLabel(payslips.map((ps) => resolveSalaryPaymentExtras(ps))) || '追加支給',
+    [payslips],
+  )
+
+  const deductionExtraLabel = useMemo(
+    () => firstExtraLineLabel(payslips.map((ps) => ps.extraDeductionLines)) || '追加控除',
+    [payslips],
+  )
+
   const totals = useMemo(() => {
     const t: Omit<ReportRow, 'name'> = {
       workDays: 0, netPayment: 0, basicSalary: 0, overtimePay: 0,
       familyAllowance: 0, specialAllowance: 0, positionAllowance: 0,
-      transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0, totalPayment: 0,
+      transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0, extraPayment: 0, totalPayment: 0,
       healthInsurance: 0, nursingInsurance: 0, welfarePension: 0,
       employmentInsurance: 0, incomeTax: 0, residentTax: 0,
-      savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0, totalDeduction: 0,
+      savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0, extraDeduction: 0, totalDeduction: 0,
     }
     for (const r of rows) {
       for (const k of Object.keys(t) as (keyof typeof t)[]) {
@@ -181,24 +206,29 @@ export function PayrollReportModal({
 
         <div className={styles.previewArea} id="payroll-report">
           <div className={styles.page}>
-            <div className={styles.reportHeader}>
-              <span className={styles.reportTitle}>{year}年{String(month).padStart(2, '0')}月分　給与一覧表</span>
-              <span className={styles.reportDate}>{formatPayDate(paymentDate)}　支給</span>
-              {companyLogoSrc ? (
-                <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
-              ) : (
-                <span className={styles.reportCompany}>{companyName}</span>
-              )}
-            </div>
-
             <table className={styles.table}>
               <thead>
+                <tr className={styles.reportHeaderRow}>
+                  <th colSpan={PAYROLL_TABLE_COLS} className={styles.reportHeaderCell}>
+                    <div className={styles.reportHeader}>
+                      <span className={styles.reportTitle}>
+                        {year}年{String(month).padStart(2, '0')}月分　給与一覧表
+                      </span>
+                      <span className={styles.reportDate}>{formatPayDate(paymentDate)}　支給</span>
+                      {companyLogoSrc ? (
+                        <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
+                      ) : (
+                        <span className={styles.reportCompany}>{companyName}</span>
+                      )}
+                    </div>
+                  </th>
+                </tr>
                 <tr>
                   <th rowSpan={2} className={styles.thName}>氏名</th>
                   <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
                   <th rowSpan={2} className={styles.thAmount}>銀行<br />振込額</th>
-                  <th colSpan={9} className={styles.thGroup}>支　払</th>
-                  <th colSpan={10} className={styles.thGroup}>控　除</th>
+                  <th colSpan={10} className={styles.thGroup}>支　払</th>
+                  <th colSpan={11} className={styles.thGroup}>控　除</th>
                 </tr>
                 <tr>
                   <th className={styles.thAmount}>基本給</th>
@@ -209,6 +239,7 @@ export function PayrollReportModal({
                   <th className={styles.thAmount}>交通費</th>
                   <th className={styles.thAmount}>営業手当</th>
                   <th className={styles.thAmount}>危険手当</th>
+                  <th className={styles.thExtra}>{paymentExtraLabel}</th>
                   <th className={styles.thAmountTotal}>支払額<br />合計</th>
                   <th className={styles.thAmount}>健康保険</th>
                   <th className={styles.thAmount}>介護保険</th>
@@ -219,6 +250,7 @@ export function PayrollReportModal({
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
                   <th className={styles.thAmount}>共済掛金</th>
+                  <th className={styles.thExtra}>{deductionExtraLabel}</th>
                   <th className={styles.thAmountTotal}>控除額<br />合計</th>
                 </tr>
               </thead>
@@ -236,6 +268,7 @@ export function PayrollReportModal({
                     <td className={styles.tdAmount}>{num(r.transportAllowance)}</td>
                     <td className={styles.tdAmount}>{num(r.salesAllowance)}</td>
                     <td className={styles.tdAmount}>{num(r.dangerAllowance)}</td>
+                    <td className={styles.tdAmount}>{numOrBlank(r.extraPayment)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalPayment)}</td>
                     <td className={styles.tdAmount}>{num(r.healthInsurance)}</td>
                     <td className={styles.tdAmount}>{num(r.nursingInsurance)}</td>
@@ -246,6 +279,7 @@ export function PayrollReportModal({
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.otherDeduction)}</td>
+                    <td className={styles.tdAmount}>{numOrBlank(r.extraDeduction)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -263,6 +297,7 @@ export function PayrollReportModal({
                   <td className={styles.tdAmount}>{num(totals.transportAllowance)}</td>
                   <td className={styles.tdAmount}>{num(totals.salesAllowance)}</td>
                   <td className={styles.tdAmount}>{num(totals.dangerAllowance)}</td>
+                  <td className={styles.tdAmount}>{numOrBlank(totals.extraPayment)}</td>
                   <td className={styles.tdAmountTotal}>{num(totals.totalPayment)}</td>
                   <td className={styles.tdAmount}>{num(totals.healthInsurance)}</td>
                   <td className={styles.tdAmount}>{num(totals.nursingInsurance)}</td>
@@ -273,6 +308,7 @@ export function PayrollReportModal({
                   <td className={styles.tdAmount}>{num(totals.savingsDeduction)}</td>
                   <td className={styles.tdAmount}>{num(totals.loanDeduction)}</td>
                   <td className={styles.tdAmount}>{num(totals.otherDeduction)}</td>
+                  <td className={styles.tdAmount}>{numOrBlank(totals.extraDeduction)}</td>
                   <td className={styles.tdAmountTotal}>{num(totals.totalDeduction)}</td>
                 </tr>
               </tfoot>

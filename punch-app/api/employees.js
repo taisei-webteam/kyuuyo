@@ -27,6 +27,7 @@ export default async function handler(req, res) {
       select id, name, name_kana, employee_type, display_order, is_active
       from employees_sync
       where is_active = true
+        and employee_type != '役員'
       order by display_order asc, id asc
     `;
 

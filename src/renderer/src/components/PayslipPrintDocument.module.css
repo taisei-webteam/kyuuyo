@@ -125,7 +125,8 @@
 .page {
   background: #fff;
   width: 210mm;
-  height: 281mm;
+  /* A4縦(297mm)と一致させ、切り取り線が用紙のちょうど中央に来るようにする */
+  height: 297mm;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   padding: 6mm 7mm;
   font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", sans-serif;
@@ -133,17 +134,22 @@
   color: #1a1a1a;
   line-height: 1.35;
   box-sizing: border-box;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) 6mm minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
 }
 
 /* メール添付用: 控えがない1枚構成のため、上下2分割をやめ内容高さで上部に配置する */
 .pageMail {
-  grid-template-rows: auto;
-  align-content: start;
+  height: auto;
+  display: block;
+}
+
+.pageMail .block {
+  flex: none;
 }
 
 .block {
+  flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -246,11 +252,40 @@
   print-color-adjust: exact;
 }
 
+.grid th.colHead,
+.grid th.extraColHead {
+  overflow: visible;
+}
+
 .colHead {
   background: #e5e7eb;
   font-weight: 600;
   color: #374151;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  line-height: 1.25;
+  min-height: 2.5em;
+  height: 2.5em;
+  vertical-align: middle;
+  padding: 3px 2px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.extraColHead {
+  background: #e5e7eb;
+  font-weight: 600;
+  color: #374151;
+  text-align: left;
+  padding-left: 6px;
+  white-space: normal;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  line-height: 1.25;
+  min-height: 2.5em;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
@@ -343,6 +378,16 @@
   background: #fff;
 }
 
+.bonusKiji {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 64px;
+}
+
 .totals {
   display: flex;
   align-items: stretch;
@@ -395,10 +440,10 @@
 }
 
 .cutLine {
+  flex: 0 0 6mm;
   align-self: stretch;
   border-top: 1px dashed #94a3b8;
   position: relative;
-  height: 6mm;
   margin: 0;
 }
 
@@ -414,10 +459,8 @@
   white-space: nowrap;
 }
 
-/*
- * 印刷(PDF)はベーススタイル（A4寸法・フォント）をそのまま使い、
- * プレビューと完全一致させる。ここでは印刷時の表示制御のみ行う。
- */
+/* 印刷(PDF)はベーススタイル（A4寸法・フォント）をそのまま使い、
+   プレビューと完全一致させる。ここでは印刷時の表示制御のみ行う。 */
 @media print {
   .previewOverlay {
     position: absolute;

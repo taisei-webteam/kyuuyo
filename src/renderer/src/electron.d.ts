@@ -63,22 +63,7 @@ interface ElectronAttendanceApi {
     success: false;
     error: string;
   }>;
-  upsert(data: {
-    employeeId: number;
-    date: string;
-    clockIn: string | null;
-    clockOut: string | null;
-    goOut: string | null;
-    goReturn: string | null;
-    workMinutes: number;
-    overtimeMinutes: number;
-    earlyOvertimeMinutes: number;
-    breakMinutes: number;
-    isHoliday: boolean;
-    isHolidayWork: boolean;
-    dataSource: string;
-    note: string | null;
-  }): Promise<{
+  upsert(data: import('../../../../shared/types').AttendanceUpsert): Promise<{
     success: true;
     data: { id: number };
   } | {
@@ -260,6 +245,13 @@ interface ElectronPayslipsApi {
   delete(id: number): Promise<{
     success: true;
     data: { deleted: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
+  latestSalaryPeriod(): Promise<{
+    success: true;
+    data: { year: number; month: number } | null;
   } | {
     success: false;
     error: string;

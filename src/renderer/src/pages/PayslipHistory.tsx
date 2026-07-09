@@ -8,12 +8,16 @@ import {
   loadPayslipsFromDb,
   savePayslipsToDb,
   setPayslips,
+  firstExtraLineLabel,
+  resolveSalaryPaymentExtras,
+  sumExtraLines,
+  visibleExtraLines,
   type MockPayslip,
 } from '@/lib/mock-data'
+import { buildYearSelectOptions } from '@/lib/year-options'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { PayrollReportModal } from '@/components/PayrollReportModal'
-import { getYearOptions } from '@/lib/year-options'
 import styles from './PayslipHistory.module.css'
 
 function num(amount: number): string {
@@ -60,14 +64,31 @@ const DEDUCT_COLUMNS: Column[] = [
   { key: 'totalDeduction', label: '控除合計', editable: false },
 ]
 
-const ALL_COLUMNS: Column[] = [...PAY_COLUMNS, ...DEDUCT_COLUMNS]
+const PAY_BASE_COLUMNS = PAY_COLUMNS.filter((c) => c.key !== 'totalPayment')
+const DEDUCT_BASE_COLUMNS = DEDUCT_COLUMNS.filter((c) => c.key !== 'totalDeduction')
+const EXTRA_PAY_LABEL_DEFAULT = '追加支給'
+const EXTRA_DEDUCT_LABEL_DEFAULT = '追加控除'
+
+function extraPaymentAmount(row: MockPayslip): number {
+  return sumExtraLines(resolveSalaryPaymentExtras(row))
+}
+
+function extraDeductionAmount(row: MockPayslip): number {
+  return sumExtraLines(visibleExtraLines(row.extraDeductionLines))
+}
+
+/** 予備列: 0円は空欄 */
+function numOrBlank(amount: number): string {
+  if (amount === 0) return ''
+  return amount.toLocaleString('ja-JP')
+}
 
 export function PayslipHistory(): ReactElement {
   const navigate = useNavigate()
   const location = useLocation()
   const navState = location.state as { year?: number; month?: number } | null
-  const [selectedYear, setSelectedYear] = useState(navState?.year ?? 2026)
-  const [selectedMonth, setSelectedMonth] = useState(navState?.month ?? 5)
+  const [selectedYear, setSelectedYear] = useState(navState?.year ?? new Date().getFullYear())
+  const [selectedMonth, setSelectedMonth] = useState(navState?.month ?? new Date().getMonth() + 1)
   const [showReport, setShowReport] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
@@ -131,7 +152,7 @@ export function PayslipHistory(): ReactElement {
           row.specialAllowance +
           row.dangerAllowance +
           row.salesAllowance +
-          row.otherAllowance
+          extraPaymentAmount(row)
 
         row.totalDeduction =
           row.healthInsurance +
@@ -142,7 +163,8 @@ export function PayslipHistory(): ReactElement {
           row.residentTax +
           row.savingsDeduction +
           row.loanDeduction +
-          row.otherDeduction
+          row.otherDeduction +
+          extraDeductionAmount(row)
 
         row.netPayment = row.totalPayment - row.totalDeduction
 
@@ -193,18 +215,34 @@ export function PayslipHistory(): ReactElement {
       workDays: 0, netPayment: 0,
       basicSalary: 0, overtimePay: 0, familyAllowance: 0, specialAllowance: 0,
       positionAllowance: 0, transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0,
-      totalPayment: 0,
+      extraPayment: 0, totalPayment: 0,
       healthInsurance: 0, nursingInsurance: 0, welfarePension: 0, employmentInsurance: 0,
       incomeTax: 0, residentTax: 0, savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0,
-      totalDeduction: 0,
+      extraDeduction: 0, totalDeduction: 0,
     }
     for (const r of editData) {
       for (const k of Object.keys(t) as (keyof typeof t)[]) {
-        (t[k] as number) += r[k]
+        if (k === 'extraPayment') {
+          t.extraPayment += extraPaymentAmount(r)
+        } else if (k === 'extraDeduction') {
+          t.extraDeduction += extraDeductionAmount(r)
+        } else {
+          (t[k] as number) += r[k]
+        }
       }
     }
     return t
   }, [editData])
+
+  const paymentExtraLabel = useMemo(
+    () => firstExtraLineLabel(editData.map((r) => resolveSalaryPaymentExtras(r))) || EXTRA_PAY_LABEL_DEFAULT,
+    [editData],
+  )
+
+  const deductionExtraLabel = useMemo(
+    () => firstExtraLineLabel(editData.map((r) => r.extraDeductionLines)) || EXTRA_DEDUCT_LABEL_DEFAULT,
+    [editData],
+  )
 
   return (
     <div className={styles.container}>
@@ -223,7 +261,7 @@ export function PayslipHistory(): ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {getYearOptions().map((y) => (
+              {buildYearSelectOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>
@@ -273,18 +311,20 @@ export function PayslipHistory(): ReactElement {
                 <th rowSpan={2} className={styles.thName}>氏名</th>
                 <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
                 <th rowSpan={2} className={styles.thNetPay}>振込額</th>
-                <th colSpan={PAY_COLUMNS.length} className={styles.thGroupPay}>支　払</th>
-                <th colSpan={DEDUCT_COLUMNS.length} className={styles.thGroupDeduct}>控　除</th>
+                <th colSpan={PAY_BASE_COLUMNS.length + 2} className={styles.thGroupPay}>支　払</th>
+                <th colSpan={DEDUCT_BASE_COLUMNS.length + 2} className={styles.thGroupDeduct}>控　除</th>
               </tr>
               <tr>
-                {ALL_COLUMNS.map((col) => {
-                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
-                  return (
-                    <th key={col.key} className={`${styles.th} ${isTotal ? styles.thTotal : ''}`}>
-                      {col.label}
-                    </th>
-                  )
-                })}
+                {PAY_BASE_COLUMNS.map((col) => (
+                  <th key={col.key} className={styles.th}>{col.label}</th>
+                ))}
+                <th className={`${styles.th} ${styles.thExtra}`}>{paymentExtraLabel}</th>
+                <th className={`${styles.th} ${styles.thTotal}`}>支払合計</th>
+                {DEDUCT_BASE_COLUMNS.map((col) => (
+                  <th key={col.key} className={styles.th}>{col.label}</th>
+                ))}
+                <th className={`${styles.th} ${styles.thExtra}`}>{deductionExtraLabel}</th>
+                <th className={`${styles.th} ${styles.thTotal}`}>控除合計</th>
               </tr>
             </thead>
             <tbody>
@@ -308,33 +348,49 @@ export function PayslipHistory(): ReactElement {
                     />
                   </td>
                   <td className={styles.tdNetPay}>{num(row.netPayment)}</td>
-                  {ALL_COLUMNS.map((col, colIdx) => {
+                  {PAY_BASE_COLUMNS.map((col, colIdx) => {
                     const val = row[col.key] as number
-                    const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
-                    if (col.editable) {
-                      return (
-                        <td key={col.key} className={styles.tdEditable}>
-                          <input
-                            type="number"
-                            className={styles.cellInput}
-                            value={val}
-                            data-row={rowIdx}
-                            data-col={colIdx}
-                            onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                              handleChange(rowIdx, col.key, Number(e.target.value))
-                            }
-                            onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
-                            min={0}
-                          />
-                        </td>
-                      )
-                    }
                     return (
-                      <td key={col.key} className={`${styles.tdReadonly} ${isTotal ? styles.tdTotal : ''}`}>
-                        {num(val)}
+                      <td key={col.key} className={styles.tdEditable}>
+                        <input
+                          type="number"
+                          className={styles.cellInput}
+                          value={val}
+                          data-row={rowIdx}
+                          data-col={colIdx}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                            handleChange(rowIdx, col.key, Number(e.target.value))
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
+                          min={0}
+                        />
                       </td>
                     )
                   })}
+                  <td className={styles.tdReadonly}>{numOrBlank(extraPaymentAmount(row))}</td>
+                  <td className={`${styles.tdReadonly} ${styles.tdTotal}`}>{num(row.totalPayment)}</td>
+                  {DEDUCT_BASE_COLUMNS.map((col, colIdx) => {
+                    const val = row[col.key] as number
+                    const dataCol = PAY_BASE_COLUMNS.length + 1 + colIdx
+                    return (
+                      <td key={col.key} className={styles.tdEditable}>
+                        <input
+                          type="number"
+                          className={styles.cellInput}
+                          value={val}
+                          data-row={rowIdx}
+                          data-col={dataCol}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                            handleChange(rowIdx, col.key, Number(e.target.value))
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
+                          min={0}
+                        />
+                      </td>
+                    )
+                  })}
+                  <td className={styles.tdReadonly}>{numOrBlank(extraDeductionAmount(row))}</td>
+                  <td className={`${styles.tdReadonly} ${styles.tdTotal}`}>{num(row.totalDeduction)}</td>
                 </tr>
               ))}
             </tbody>
@@ -343,15 +399,20 @@ export function PayslipHistory(): ReactElement {
                 <td className={styles.tdNameFoot}>合計</td>
                 <td className={styles.tdNumFoot}></td>
                 <td className={styles.tdNetPayFoot}>{num(totals.netPayment)}</td>
-                {ALL_COLUMNS.map((col) => {
-                  const val = totals[col.key as keyof typeof totals] as number | undefined
-                  const isTotal = col.key === 'totalPayment' || col.key === 'totalDeduction'
-                  return (
-                    <td key={col.key} className={`${styles.tdFoot} ${isTotal ? styles.tdFootTotal : ''}`}>
-                      {val !== undefined ? num(Math.round(val)) : ''}
-                    </td>
-                  )
-                })}
+                {PAY_BASE_COLUMNS.map((col) => (
+                  <td key={col.key} className={styles.tdFoot}>
+                    {num(Math.round(totals[col.key as keyof typeof totals] as number))}
+                  </td>
+                ))}
+                <td className={styles.tdFoot}>{numOrBlank(totals.extraPayment)}</td>
+                <td className={`${styles.tdFoot} ${styles.tdFootTotal}`}>{num(Math.round(totals.totalPayment))}</td>
+                {DEDUCT_BASE_COLUMNS.map((col) => (
+                  <td key={col.key} className={styles.tdFoot}>
+                    {num(Math.round(totals[col.key as keyof typeof totals] as number))}
+                  </td>
+                ))}
+                <td className={styles.tdFoot}>{numOrBlank(totals.extraDeduction)}</td>
+                <td className={`${styles.tdFoot} ${styles.tdFootTotal}`}>{num(Math.round(totals.totalDeduction))}</td>
               </tr>
             </tfoot>
           </table>

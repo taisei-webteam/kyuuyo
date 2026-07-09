@@ -125,6 +125,20 @@
   color: var(--color-text);
 }
 
+.thExtra {
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+  color: var(--color-text-secondary);
+  min-width: 56px;
+  max-width: 80px;
+}
+
+.table th.thExtra {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
 .thName {
   background: var(--color-bg);
   text-align: left;
@@ -164,6 +178,12 @@
   font-weight: 700;
   color: var(--color-text);
   background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+}
+
+.tdReadonly {
+  text-align: right;
+  color: var(--color-text-secondary);
+  background: color-mix(in srgb, var(--color-bg) 50%, transparent);
 }
 
 .tdEditable {

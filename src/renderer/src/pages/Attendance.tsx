@@ -5,16 +5,23 @@ import {
   getAttendance,
   buildAttendanceDaysFromRecords,
   mapDbEmployeeToMock,
+  reloadEmployeesFromDb,
   isEmployedInMonth,
   type MockEmployee,
   type MockAttendanceDay,
   type StampInType,
   type StampOutType,
 } from '@/lib/mock-data'
-import { RawPunchModal } from '@/components/RawPunchModal'
+import { buildYearSelectOptions } from '@/lib/year-options'
+import { AttendanceBookModal } from '@/components/AttendanceBookModal'
 import { getSettings } from '@/lib/settings-store'
 import { floorToUnit } from '@/lib/time-rounding'
-import { getYearOptions } from '@/lib/year-options'
+import {
+  paidLeaveUsageToDays,
+  confirmedPaidLeaveDays,
+  type PaidLeaveUsage,
+  type AttendanceRecord,
+} from '../../../shared/types'
 import styles from './Attendance.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -62,6 +69,30 @@ function stampOutClass(stamp: StampOutType | null): string {
   return styles.badgeNormal
 }
 
+/** 保存前後の確定有給消化日数の差分（増えた分だけ残日数を減算する） */
+function computePaidLeaveConsumptionDelta(
+  previous: AttendanceRecord[],
+  current: MockAttendanceDay[],
+): number {
+  const prevByDate = new Map(previous.map((r) => [r.date, r]))
+  let delta = 0
+  for (const day of current) {
+    const prev = prevByDate.get(day.date)
+    const prevDays = prev
+      ? confirmedPaidLeaveDays(prev.paidLeaveUsage, prev.paidLeaveStatus)
+      : 0
+    const curDays = confirmedPaidLeaveDays(day.paidLeaveUsage, day.paidLeaveStatus)
+    delta += curDays - prevDays
+  }
+  return delta
+}
+
+async function refreshEmployeesFromDb(): Promise<MockEmployee[]> {
+  if (!hasElectronApi) return getEmployees()
+  await reloadEmployeesFromDb()
+  return getEmployees()
+}
+
 export function Attendance(): ReactElement {
   const now = new Date()
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
@@ -74,7 +105,7 @@ export function Attendance(): ReactElement {
   const [saving, setSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [rawPunchTarget, setRawPunchTarget] = useState<'all' | 'single' | null>(null)
+  const [bookTarget, setBookTarget] = useState<'all' | 'single' | null>(null)
 
   // Electron では DB の従業員一覧を表示する（打刻アプリで追加された従業員も反映するため）。
   // Vite 単体プレビュー時はモックを表示する。
@@ -122,6 +153,8 @@ export function Attendance(): ReactElement {
   }, [filteredEmployees, selectedEmployeeId])
 
   const [editData, setEditData] = useState<MockAttendanceDay[]>([])
+  const [loadedRecords, setLoadedRecords] = useState<AttendanceRecord[]>([])
+  const [savedRecordDates, setSavedRecordDates] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
 
   // 勤怠データの読み込み:
@@ -130,6 +163,8 @@ export function Attendance(): ReactElement {
   const loadAttendance = useCallback(async (): Promise<void> => {
     if (!hasElectronApi) {
       setEditData(getAttendance(selectedEmployeeId, selectedYear, selectedMonth).map((d) => ({ ...d })))
+      setLoadedRecords([])
+      setSavedRecordDates(new Set())
       setDirty(false)
       return
     }
@@ -141,6 +176,8 @@ export function Attendance(): ReactElement {
       ])
       const records = listRes.success ? listRes.data : []
       const raws = rawRes.success ? rawRes.data : []
+      setLoadedRecords(records)
+      setSavedRecordDates(new Set(records.map((r) => r.date)))
       setEditData(
         buildAttendanceDaysFromRecords(selectedEmployeeId, selectedYear, selectedMonth, records, raws),
       )
@@ -219,6 +256,39 @@ export function Attendance(): ReactElement {
     [],
   )
 
+  const handlePaidLeaveChange = useCallback(
+    (idx: number, usage: PaidLeaveUsage | null): void => {
+      setEditData((prev) => {
+        const updated = [...prev]
+        updated[idx] = {
+          ...updated[idx],
+          paidLeaveUsage: usage,
+          paidLeaveStatus: usage ? (updated[idx].paidLeaveStatus ?? 'confirmed') : null,
+          dataSource: 'manual',
+        }
+        return updated
+      })
+      setDirty(true)
+    },
+    [],
+  )
+
+  const handlePaidLeavePlannedChange = useCallback(
+    (idx: number, planned: boolean): void => {
+      setEditData((prev) => {
+        const updated = [...prev]
+        updated[idx] = {
+          ...updated[idx],
+          paidLeaveStatus: planned ? 'planned' : 'confirmed',
+          dataSource: 'manual',
+        }
+        return updated
+      })
+      setDirty(true)
+    },
+    [],
+  )
+
   const holidayLabel = useMemo(() => {
     const mode = selectedEmployee?.holidayMode ?? 'calendar'
     if (mode === 'calendar') {
@@ -241,7 +311,16 @@ export function Attendance(): ReactElement {
     const leaveEarlyCount = editData.filter((d) => d.stampOut === '早退').length
     const outsideCount = editData.filter((d) => d.goOut !== null).length
     const holidayWorkCount = editData.filter((d) => d.isHolidayWork).length
-    return { workDays, totalWork, totalOvertime, totalEarlyOvertime, earlyCount, lateCount, leaveEarlyCount, outsideCount, holidayWorkCount }
+    const paidLeaveDaysConfirmed = editData
+      .filter((d) => d.paidLeaveUsage && d.paidLeaveStatus !== 'planned')
+      .reduce((s, d) => s + paidLeaveUsageToDays(d.paidLeaveUsage), 0)
+    const paidLeaveDaysPlanned = editData
+      .filter((d) => d.paidLeaveUsage && d.paidLeaveStatus === 'planned')
+      .reduce((s, d) => s + paidLeaveUsageToDays(d.paidLeaveUsage), 0)
+    return {
+      workDays, totalWork, totalOvertime, totalEarlyOvertime, earlyCount, lateCount,
+      leaveEarlyCount, outsideCount, holidayWorkCount, paidLeaveDaysConfirmed, paidLeaveDaysPlanned,
+    }
   }, [editData])
 
   return (
@@ -253,7 +332,7 @@ export function Attendance(): ReactElement {
             value={selectedYear}
             onChange={(e) => setSelectedYear(Number(e.target.value))}
           >
-            {getYearOptions().map((y) => (
+              {buildYearSelectOptions().map((y) => (
               <option key={y} value={y}>{y}年</option>
             ))}
           </select>
@@ -324,15 +403,15 @@ export function Attendance(): ReactElement {
           </button>
           <button
             className={styles.rawPunchButton}
-            onClick={() => setRawPunchTarget('all')}
+            onClick={() => setBookTarget('all')}
           >
-            実打刻一覧（全員）
+            出勤簿（全員）
           </button>
           <button
             className={styles.rawPunchButton}
-            onClick={() => setRawPunchTarget('single')}
+            onClick={() => setBookTarget('single')}
           >
-            実打刻一覧（選択者）
+            出勤簿（選択者）
           </button>
           <button
             className={editing ? styles.editButtonActive : styles.editButton}
@@ -354,7 +433,16 @@ export function Attendance(): ReactElement {
                 try {
                   let savedCount = 0
                   for (const day of editData) {
-                    if (!day.clockIn && !day.clockOut && !day.isHolidayWork) continue
+                    const shouldSave = !!(
+                      day.clockIn
+                      || day.clockOut
+                      || day.isHolidayWork
+                      || day.paidLeaveUsage
+                      || day.goOut
+                      || day.goReturn
+                      || savedRecordDates.has(day.date)
+                    )
+                    if (!shouldSave) continue
                     await window.api.attendance.upsert({
                       employeeId: selectedEmployeeId,
                       date: day.date,
@@ -368,13 +456,40 @@ export function Attendance(): ReactElement {
                       breakMinutes: BREAK_MINUTES,
                       isHoliday: day.isHoliday,
                       isHolidayWork: day.isHolidayWork,
+                      paidLeaveUsage: day.paidLeaveUsage,
+                      paidLeaveStatus: day.paidLeaveStatus,
                       dataSource: day.dataSource,
                       note: null,
                     })
                     savedCount++
                   }
+
+                  const leaveDelta = computePaidLeaveConsumptionDelta(loadedRecords, editData)
+                  let newBalance: number | null = null
+                  if (leaveDelta !== 0) {
+                    const emp = employees.find((e) => e.id === selectedEmployeeId)
+                    const currentBalance = emp?.paidLeaveBalance ?? 0
+                    newBalance = Math.round((currentBalance - leaveDelta) * 2) / 2
+                    const upd = await window.api.employees.update({
+                      id: selectedEmployeeId,
+                      paidLeaveBalance: newBalance,
+                    })
+                    if (!upd.success) {
+                      setSyncMessage(`勤怠は保存しましたが有給残日数の更新に失敗しました: ${upd.error}`)
+                      await loadAttendance()
+                      return
+                    }
+                    const refreshed = await refreshEmployeesFromDb()
+                    setEmployees(refreshed)
+                  }
+
                   setDirty(false)
-                  setSyncMessage(`${savedCount}件の勤怠データを保存しました`)
+                  let msg = `${savedCount}件の勤怠データを保存しました`
+                  if (leaveDelta !== 0 && newBalance != null) {
+                    msg += `（有給残: ${newBalance}日）`
+                    if (newBalance < 0) msg += ' ※残日数が不足しています'
+                  }
+                  setSyncMessage(msg)
                   await loadAttendance()
                 } catch (err) {
                   setSyncMessage(`保存に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
@@ -445,12 +560,17 @@ export function Attendance(): ReactElement {
                 <span className={styles.holidayBadge}>
                   休日 {holidayLabel}
                 </span>
+                {selectedEmployee.paidLeaveBalance != null && (
+                  <span className={styles.paidLeaveBalanceBadge}>
+                    有給残 {selectedEmployee.paidLeaveBalance}日
+                  </span>
+                )}
                 {loading && <span className={styles.contentHeaderSub}>読み込み中...</span>}
               </div>
               <div className={styles.legend}>
                 出勤・退勤欄は<span className={styles.legendRaw}>上段=実打刻（編集不可）</span>／
                 <span className={styles.legendRounded}>下段=丸め時間</span>。
-                {editing ? '「下段」のみ修正できます。' : '「丸め時間を編集」で下段を修正できます。'}
+                有給は常に入力できます（保存で残日数を更新）。丸め時間は「丸め時間を編集」で修正できます。
               </div>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
@@ -458,6 +578,7 @@ export function Attendance(): ReactElement {
                     <tr>
                       <th>日付</th>
                       <th>休出</th>
+                      <th>有給</th>
                       <th>種別</th>
                       <th>出勤</th>
                       <th>外出</th>
@@ -488,7 +609,17 @@ export function Attendance(): ReactElement {
                       return (
                         <tr
                           key={day.date}
-                          className={day.isHolidayWork ? styles.rowHolidayWork : day.isHoliday ? styles.rowHoliday : undefined}
+                          className={
+                            day.paidLeaveUsage
+                              ? day.paidLeaveStatus === 'planned'
+                                ? styles.rowPaidLeavePlanned
+                                : styles.rowPaidLeave
+                              : day.isHolidayWork
+                                ? styles.rowHolidayWork
+                                : day.isHoliday
+                                  ? styles.rowHoliday
+                                  : undefined
+                          }
                         >
                           <td>
                             <div className={styles.dateCell}>
@@ -505,6 +636,35 @@ export function Attendance(): ReactElement {
                                 onChange={(e) => handleHolidayWorkChange(idx, e.target.checked)}
                               />
                             </label>
+                          </td>
+                          <td>
+                            <div className={styles.paidLeaveCell}>
+                              <select
+                                className={styles.paidLeaveSelect}
+                                value={day.paidLeaveUsage ?? ''}
+                                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                                  handlePaidLeaveChange(
+                                    idx,
+                                    e.target.value === '' ? null : (e.target.value as PaidLeaveUsage),
+                                  )
+                                }
+                              >
+                                <option value="">−</option>
+                                <option value="full">全日</option>
+                                <option value="am">午前</option>
+                                <option value="pm">午後</option>
+                              </select>
+                              {day.paidLeaveUsage && (
+                                <label className={styles.paidLeavePlannedCheck}>
+                                  <input
+                                    type="checkbox"
+                                    checked={day.paidLeaveStatus === 'planned'}
+                                    onChange={(e) => handlePaidLeavePlannedChange(idx, e.target.checked)}
+                                  />
+                                  予定
+                                </label>
+                              )}
+                            </div>
                           </td>
                           <td>
                             <select
@@ -644,6 +804,18 @@ export function Attendance(): ReactElement {
                     <tr className={styles.summaryRow}>
                       <td>合計</td>
                       <td></td>
+                      <td>
+                        {summary.paidLeaveDaysConfirmed > 0 && (
+                          <span className={styles.badgePaidLeave}>
+                            実績 {summary.paidLeaveDaysConfirmed}日
+                          </span>
+                        )}
+                        {summary.paidLeaveDaysPlanned > 0 && (
+                          <span className={styles.badgePaidLeavePlanned}>
+                            予定 {summary.paidLeaveDaysPlanned}日
+                          </span>
+                        )}
+                      </td>
                       <td></td>
                       <td>{summary.workDays}日</td>
                       <td></td>
@@ -655,9 +827,9 @@ export function Attendance(): ReactElement {
                       <td>{formatMinutes(summary.totalOvertime)}</td>
                       <td></td>
                     </tr>
-                    {(summary.earlyCount > 0 || summary.lateCount > 0 || summary.leaveEarlyCount > 0 || summary.outsideCount > 0 || summary.holidayWorkCount > 0) && (
+                    {(summary.earlyCount > 0 || summary.lateCount > 0 || summary.leaveEarlyCount > 0 || summary.outsideCount > 0 || summary.holidayWorkCount > 0 || summary.paidLeaveDaysConfirmed > 0 || summary.paidLeaveDaysPlanned > 0) && (
                       <tr className={styles.stampSummaryRow}>
-                        <td colSpan={12}>
+                        <td colSpan={13}>
                           <div className={styles.stampSummary}>
                             {summary.earlyCount > 0 && (
                               <span className={styles.stampSummaryItem}>
@@ -684,6 +856,16 @@ export function Attendance(): ReactElement {
                                 <span className={styles.badgeHolidayWorkSmall}>休出</span> {summary.holidayWorkCount}日
                               </span>
                             )}
+                            {summary.paidLeaveDaysConfirmed > 0 && (
+                              <span className={styles.stampSummaryItem}>
+                                <span className={styles.badgePaidLeaveSmall}>有給</span> 実績 {summary.paidLeaveDaysConfirmed}日
+                              </span>
+                            )}
+                            {summary.paidLeaveDaysPlanned > 0 && (
+                              <span className={styles.stampSummaryItem}>
+                                <span className={styles.badgePaidLeavePlannedSmall}>有給予定</span> {summary.paidLeaveDaysPlanned}日
+                              </span>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -697,12 +879,12 @@ export function Attendance(): ReactElement {
           )}
         </div>
       </div>
-      {rawPunchTarget && (
-        <RawPunchModal
+      {bookTarget && (
+        <AttendanceBookModal
           year={selectedYear}
           month={selectedMonth}
-          employeeId={rawPunchTarget === 'single' ? selectedEmployeeId : undefined}
-          onClose={() => setRawPunchTarget(null)}
+          employeeId={bookTarget === 'single' ? selectedEmployeeId : undefined}
+          onClose={() => setBookTarget(null)}
         />
       )}
     </div>

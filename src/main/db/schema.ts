@@ -23,6 +23,11 @@ export const companies = sqliteTable('companies', {
   clockOutRounding: text('clock_out_rounding').notNull().default('down'),
   earlyRoundingUnit: integer('early_rounding_unit').notNull().default(15),
   overtimeRoundingUnit: integer('overtime_rounding_unit').notNull().default(15),
+  // 月給者の時間外単価算定に用いる「1か月平均所定労働時間数」。
+  // 割増賃金の基礎 = 基本給 ÷ この値（労基則19条準拠。会社ごとに設定）。
+  monthlyWorkHours: real('monthly_work_hours').notNull().default(173.6),
+  paidLeaveResetMonth: integer('paid_leave_reset_month'),
+  paidLeavePolicy: text('paid_leave_policy'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
 });
@@ -47,6 +52,8 @@ export const employees = sqliteTable('employees', {
   hourlyRate: integer('hourly_rate').notNull().default(0),
   standardMonthlyRemuneration: integer('standard_monthly_remuneration').notNull().default(0),
   transportAllowance: integer('transport_allowance').notNull().default(0),
+  // 通勤手当のうち課税対象額（非課税限度超過分）。0=全額非課税。
+  taxableTransport: integer('taxable_transport').notNull().default(0),
   positionAllowance: integer('position_allowance').notNull().default(0),
   familyAllowance: integer('family_allowance').notNull().default(0),
   specialAllowance: integer('special_allowance').notNull().default(0),
@@ -66,6 +73,10 @@ export const employees = sqliteTable('employees', {
   overtimeAllowed: integer('overtime_allowed', { mode: 'boolean' }).notNull().default(true),
   overtimeStart: text('overtime_start'),
   overtimeEnd: text('overtime_end'),
+  bonusEligible: integer('bonus_eligible', { mode: 'boolean' }).notNull().default(false),
+  /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
+  employmentInsuranceOverage: integer('employment_insurance_overage').notNull().default(0),
+  paidLeaveBalance: real('paid_leave_balance'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),
@@ -103,6 +114,8 @@ export const attendanceRecords = sqliteTable('attendance_records', {
   breakMinutes: integer('break_minutes').notNull().default(60),
   isHoliday: integer('is_holiday', { mode: 'boolean' }).notNull().default(false),
   isHolidayWork: integer('is_holiday_work', { mode: 'boolean' }).notNull().default(false),
+  paidLeaveUsage: text('paid_leave_usage'),
+  paidLeaveStatus: text('paid_leave_status'),
   dataSource: text('data_source').notNull().default('manual'),
   note: text('note'),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
@@ -125,6 +138,7 @@ export const payslips = sqliteTable('payslips', {
   workHours: real('work_hours').notNull().default(0),
   overtimeHours: real('overtime_hours').notNull().default(0),
   holidayWorkDays: integer('holiday_work_days').notNull().default(0),
+  paidLeaveDays: real('paid_leave_days').notNull().default(0),
   basicSalary: integer('basic_salary').notNull().default(0),
   overtimePay: integer('overtime_pay').notNull().default(0),
   transportAllowance: integer('transport_allowance').notNull().default(0),
@@ -134,6 +148,8 @@ export const payslips = sqliteTable('payslips', {
   dangerAllowance: integer('danger_allowance').notNull().default(0),
   salesAllowance: integer('sales_allowance').notNull().default(0),
   otherAllowance: integer('other_allowance').notNull().default(0),
+  extraPaymentLines: text('extra_payment_lines').notNull().default('[]'),
+  extraDeductionLines: text('extra_deduction_lines').notNull().default('[]'),
   totalPayment: integer('total_payment').notNull().default(0),
   healthInsurance: integer('health_insurance').notNull().default(0),
   nursingInsurance: integer('nursing_insurance').notNull().default(0),

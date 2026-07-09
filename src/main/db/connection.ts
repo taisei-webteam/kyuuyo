@@ -78,6 +78,9 @@ function initTables(): void {
       clock_out_rounding TEXT NOT NULL DEFAULT 'down',
       early_rounding_unit INTEGER NOT NULL DEFAULT 15,
       overtime_rounding_unit INTEGER NOT NULL DEFAULT 15,
+      monthly_work_hours REAL NOT NULL DEFAULT 173.6,
+      paid_leave_reset_month INTEGER,
+      paid_leave_policy TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
     );
@@ -98,6 +101,7 @@ function initTables(): void {
       hourly_rate INTEGER NOT NULL DEFAULT 0,
       standard_monthly_remuneration INTEGER NOT NULL DEFAULT 0,
       transport_allowance INTEGER NOT NULL DEFAULT 0,
+      taxable_transport INTEGER NOT NULL DEFAULT 0,
       position_allowance INTEGER NOT NULL DEFAULT 0,
       family_allowance INTEGER NOT NULL DEFAULT 0,
       special_allowance INTEGER NOT NULL DEFAULT 0,
@@ -117,6 +121,9 @@ function initTables(): void {
       overtime_allowed INTEGER NOT NULL DEFAULT 1,
       overtime_start TEXT,
       overtime_end TEXT,
+      bonus_eligible INTEGER NOT NULL DEFAULT 0,
+      employment_insurance_overage INTEGER NOT NULL DEFAULT 0,
+      paid_leave_balance REAL,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -149,6 +156,8 @@ function initTables(): void {
       break_minutes INTEGER NOT NULL DEFAULT 60,
       is_holiday INTEGER NOT NULL DEFAULT 0,
       is_holiday_work INTEGER NOT NULL DEFAULT 0,
+      paid_leave_usage TEXT,
+      paid_leave_status TEXT,
       data_source TEXT NOT NULL DEFAULT 'manual',
       note TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
@@ -168,6 +177,7 @@ function initTables(): void {
       work_hours REAL NOT NULL DEFAULT 0,
       overtime_hours REAL NOT NULL DEFAULT 0,
       holiday_work_days INTEGER NOT NULL DEFAULT 0,
+      paid_leave_days REAL NOT NULL DEFAULT 0,
       basic_salary INTEGER NOT NULL DEFAULT 0,
       overtime_pay INTEGER NOT NULL DEFAULT 0,
       transport_allowance INTEGER NOT NULL DEFAULT 0,
@@ -177,6 +187,8 @@ function initTables(): void {
       danger_allowance INTEGER NOT NULL DEFAULT 0,
       sales_allowance INTEGER NOT NULL DEFAULT 0,
       other_allowance INTEGER NOT NULL DEFAULT 0,
+      extra_payment_lines TEXT NOT NULL DEFAULT '[]',
+      extra_deduction_lines TEXT NOT NULL DEFAULT '[]',
       total_payment INTEGER NOT NULL DEFAULT 0,
       health_insurance INTEGER NOT NULL DEFAULT 0,
       nursing_insurance INTEGER NOT NULL DEFAULT 0,
@@ -285,6 +297,19 @@ function runMigrations(raw: Database.Database): void {
   addColumn('employees', 'early_work_start', 'TEXT');
   addColumn('employees', 'early_work_end', 'TEXT');
 
+  // employees: 課税通勤費（通勤手当の非課税限度超過分）
+  addColumn('employees', 'taxable_transport', 'INTEGER NOT NULL DEFAULT 0');
+
+  // employees: 賞与支給フラグ（役員の賞与有無に使用）
+  addColumn('employees', 'bonus_eligible', 'INTEGER NOT NULL DEFAULT 0');
+
+  // employees: 雇用保険料超過分（支給項目・月額固定）
+  addColumn('employees', 'employment_insurance_overage', 'INTEGER NOT NULL DEFAULT 0');
+
+  // payslips: 追加支給・控除行（JSON 配列）
+  addColumn('payslips', 'extra_payment_lines', "TEXT NOT NULL DEFAULT '[]'");
+  addColumn('payslips', 'extra_deduction_lines', "TEXT NOT NULL DEFAULT '[]'");
+
   // raw_punches / attendance_records: 外出・戻りカラム
   addColumn('raw_punches', 'raw_go_out', 'TEXT');
   addColumn('raw_punches', 'raw_go_return', 'TEXT');
@@ -298,6 +323,19 @@ function runMigrations(raw: Database.Database): void {
   addColumn('companies', 'clock_out_rounding', "TEXT NOT NULL DEFAULT 'down'");
   addColumn('companies', 'early_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
   addColumn('companies', 'overtime_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
+  addColumn('companies', 'monthly_work_hours', 'REAL NOT NULL DEFAULT 173.6');
+  addColumn('companies', 'paid_leave_reset_month', 'INTEGER');
+  addColumn('companies', 'paid_leave_policy', 'TEXT');
+
+  // employees: 有給残日数（手入力）
+  addColumn('employees', 'paid_leave_balance', 'REAL');
+
+  // attendance_records: 有給取得（区分・予定/確定）
+  addColumn('attendance_records', 'paid_leave_usage', 'TEXT');
+  addColumn('attendance_records', 'paid_leave_status', 'TEXT');
+
+  // payslips: 当月有給取得日数
+  addColumn('payslips', 'paid_leave_days', 'REAL NOT NULL DEFAULT 0');
 
   // employees: id / display_order の int4 範囲超過値を是正
   // (旧コードが Date.now() を id や display_order に入れていた頃の巨大値が残ると

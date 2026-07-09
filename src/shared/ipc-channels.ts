@@ -14,6 +14,7 @@ export const IPC = {
     SAVE_MONTH: 'payslips:save-month',
     UPDATE: 'payslips:update',
     DELETE: 'payslips:delete',
+    LATEST_SALARY_PERIOD: 'payslips:latest-salary-period',
   },
   ATTENDANCE: {
     SYNC: 'attendance:sync',

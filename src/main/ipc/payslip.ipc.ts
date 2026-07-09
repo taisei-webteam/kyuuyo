@@ -10,6 +10,30 @@ import type { IpcResult, Payslip, PayslipCreate } from '../../shared/types.js';
 
 export function registerPayslipHandlers(): void {
   ipcMain.handle(
+    IPC.PAYSLIPS.LATEST_SALARY_PERIOD,
+    async (): Promise<IpcResult<{ year: number; month: number } | null>> => {
+      try {
+        const raw = getSqlite();
+        const row = raw
+          .prepare(
+            `SELECT year, month FROM payslips
+             WHERE payslip_type = 'salary'
+             GROUP BY year, month
+             ORDER BY year DESC, month DESC
+             LIMIT 1`,
+          )
+          .get() as { year: number; month: number } | undefined;
+        return { success: true, data: row ?? null };
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : '最新の給与作成分の取得に失敗しました',
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
     IPC.PAYSLIPS.LIST,
     async (_event, params: { year: number; month: number; type?: string }): Promise<IpcResult<Payslip[]>> => {
       try {

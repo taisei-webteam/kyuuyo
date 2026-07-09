@@ -16,8 +16,16 @@
  *   差額は年末調整で精算される。
  */
 
+import { MONTHLY_TAX_TABLE_2026 } from './tax-table-2026'
+
 /** この税額表が適用される年分（令和8年分以降） */
 export const INCOME_TAX_TABLE_YEAR = 2026
+
+/** 月額表・甲欄の下限（この額未満は甲欄0円） */
+const MONTHLY_TABLE_MIN_TAXABLE = 88000
+
+/** 扶養親族等が7人を超える場合の1人あたり控除額（月額表） */
+const EXTRA_DEPENDENT_DEDUCTION = 1610
 
 /** 第3表 基礎控除の額（月額相当・令和8年分以降） */
 const BASIC_DEDUCTION = 48334
@@ -75,4 +83,56 @@ export function calcWithholdingTaxMonthly(
 
   // 10円未満四捨五入
   return Math.round(raw / 10) * 10
+}
+
+/**
+ * その月の源泉徴収税額（月額表・甲欄）を「税額表そのもの」から求める。
+ *
+ * 国税庁公表の月額表（令和8年分）の値を直接参照する。多くの給与ソフトはこの
+ * 段階式の表を用いるため、電算機計算の特例（連続式）とは数十〜数百円異なる。
+ * 表の範囲外（88,000円未満／表に無い低〜高額帯）は電算機計算の特例へフォールバックする。
+ *
+ * @param socialInsuranceDeductedAmount その月の社会保険料等控除後の給与等の金額
+ *   （＝課税支給合計 − 社会保険料合計。非課税通勤手当は課税支給に含めない）
+ * @param dependents 扶養親族等の数（源泉控除対象配偶者を含む）
+ * @returns 源泉徴収税額（円）
+ */
+export function calcWithholdingTaxByTable(
+  socialInsuranceDeductedAmount: number,
+  dependents: number,
+): number {
+  let a = Math.max(0, Math.floor(socialInsuranceDeductedAmount))
+  let deps = Math.max(0, Math.floor(dependents))
+
+  // 甲欄0円の帯
+  if (a < MONTHLY_TABLE_MIN_TAXABLE) return 0
+
+  // 扶養親族等が7人超のときは、超過1人につき1,610円を課税額から控除して7人欄を適用
+  if (deps > 7) {
+    a = Math.max(0, a - EXTRA_DEPENDENT_DEDUCTION * (deps - 7))
+    deps = 7
+  }
+
+  const table = MONTHLY_TAX_TABLE_2026
+  const min = table[0]![0]
+  const max = table[table.length - 1]![1]
+
+  // 表の範囲外（下限88,000〜表の最小、または表の最大以上）は電算機計算の特例で近似
+  if (a < min || a >= max) {
+    return calcWithholdingTaxMonthly(socialInsuranceDeductedAmount, dependents)
+  }
+
+  // 該当区分を二分探索（[from, to) 半開区間）
+  let lo = 0
+  let hi = table.length - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const [from, to, kou] = table[mid]!
+    if (a < from) hi = mid - 1
+    else if (a >= to) lo = mid + 1
+    else return kou[deps] ?? kou[kou.length - 1]!
+  }
+
+  // 通常ここには到達しない（連続区分のため）。保険として特例へ。
+  return calcWithholdingTaxMonthly(socialInsuranceDeductedAmount, dependents)
 }

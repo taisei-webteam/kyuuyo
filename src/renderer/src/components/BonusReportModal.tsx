@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import { getEmployees, type MockEmployee } from '@/lib/mock-data'
+import { getEmployees, type MockEmployee, firstExtraLineLabel, sumExtraLines, visibleExtraLines, type PayslipExtraLine } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
@@ -20,6 +20,12 @@ function num(amount: number): string {
   return amount.toLocaleString('ja-JP')
 }
 
+/** 予備列: 0円は空欄 */
+function numOrBlank(amount: number): string {
+  if (amount === 0) return ''
+  return amount.toLocaleString('ja-JP')
+}
+
 interface BonusRow {
   id: number
   employeeId: number
@@ -28,6 +34,8 @@ interface BonusRow {
   basicBonus: number
   performanceBonus: number
   specialBonus: number
+  extraPaymentLines?: PayslipExtraLine[]
+  extraDeductionLines?: PayslipExtraLine[]
   totalPayment: number
   healthInsurance: number
   nursingInsurance: number
@@ -51,6 +59,7 @@ interface ReportRow {
   transportAllowance: number
   salesAllowance: number
   dangerAllowance: number
+  extraPayment: number
   totalPayment: number
   healthInsurance: number
   nursingInsurance: number
@@ -60,6 +69,7 @@ interface ReportRow {
   residentTax: number
   savingsDeduction: number
   loanDeduction: number
+  extraDeduction: number
   totalDeduction: number
 }
 
@@ -70,6 +80,9 @@ interface BonusReportModalProps {
   paymentDate?: string
   onClose: () => void
 }
+
+/** 固定3列 + 支払10列 + 控除10列 */
+const BONUS_TABLE_COLS = 23
 
 function formatPayDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-')
@@ -94,6 +107,8 @@ export function BonusReportModal({
     return bonuses
       .map((b) => {
         const emp = empMap.get(b.employeeId)
+        const paymentExtras = visibleExtraLines(b.extraPaymentLines)
+        const deductionExtras = visibleExtraLines(b.extraDeductionLines)
         return {
           name: emp?.name ?? '',
           displayOrder: emp?.displayOrder ?? 99,
@@ -107,6 +122,7 @@ export function BonusReportModal({
           transportAllowance: 0,
           salesAllowance: 0,
           dangerAllowance: 0,
+          extraPayment: sumExtraLines(paymentExtras),
           totalPayment: b.totalPayment,
           healthInsurance: b.healthInsurance,
           nursingInsurance: b.nursingInsurance,
@@ -116,19 +132,30 @@ export function BonusReportModal({
           residentTax: 0,
           savingsDeduction: 0,
           loanDeduction: 0,
+          extraDeduction: sumExtraLines(deductionExtras),
           totalDeduction: b.totalDeduction,
         }
       })
       .sort((a, b) => a.displayOrder - b.displayOrder)
   }, [bonuses, employees])
 
+  const paymentExtraLabel = useMemo(
+    () => firstExtraLineLabel(bonuses.map((b) => b.extraPaymentLines)) || '追加支給',
+    [bonuses],
+  )
+
+  const deductionExtraLabel = useMemo(
+    () => firstExtraLineLabel(bonuses.map((b) => b.extraDeductionLines)) || '追加控除',
+    [bonuses],
+  )
+
   const totals = useMemo(() => {
     const keys = [
       'netPayment', 'basicBonus', 'overtimePay', 'familyAllowance', 'specialBonus',
-      'positionAllowance', 'transportAllowance', 'salesAllowance', 'dangerAllowance',
+      'positionAllowance', 'transportAllowance', 'salesAllowance', 'dangerAllowance', 'extraPayment',
       'totalPayment', 'healthInsurance', 'nursingInsurance', 'welfarePension',
       'employmentInsurance', 'incomeTax', 'residentTax', 'savingsDeduction',
-      'loanDeduction', 'totalDeduction',
+      'loanDeduction', 'extraDeduction', 'totalDeduction',
     ] as const
     const t: Record<string, number> = {}
     for (const k of keys) t[k] = 0
@@ -181,24 +208,31 @@ export function BonusReportModal({
 
         <div className={styles.previewArea}>
           <div className={styles.page}>
-            <div className={styles.reportHeader}>
-              <span className={styles.reportTitle}>{year}年 {season} 賞与一覧</span>
-              {paymentDate && <span className={styles.reportDate}>支給日: {formatPayDate(paymentDate)}</span>}
-              {companyLogoSrc ? (
-                <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
-              ) : (
-                <span className={styles.reportCompany}>{companyName}</span>
-              )}
-            </div>
-
             <table className={styles.table}>
               <thead>
+                <tr className={styles.reportHeaderRow}>
+                  <th colSpan={BONUS_TABLE_COLS} className={styles.reportHeaderCell}>
+                    <div className={styles.reportHeader}>
+                      <span className={styles.reportTitle}>
+                        {year}年 {season}　賞与一覧表
+                      </span>
+                      <span className={styles.reportDate}>
+                        {paymentDate ? `${formatPayDate(paymentDate)}　支給` : ''}
+                      </span>
+                      {companyLogoSrc ? (
+                        <img src={companyLogoSrc} alt={companyName} className={styles.reportLogo} />
+                      ) : (
+                        <span className={styles.reportCompany}>{companyName}</span>
+                      )}
+                    </div>
+                  </th>
+                </tr>
                 <tr>
                   <th rowSpan={2} className={styles.thName}>氏名</th>
                   <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
                   <th rowSpan={2} className={styles.thAmount}>振込額</th>
-                  <th colSpan={9} className={styles.thGroup}>支　払</th>
-                  <th colSpan={9} className={styles.thGroup}>控　除</th>
+                  <th colSpan={10} className={styles.thGroup}>支　払</th>
+                  <th colSpan={10} className={styles.thGroup}>控　除</th>
                 </tr>
                 <tr>
                   <th className={styles.thAmount}>基本給</th>
@@ -209,6 +243,7 @@ export function BonusReportModal({
                   <th className={styles.thAmount}>交通費</th>
                   <th className={styles.thAmount}>営業手当</th>
                   <th className={styles.thAmount}>危険手当</th>
+                  <th className={styles.thExtra}>{paymentExtraLabel}</th>
                   <th className={styles.thAmountTotal}>支払合計</th>
                   <th className={styles.thAmount}>健康保険</th>
                   <th className={styles.thAmount}>介護保険</th>
@@ -218,6 +253,7 @@ export function BonusReportModal({
                   <th className={styles.thAmount}>住民税</th>
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
+                  <th className={styles.thExtra}>{deductionExtraLabel}</th>
                   <th className={styles.thAmountTotal}>控除合計</th>
                 </tr>
               </thead>
@@ -235,6 +271,7 @@ export function BonusReportModal({
                     <td className={styles.tdAmount}>{num(r.transportAllowance)}</td>
                     <td className={styles.tdAmount}>{num(r.salesAllowance)}</td>
                     <td className={styles.tdAmount}>{num(r.dangerAllowance)}</td>
+                    <td className={styles.tdAmount}>{numOrBlank(r.extraPayment)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalPayment)}</td>
                     <td className={styles.tdAmount}>{num(r.healthInsurance)}</td>
                     <td className={styles.tdAmount}>{num(r.nursingInsurance)}</td>
@@ -244,6 +281,7 @@ export function BonusReportModal({
                     <td className={styles.tdAmount}>{num(r.residentTax)}</td>
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
+                    <td className={styles.tdAmount}>{numOrBlank(r.extraDeduction)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -261,6 +299,7 @@ export function BonusReportModal({
                   <td className={styles.tdAmount}>{num(totals['transportAllowance'])}</td>
                   <td className={styles.tdAmount}>{num(totals['salesAllowance'])}</td>
                   <td className={styles.tdAmount}>{num(totals['dangerAllowance'])}</td>
+                  <td className={styles.tdAmount}>{numOrBlank(totals['extraPayment'])}</td>
                   <td className={styles.tdAmountTotal}>{num(totals['totalPayment'])}</td>
                   <td className={styles.tdAmount}>{num(totals['healthInsurance'])}</td>
                   <td className={styles.tdAmount}>{num(totals['nursingInsurance'])}</td>
@@ -270,6 +309,7 @@ export function BonusReportModal({
                   <td className={styles.tdAmount}>{num(totals['residentTax'])}</td>
                   <td className={styles.tdAmount}>{num(totals['savingsDeduction'])}</td>
                   <td className={styles.tdAmount}>{num(totals['loanDeduction'])}</td>
+                  <td className={styles.tdAmount}>{numOrBlank(totals['extraDeduction'])}</td>
                   <td className={styles.tdAmountTotal}>{num(totals['totalDeduction'])}</td>
                 </tr>
               </tfoot>

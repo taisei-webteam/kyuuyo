@@ -83,6 +83,9 @@ export default function Settings(): ReactElement {
           defaultBreakMinutes: d.defaultBreakMinutes ?? prev.defaultBreakMinutes,
           earlyRoundingUnit: d.earlyRoundingUnit ?? prev.earlyRoundingUnit,
           overtimeRoundingUnit: d.overtimeRoundingUnit ?? prev.overtimeRoundingUnit,
+          monthlyWorkHours: d.monthlyWorkHours ?? prev.monthlyWorkHours,
+          paidLeaveResetMonth: d.paidLeaveResetMonth ?? prev.paidLeaveResetMonth,
+          paidLeavePolicy: d.paidLeavePolicy ?? prev.paidLeavePolicy,
         }))
       }
     })()
@@ -251,6 +254,9 @@ export default function Settings(): ReactElement {
         defaultBreakMinutes: form.defaultBreakMinutes,
         earlyRoundingUnit: form.earlyRoundingUnit,
         overtimeRoundingUnit: form.overtimeRoundingUnit,
+        monthlyWorkHours: form.monthlyWorkHours,
+        paidLeaveResetMonth: form.paidLeaveResetMonth,
+        paidLeavePolicy: form.paidLeavePolicy || null,
       })
     }
     setSaved(true)
@@ -427,6 +433,67 @@ export default function Settings(): ReactElement {
                   </select>
                   <span className={styles.ruleUnit}>月合計を切り捨て</span>
                 </div>
+              </div>
+
+              <div className={styles.ruleRow}>
+                <span className={styles.ruleLabel}>月平均所定労働時間</span>
+                <div className={styles.ruleValue}>
+                  <input
+                    type="number"
+                    className={`${styles.input} ${styles.inputSmall}`}
+                    value={form.monthlyWorkHours}
+                    min={100}
+                    max={250}
+                    step={0.1}
+                    onChange={(e) => handleChange('monthlyWorkHours', Number(e.target.value))}
+                  />
+                  <span className={styles.ruleUnit}>時間（月給者の残業単価 = 基本給 ÷ この値）</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 有給休暇 */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>🌴</span>
+              <span className={styles.sectionTitle}>有給休暇</span>
+            </div>
+            <div className={styles.sectionBodySingle}>
+              <p className={styles.fieldHint}>
+                有給の付与・消化の自動計算は未実装です。残日数は従業員マスタで手入力し、ここでは会社共通の運用ルールを記録します。
+              </p>
+              <div className={styles.ruleRow}>
+                <span className={styles.ruleLabel}>有給リセット月</span>
+                <div className={styles.ruleValue}>
+                  <select
+                    className={styles.select}
+                    value={form.paidLeaveResetMonth ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        paidLeaveResetMonth: e.target.value === '' ? null : Number(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value="">未設定（手動管理）</option>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                      <option key={m} value={m}>
+                        {m}月
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className={`${styles.field} ${styles.fieldWide}`}>
+                <label className={styles.label}>有給規程・運用メモ</label>
+                <textarea
+                  className={styles.textarea}
+                  value={form.paidLeavePolicy}
+                  onChange={(e) => handleChange('paidLeavePolicy', e.target.value)}
+                  rows={6}
+                  placeholder={'例:\n・入社6か月経過後に10日付与\n・年度始め（4月）に残日数をリセット\n・半休は0.5日として消化'}
+                />
               </div>
             </div>
           </div>
