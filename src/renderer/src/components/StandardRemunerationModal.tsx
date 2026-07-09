@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { reloadEmployeesFromDb, getPayslips, type MockEmployee } from '@/lib/mock-data'
+import { buildYearSelectOptions } from '@/lib/year-options'
 import { remunerationToStandard } from '../../../shared/standard-remuneration-jp'
 import styles from './StandardRemunerationModal.module.css'
 
@@ -177,7 +178,7 @@ export function StandardRemunerationModal({
           <label>
             対象年:{' '}
             <select className={styles.select} value={year} onChange={(e) => setYear(Number(e.target.value))}>
-              {[now.getFullYear(), now.getFullYear() - 1, now.getFullYear() - 2].map((y) => (
+              {buildYearSelectOptions().map((y) => (
                 <option key={y} value={y}>
                   {y}年
                 </option>
