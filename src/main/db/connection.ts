@@ -343,6 +343,38 @@ function runMigrations(raw: Database.Database): void {
   repairEmployeeIds(raw);
   repairDisplayOrder(raw);
   repairRetiredActiveFlagOnce(raw);
+
+  // チクホーシーリング実データ(master.csv 在籍者)へ一度だけ入れ替える
+  reseedFromMasterOnce(raw);
+}
+
+/**
+ * 既存の従業員(モック)と依存データを一度だけクリアし、master.csv 由来の実データを
+ * 再投入できる状態にする。実際の投入は本関数直後に呼ばれる seedEmployeesIfEmpty() が行う
+ * (employees が空になるため再シードが走る)。
+ *
+ * PRAGMA user_version で一度きり実行する。テスト用の明細・勤怠データは削除される
+ * (ユーザー承認済み)。employees を参照する子テーブルも FK 整合のため併せて削除する。
+ */
+function reseedFromMasterOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 2) return;
+
+  raw.pragma('foreign_keys = OFF');
+  try {
+    const tx = raw.transaction(() => {
+      raw.prepare('DELETE FROM email_logs').run();
+      raw.prepare('DELETE FROM payslips').run();
+      raw.prepare('DELETE FROM attendance_records').run();
+      raw.prepare('DELETE FROM raw_punches').run();
+      raw.prepare('DELETE FROM employees').run();
+    });
+    tx();
+  } finally {
+    raw.pragma('foreign_keys = ON');
+  }
+
+  raw.pragma('user_version = 2');
 }
 
 /**
