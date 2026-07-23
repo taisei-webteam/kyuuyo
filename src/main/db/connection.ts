@@ -11,7 +11,7 @@ import { app } from 'electron';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema.js';
-import { seedEmployeesIfEmpty, seedInsuranceRatesIfEmpty } from './seed.js';
+import { seedEmployeesIfEmpty, seedInsuranceRatesIfEmpty, getMasterDisplayOrder } from './seed.js';
 
 let sqlite: Database.Database | null = null;
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
@@ -346,6 +346,34 @@ function runMigrations(raw: Database.Database): void {
 
   // チクホーシーリング実データ(master.csv 在籍者)へ一度だけ入れ替える
   reseedFromMasterOnce(raw);
+
+  // 既存 DB の表示順を master.csv の並び(上からの順=絶対)へ一度だけ補正する
+  fixDisplayOrderFromMasterOnce(raw);
+}
+
+/**
+ * 既存従業員の display_order を master.csv の並び順（上からの順＝絶対）に合わせて
+ * 一度だけ補正する（データは削除しない・氏名で突合）。
+ *
+ * 新規インストール時は本処理の時点で employees が空のため何もせず、
+ * 直後の seedEmployeesIfEmpty() が正しい並びで投入する。
+ * 既存 DB（旧・表示順で投入済み）では氏名一致で display_order を上書きする。
+ * PRAGMA user_version=3 で一度きり実行する。
+ */
+function fixDisplayOrderFromMasterOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 3) return;
+
+  const order = getMasterDisplayOrder();
+  const update = raw.prepare('UPDATE employees SET display_order = ? WHERE name = ?');
+  const tx = raw.transaction(() => {
+    for (const { name, displayOrder } of order) {
+      update.run(displayOrder, name);
+    }
+  });
+  tx();
+
+  raw.pragma('user_version = 3');
 }
 
 /**
