@@ -79,7 +79,7 @@ const api = {
       ipcRenderer.invoke(IPC.ATTENDANCE.LIST, { year, month, employeeId }),
     upsert: (data: AttendanceUpsert): Promise<IpcResult<{ id: number }>> =>
       ipcRenderer.invoke(IPC.ATTENDANCE.UPSERT, data),
-    syncEmployees: (employees: Array<{ id: number; name: string; name_kana: string; employee_type: string; display_order: number; is_active: boolean }>): Promise<IpcResult<{ synced: number }>> =>
+    syncEmployees: (employees: Array<{ id: number; name: string; name_kana: string; employee_type: string; display_order: number; is_active: boolean; birth_date?: string | null; hire_date?: string | null }>): Promise<IpcResult<{ synced: number }>> =>
       ipcRenderer.invoke(IPC.ATTENDANCE.SYNC_EMPLOYEES, { employees }),
     validate: (year: number, month: number): Promise<IpcResult<AttendanceWarning[]>> =>
       ipcRenderer.invoke(IPC.ATTENDANCE.VALIDATE, { year, month }),

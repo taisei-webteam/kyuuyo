@@ -154,6 +154,8 @@ export function Employees(): ReactElement {
         employee_type: e.employeeType,
         display_order: e.displayOrder,
         is_active: !isEmployeeRetired(e) && e.employeeType !== '役員',
+        birth_date: e.birthDate || null,
+        hire_date: e.hireDate || null,
       }))
       const result = await window.api.attendance.syncEmployees(payload)
       if (result.success) {

@@ -56,6 +56,8 @@ interface ElectronAttendanceApi {
     employee_type: string;
     display_order: number;
     is_active: boolean;
+    birth_date?: string | null;
+    hire_date?: string | null;
   }>): Promise<{
     success: true;
     data: { synced: number };

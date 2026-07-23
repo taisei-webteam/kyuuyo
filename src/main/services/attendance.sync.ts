@@ -30,6 +30,10 @@ interface EmployeeRow {
   employee_type: string;
   display_order: number;
   is_active: boolean;
+  /** 生年月日 (YYYY-MM-DD)。未設定は null */
+  birth_date?: string | null;
+  /** 入社日 (YYYY-MM-DD)。未設定は null */
+  hire_date?: string | null;
 }
 
 interface DayPunches {
@@ -176,8 +180,11 @@ export async function syncAttendanceFromNeon(
  */
 export async function fetchEmployeesFromNeon(config: NeonConfig): Promise<EmployeeRow[]> {
   const sql = neon(config.databaseUrl);
+  // date 型は to_char で 'YYYY-MM-DD' 文字列として取得する（Date変換によるTZずれ回避）
   return await sql`
-    select id, name, name_kana, employee_type, display_order, is_active
+    select id, name, name_kana, employee_type, display_order, is_active,
+           to_char(birth_date, 'YYYY-MM-DD') as birth_date,
+           to_char(hire_date,  'YYYY-MM-DD') as hire_date
     from public.employees_sync
     order by display_order asc, id asc
   ` as EmployeeRow[];
@@ -200,6 +207,8 @@ export async function syncEmployeesToNeon(
     employee_type: e.employee_type,
     display_order: e.display_order,
     is_active: e.is_active,
+    birth_date: e.birth_date ?? null,
+    hire_date: e.hire_date ?? null,
     updated_at: new Date().toISOString(),
   }));
 
@@ -215,6 +224,8 @@ export async function syncEmployeesToNeon(
           employee_type text,
           display_order int,
           is_active boolean,
+          birth_date date,
+          hire_date date,
           updated_at timestamptz
         )
     )
@@ -225,6 +236,8 @@ export async function syncEmployeesToNeon(
       employee_type,
       display_order,
       is_active,
+      birth_date,
+      hire_date,
       updated_at
     )
     select
@@ -234,6 +247,8 @@ export async function syncEmployeesToNeon(
       employee_type,
       display_order,
       is_active,
+      birth_date,
+      hire_date,
       updated_at
     from src
     on conflict (id) do update set
@@ -242,6 +257,9 @@ export async function syncEmployeesToNeon(
       employee_type = excluded.employee_type,
       display_order = excluded.display_order,
       is_active = excluded.is_active,
+      -- 日付は送信側が値を持つときのみ上書き（null で既存を消さない）
+      birth_date = coalesce(excluded.birth_date, employees_sync.birth_date),
+      hire_date = coalesce(excluded.hire_date, employees_sync.hire_date),
       updated_at = excluded.updated_at
   `;
 }
