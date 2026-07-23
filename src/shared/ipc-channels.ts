@@ -26,6 +26,9 @@ export const IPC = {
     RAW_LIST: 'attendance:raw-list',
     ROUND_ALL: 'attendance:round-all',
     ROUND_ONE: 'attendance:round-one',
+    GET_SYNC_CONFIG: 'attendance:get-sync-config',
+    SET_SYNC_CONFIG: 'attendance:set-sync-config',
+    TEST_SYNC_CONFIG: 'attendance:test-sync-config',
   },
   COMPANY: {
     GET: 'company:get',

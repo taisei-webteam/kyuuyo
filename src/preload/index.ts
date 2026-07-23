@@ -24,6 +24,8 @@ import type {
   MailConfigUpdate,
   MailMessageInput,
   MailSendResult,
+  PunchSyncConfigStatus,
+  PunchSyncConfigUpdate,
   EmailLog,
   EmailLogInput,
   BackupInfo,
@@ -86,6 +88,12 @@ const api = {
       ipcRenderer.invoke(IPC.ATTENDANCE.ROUND_ALL, { year, month }),
     roundOne: (employeeId: number, date: string): Promise<IpcResult<{ ok: boolean }>> =>
       ipcRenderer.invoke(IPC.ATTENDANCE.ROUND_ONE, { employeeId, date }),
+    getSyncConfig: (): Promise<IpcResult<PunchSyncConfigStatus>> =>
+      ipcRenderer.invoke(IPC.ATTENDANCE.GET_SYNC_CONFIG),
+    setSyncConfig: (data: PunchSyncConfigUpdate): Promise<IpcResult<PunchSyncConfigStatus>> =>
+      ipcRenderer.invoke(IPC.ATTENDANCE.SET_SYNC_CONFIG, data),
+    testSyncConfig: (): Promise<IpcResult<{ ok: boolean }>> =>
+      ipcRenderer.invoke(IPC.ATTENDANCE.TEST_SYNC_CONFIG),
   },
 
   company: {

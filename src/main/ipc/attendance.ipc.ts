@@ -14,6 +14,12 @@ import {
   isoToJstTime,
   type NeonConfig,
 } from '../services/attendance.sync.js';
+import {
+  getEffectiveDatabaseUrl,
+  getPunchSyncConfigStatus,
+  setPunchSyncConfig,
+} from '../services/punch-config.service.js';
+import type { PunchSyncConfigStatus, PunchSyncConfigUpdate } from '../../shared/types.js';
 import { validateAttendance } from '../services/attendance.validate.js';
 import {
   roundClockIn,
@@ -33,9 +39,12 @@ import type {
 } from '../../shared/types.js';
 
 function getNeonConfig(): NeonConfig {
-  const databaseUrl = process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL;
+  // 設定画面で保存した接続文字列を優先し、無ければ環境変数(.env)を使う
+  const databaseUrl = getEffectiveDatabaseUrl();
   if (!databaseUrl) {
-    throw new Error('Neon の DATABASE_URL が未設定です (.env を確認してください)');
+    throw new Error(
+      '打刻連携の接続先が未設定です。設定 →「打刻連携」で接続文字列(DATABASE_URL)を登録してください。',
+    );
   }
   return { databaseUrl };
 }
@@ -449,6 +458,54 @@ export function registerAttendanceHandlers(): void {
           success: false,
           error: err instanceof Error ? err.message : '従業員同期に失敗しました',
         };
+      }
+    },
+  );
+
+  /**
+   * 打刻連携(Neon)接続設定の取得（接続文字列自体は返さずマスク表示）
+   */
+  ipcMain.handle(
+    IPC.ATTENDANCE.GET_SYNC_CONFIG,
+    async (): Promise<IpcResult<PunchSyncConfigStatus>> => {
+      try {
+        return { success: true, data: getPunchSyncConfigStatus() };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '打刻連携設定の取得に失敗しました' };
+      }
+    },
+  );
+
+  /**
+   * 打刻連携(Neon)接続設定の保存（暗号化して userData に保存）
+   */
+  ipcMain.handle(
+    IPC.ATTENDANCE.SET_SYNC_CONFIG,
+    async (_event, params: unknown): Promise<IpcResult<PunchSyncConfigStatus>> => {
+      try {
+        const p = params as Partial<PunchSyncConfigUpdate> | null;
+        if (!p || typeof p.databaseUrl !== 'string') {
+          throw new Error('接続文字列の入力値が不正です');
+        }
+        return { success: true, data: setPunchSyncConfig({ databaseUrl: p.databaseUrl }) };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '打刻連携設定の保存に失敗しました' };
+      }
+    },
+  );
+
+  /**
+   * 打刻連携(Neon)への接続テスト（employees_sync を1件取得できるか確認）
+   */
+  ipcMain.handle(
+    IPC.ATTENDANCE.TEST_SYNC_CONFIG,
+    async (): Promise<IpcResult<{ ok: boolean }>> => {
+      try {
+        const config = getNeonConfig();
+        await fetchEmployeesFromNeon(config);
+        return { success: true, data: { ok: true } };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '接続テストに失敗しました' };
       }
     },
   );

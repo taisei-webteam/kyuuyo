@@ -70,6 +70,27 @@ interface ElectronAttendanceApi {
     success: false;
     error: string;
   }>;
+  getSyncConfig(): Promise<{
+    success: true;
+    data: import('../../../../shared/types').PunchSyncConfigStatus;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  setSyncConfig(data: import('../../../../shared/types').PunchSyncConfigUpdate): Promise<{
+    success: true;
+    data: import('../../../../shared/types').PunchSyncConfigStatus;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  testSyncConfig(): Promise<{
+    success: true;
+    data: { ok: boolean };
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronEmployeesApi {

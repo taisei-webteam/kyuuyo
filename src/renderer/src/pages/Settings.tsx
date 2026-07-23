@@ -5,17 +5,18 @@ import type { AppSettings } from '../lib/settings-store'
 import { renderEmailTemplate } from '../lib/email-template'
 import { hydrateInsuranceRatesFromDb } from '../lib/mock-data'
 import { CompanyCalendar } from './CompanyCalendar'
-import type { MailConfigStatus, BackupInfo, InsuranceRate } from '../../../shared/types'
+import type { MailConfigStatus, BackupInfo, InsuranceRate, PunchSyncConfigStatus } from '../../../shared/types'
 import styles from './Settings.module.css'
 
 const DEFAULT_CLIENT_ID = '1086473446602-fkcvs3f5n0lsmlfnlnlcnon79723jsmb.apps.googleusercontent.com'
 const DEFAULT_SENDER_ADDRESS = 'cskyuyomeisai@gmail.com'
 
-type SettingsTab = 'general' | 'email' | 'calendar' | 'insurance'
+type SettingsTab = 'general' | 'email' | 'punch' | 'calendar' | 'insurance'
 
 const TABS: { key: SettingsTab; label: string; icon: string }[] = [
   { key: 'general', label: '基本設定', icon: '⚙️' },
   { key: 'email', label: 'メール設定', icon: '✉️' },
+  { key: 'punch', label: '打刻連携', icon: '🔗' },
   { key: 'calendar', label: '休日カレンダー', icon: '📅' },
   { key: 'insurance', label: '保険料率', icon: '🏥' },
 ]
@@ -63,6 +64,12 @@ export default function Settings(): ReactElement {
   const [backupBusy, setBackupBusy] = useState(false)
   const [backupMessage, setBackupMessage] = useState<{ text: string; ok: boolean } | null>(null)
 
+  // 打刻連携（Neon 接続設定）
+  const [punchStatus, setPunchStatus] = useState<PunchSyncConfigStatus | null>(null)
+  const [punchUrl, setPunchUrl] = useState('')
+  const [punchBusy, setPunchBusy] = useState(false)
+  const [punchMessage, setPunchMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
   useEffect(() => {
     setForm(getSettings())
     if (!hasElectronApi) return
@@ -101,6 +108,10 @@ export default function Settings(): ReactElement {
     void (async () => {
       const res = await window.api.backup.list()
       if (res.success) setBackups(res.data)
+    })()
+    void (async () => {
+      const res = await window.api.attendance.getSyncConfig()
+      if (res.success) setPunchStatus(res.data)
     })()
   }, [])
 
@@ -144,6 +155,56 @@ export default function Settings(): ReactElement {
     if (!res.success) {
       setBackupBusy(false)
       setBackupMessage({ text: res.error, ok: false })
+    }
+  }, [])
+
+  const handlePunchSave = useCallback(async (): Promise<void> => {
+    setPunchBusy(true)
+    setPunchMessage(null)
+    try {
+      const res = await window.api.attendance.setSyncConfig({ databaseUrl: punchUrl })
+      if (res.success) {
+        setPunchStatus(res.data)
+        setPunchUrl('')
+        setPunchMessage({ text: '打刻連携の接続先を保存しました', ok: true })
+      } else {
+        setPunchMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setPunchBusy(false)
+    }
+  }, [punchUrl])
+
+  const handlePunchTest = useCallback(async (): Promise<void> => {
+    setPunchBusy(true)
+    setPunchMessage(null)
+    try {
+      const res = await window.api.attendance.testSyncConfig()
+      if (res.success) {
+        setPunchMessage({ text: '打刻連携サーバーへの接続に成功しました', ok: true })
+      } else {
+        setPunchMessage({ text: `接続に失敗しました: ${res.error}`, ok: false })
+      }
+    } finally {
+      setPunchBusy(false)
+    }
+  }, [])
+
+  const handlePunchClear = useCallback(async (): Promise<void> => {
+    const ok = window.confirm('保存済みの接続先を削除します。よろしいですか？')
+    if (!ok) return
+    setPunchBusy(true)
+    setPunchMessage(null)
+    try {
+      const res = await window.api.attendance.setSyncConfig({ databaseUrl: '' })
+      if (res.success) {
+        setPunchStatus(res.data)
+        setPunchMessage({ text: '保存済みの接続先を削除しました', ok: true })
+      } else {
+        setPunchMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setPunchBusy(false)
     }
   }, [])
 
@@ -765,6 +826,102 @@ export default function Settings(): ReactElement {
           </div>
 
           {saved && <div className={styles.toast}>設定を保存しました</div>}
+        </div>
+      )}
+
+      {/* 打刻連携タブ */}
+      {activeTab === 'punch' && (
+        <div className={styles.container}>
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <span className={styles.sectionIcon}>🔗</span>
+              <span className={styles.sectionTitle}>打刻連携（Neon）</span>
+            </div>
+            <div className={styles.sectionBody}>
+              {hasElectronApi ? (
+                <>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <div className={styles.mailStatusRow}>
+                      <span
+                        className={`${styles.mailBadge} ${punchStatus?.configured ? styles.mailBadgeOk : styles.mailBadgeNg}`}
+                      >
+                        {punchStatus?.configured ? '● 設定済み' : '○ 未設定'}
+                      </span>
+                      {punchStatus?.configured && (
+                        <span className={styles.fieldHint}>
+                          現在の接続先: {punchStatus.maskedUrl}
+                          {punchStatus.source === 'env' ? '（.env から読込）' : ''}
+                        </span>
+                      )}
+                      {punchStatus && !punchStatus.encryptionAvailable && (
+                        <span className={styles.fieldHint}>
+                          ※この環境では暗号化保存が利用できないため、簡易保存になります
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <label className={styles.label}>接続文字列（DATABASE_URL）</label>
+                    <input
+                      type="password"
+                      className={styles.input}
+                      value={punchUrl}
+                      onChange={(e) => setPunchUrl(e.target.value)}
+                      placeholder={
+                        punchStatus?.source === 'stored'
+                          ? '保存済み（変更する場合のみ入力）'
+                          : 'postgresql://user:password@host/dbname?sslmode=require'
+                      }
+                    />
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <div className={styles.mailActions}>
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={handlePunchSave}
+                        disabled={punchBusy || punchUrl.trim().length === 0}
+                      >
+                        接続先を保存
+                      </button>
+                      <button
+                        className={styles.btnSecondary}
+                        onClick={handlePunchTest}
+                        disabled={punchBusy || !punchStatus?.configured}
+                      >
+                        接続テスト
+                      </button>
+                      {punchStatus?.source === 'stored' && (
+                        <button
+                          className={styles.btnSecondary}
+                          onClick={handlePunchClear}
+                          disabled={punchBusy}
+                        >
+                          保存を削除
+                        </button>
+                      )}
+                    </div>
+                    {punchMessage && (
+                      <div
+                        className={`${styles.mailMessage} ${punchMessage.ok ? styles.mailMessageOk : styles.mailMessageNg}`}
+                      >
+                        {punchMessage.text}
+                      </div>
+                    )}
+                    <p className={styles.fieldHint}>
+                      iPad 打刻データを取り込む Neon データベースの接続文字列です。認証情報を含むため、端末内に暗号化して保存され、外部には送信されません。
+                      配布先の各PCで、この画面から一度だけ設定してください。
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <div className={`${styles.field} ${styles.fieldWide}`}>
+                  <p className={styles.fieldHint}>
+                    打刻連携設定はデスクトップアプリ版で利用できます（現在はプレビュー環境）。
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

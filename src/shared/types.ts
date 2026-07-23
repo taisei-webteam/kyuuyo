@@ -274,6 +274,23 @@ export interface MailConfigUpdate {
   clientSecret?: string;
 }
 
+/** 打刻連携(Neon)接続設定の状態。接続文字列自体は返さずマスク表示する。 */
+export interface PunchSyncConfigStatus {
+  /** 実効的に接続先が決まっているか（保存済み or 環境変数） */
+  configured: boolean;
+  /** 接続文字列の取得元 */
+  source: 'stored' | 'env' | 'none';
+  /** この端末で暗号化保存が使えるか */
+  encryptionAvailable: boolean;
+  /** 認証情報を伏せたマスク表示（例: postgresql://***@host/db） */
+  maskedUrl: string;
+}
+
+/** 打刻連携(Neon)接続設定の更新。databaseUrl が空文字なら保存を削除する。 */
+export interface PunchSyncConfigUpdate {
+  databaseUrl: string;
+}
+
 /** 1通分の送信メッセージ */
 export interface MailMessageInput {
   /** 宛先メールアドレス */
