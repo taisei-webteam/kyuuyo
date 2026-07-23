@@ -345,3 +345,93 @@
   font-size: 0.75rem;
   color: var(--color-text-secondary);
 }
+
+/* --- 削除確認モーダル --- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.confirmModal {
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #111);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+
+.confirmHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px 8px;
+}
+
+.confirmIcon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.confirmTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.confirmBody {
+  padding: 4px 20px 8px;
+}
+
+.confirmText {
+  font-size: 0.9375rem;
+  margin: 8px 0;
+}
+
+.confirmWarning {
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #b91c1c;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.confirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 20px;
+}
+
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btnDanger:hover {
+  background: #b91c1c;
+}
+
+.btnDanger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -31,6 +31,9 @@ export function Employees(): ReactElement {
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
+  // 削除確認モーダルの対象従業員（null のとき非表示）
+  const [deleteTarget, setDeleteTarget] = useState<MockEmployee | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     if (!hasElectronApi) return
@@ -84,19 +87,50 @@ export function Employees(): ReactElement {
     setRefreshKey((k) => k + 1)
   }
 
-  async function handleDelete(emp: MockEmployee): Promise<void> {
-    if (!confirm(`${emp.name} を削除しますか？`)) return
-    if (hasElectronApi) {
-      const res = await window.api.employees.delete(emp.id)
-      if (!res.success) {
-        setSyncMessage(`削除に失敗しました: ${res.error}`)
-        return
+  // 削除ボタン: いきなり削除せず確認モーダルを開く
+  function handleDelete(emp: MockEmployee): void {
+    setDeleteTarget(emp)
+  }
+
+  // 確認モーダルで「削除する」を押したときの実処理
+  async function confirmDelete(): Promise<void> {
+    const emp = deleteTarget
+    if (!emp) return
+    setDeleting(true)
+    try {
+      if (hasElectronApi) {
+        // 1) ローカルDBを論理削除（isActive=false。ID・過去の給与/打刻データは保持）
+        const res = await window.api.employees.delete(emp.id)
+        if (!res.success) {
+          setSyncMessage(`削除に失敗しました: ${res.error}`)
+          return
+        }
+        // 2) 打刻アプリ(Neon)へ is_active=false を送信し、一覧から即時に除外する
+        const punch = await window.api.attendance.syncEmployees([
+          {
+            id: emp.id,
+            name: emp.name,
+            name_kana: emp.nameKana,
+            employee_type: emp.employeeType,
+            display_order: emp.displayOrder,
+            is_active: false,
+          },
+        ])
+        await reloadEmployeesFromDb()
+        setSyncMessage(
+          punch.success
+            ? `${emp.name} を削除し、打刻アプリからも除外しました`
+            : `${emp.name} を削除しましたが、打刻アプリへの反映に失敗しました: ${punch.error}`,
+        )
+      } else {
+        deleteEmployee(emp.id)
+        setSyncMessage(`${emp.name} を削除しました`)
       }
-      await reloadEmployeesFromDb()
-    } else {
-      deleteEmployee(emp.id)
+      setRefreshKey((k) => k + 1)
+      setDeleteTarget(null)
+    } finally {
+      setDeleting(false)
     }
-    setRefreshKey((k) => k + 1)
   }
 
   function handleClose(): void {
@@ -282,6 +316,56 @@ export function Employees(): ReactElement {
           onClose={() => setIsStdRemunOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
+      )}
+
+      {deleteTarget && (
+        <div
+          className={styles.overlay}
+          onClick={() => {
+            if (!deleting) setDeleteTarget(null)
+          }}
+        >
+          <div
+            className={styles.confirmModal}
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-confirm-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.confirmHeader}>
+              <span className={styles.confirmIcon} aria-hidden="true">
+                ⚠️
+              </span>
+              <h2 id="delete-confirm-title" className={styles.confirmTitle}>
+                従業員の削除
+              </h2>
+            </div>
+            <div className={styles.confirmBody}>
+              <p className={styles.confirmText}>
+                <strong>{deleteTarget.name}</strong> を本当に削除しますか？
+              </p>
+              <p className={styles.confirmWarning}>
+                ※ この操作は元に戻せません。削除すると、打刻アプリの一覧からも即時に削除されます。
+              </p>
+            </div>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={() => void confirmDelete()}
+                disabled={deleting}
+              >
+                {deleting ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
