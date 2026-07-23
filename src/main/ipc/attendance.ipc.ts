@@ -89,8 +89,9 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
   // 打刻同期の is_active(退職者=false 等)でローカルの在籍状態を上書きしない。
   // (退職者は打刻アプリからは外すが、Windows の従業員一覧には網掛けで残すため)
   //
-  // 生年月日・入社日は打刻同期経由で配布する（住所録が正）。
-  // ただしローカルが未設定(NULL/空)のときだけ補完し、既存の正データは上書きしない。
+  // 生年月日・入社日は打刻同期経由で配布する（住所録＝Neon が正）。
+  // Neon 側に値があれば上書きし、仮入力データを正しい値へ更新する。
+  // Neon が未設定(NULL)のときのみローカルの値を保持する（消さない）。
   const upsertLocal = raw.prepare(`
     INSERT INTO employees (id, name, name_kana, employee_type, display_order, is_active, birth_date, hire_date)
     VALUES (@id, @name, @name_kana, @employee_type, @display_order, @is_active, @birth_date, @hire_date)
@@ -99,12 +100,8 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
       name_kana = excluded.name_kana,
       employee_type = excluded.employee_type,
       display_order = excluded.display_order,
-      birth_date = CASE
-        WHEN employees.birth_date IS NULL OR employees.birth_date = ''
-        THEN excluded.birth_date ELSE employees.birth_date END,
-      hire_date = CASE
-        WHEN employees.hire_date IS NULL OR employees.hire_date = ''
-        THEN excluded.hire_date ELSE employees.hire_date END,
+      birth_date = COALESCE(excluded.birth_date, employees.birth_date),
+      hire_date = COALESCE(excluded.hire_date, employees.hire_date),
       updated_at = datetime('now','localtime')
   `);
   const txLocal = raw.transaction((emps: EmployeeSyncRow[]) => {
