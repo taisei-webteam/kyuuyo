@@ -147,6 +147,7 @@ export function Employees(): ReactElement {
     setSyncMessage(null)
     try {
       // 退職者・役員は is_active=false で送り、打刻アプリの一覧から外す（IDと過去の打刻データは保持）
+      // 生年月日・入社日は送らない（Neon がマスタ。仮データでの上書き事故を防ぐ）
       const payload = getEmployees().map((e) => ({
         id: e.id,
         name: e.name,
@@ -154,8 +155,6 @@ export function Employees(): ReactElement {
         employee_type: e.employeeType,
         display_order: e.displayOrder,
         is_active: !isEmployeeRetired(e) && e.employeeType !== '役員',
-        birth_date: e.birthDate || null,
-        hire_date: e.hireDate || null,
       }))
       const result = await window.api.attendance.syncEmployees(payload)
       if (result.success) {

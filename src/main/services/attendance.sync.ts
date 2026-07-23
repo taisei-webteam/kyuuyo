@@ -200,6 +200,9 @@ export async function syncEmployeesToNeon(
 ): Promise<void> {
   if (employees.length === 0) return;
 
+  // 生年月日・入社日はここでは送らない。
+  // これらは Neon をマスタとし「Neon→ローカルの一方向」で配布する。
+  // Windows→Neon で送ると、仮データを持つ端末が正データを上書きしてしまうため。
   const body = employees.map((e) => ({
     id: e.id,
     name: e.name,
@@ -207,8 +210,6 @@ export async function syncEmployeesToNeon(
     employee_type: e.employee_type,
     display_order: e.display_order,
     is_active: e.is_active,
-    birth_date: e.birth_date ?? null,
-    hire_date: e.hire_date ?? null,
     updated_at: new Date().toISOString(),
   }));
 
@@ -224,8 +225,6 @@ export async function syncEmployeesToNeon(
           employee_type text,
           display_order int,
           is_active boolean,
-          birth_date date,
-          hire_date date,
           updated_at timestamptz
         )
     )
@@ -236,8 +235,6 @@ export async function syncEmployeesToNeon(
       employee_type,
       display_order,
       is_active,
-      birth_date,
-      hire_date,
       updated_at
     )
     select
@@ -247,8 +244,6 @@ export async function syncEmployeesToNeon(
       employee_type,
       display_order,
       is_active,
-      birth_date,
-      hire_date,
       updated_at
     from src
     on conflict (id) do update set
@@ -257,9 +252,7 @@ export async function syncEmployeesToNeon(
       employee_type = excluded.employee_type,
       display_order = excluded.display_order,
       is_active = excluded.is_active,
-      -- 日付は送信側が値を持つときのみ上書き（null で既存を消さない）
-      birth_date = coalesce(excluded.birth_date, employees_sync.birth_date),
-      hire_date = coalesce(excluded.hire_date, employees_sync.hire_date),
+      -- birth_date / hire_date は Neon がマスタのため push では一切更新しない
       updated_at = excluded.updated_at
   `;
 }
