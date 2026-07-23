@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
+import { UpdateIndicator } from './components/UpdateIndicator'
 import { Dashboard } from './pages/Dashboard'
 import { Employees } from './pages/Employees'
 import { Attendance } from './pages/Attendance'
@@ -48,8 +49,9 @@ export function App(): ReactElement {
   }
 
   return (
-    <Layout>
-      <Routes>
+    <>
+      <Layout>
+        <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/employees" element={<Employees />} />
         <Route path="/attendance" element={<Attendance />} />
@@ -59,7 +61,9 @@ export function App(): ReactElement {
         {/* 源泉徴収票: 今回スコープ外（別途料金の追加機能。2026-07-03 決定）。将来対応時に復帰 */}
         {/* <Route path="/withholding" element={<WithholdingCertificate />} /> */}
         <Route path="/settings" element={<Settings />} />
-      </Routes>
-    </Layout>
+        </Routes>
+      </Layout>
+      <UpdateIndicator />
+    </>
   )
 }

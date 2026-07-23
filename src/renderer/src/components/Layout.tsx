@@ -40,13 +40,21 @@ const pageTitles: Record<string, string> = {
   '/settings': '設定',
 }
 
+const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+
 export function Layout({ children }: LayoutProps): ReactElement {
   const location = useLocation()
   const pageTitle = pageTitles[location.pathname] ?? ''
   const [companyName, setCompanyName] = useState(getSettings().companyName)
+  const [appVersion, setAppVersion] = useState('')
 
   useEffect(() => {
     return subscribe(() => setCompanyName(getSettings().companyName))
+  }, [])
+
+  useEffect(() => {
+    if (!hasElectronApi) return
+    void window.api.app.getVersion().then(setAppVersion)
   }, [])
 
   return (
@@ -70,6 +78,11 @@ export function Layout({ children }: LayoutProps): ReactElement {
             </NavLink>
           ))}
         </nav>
+        <div className={styles.sidebarFooter}>
+          <span className={styles.version}>
+            {appVersion ? `バージョン ${appVersion}` : ''}
+          </span>
+        </div>
       </aside>
       <div className={styles.main}>
         <header className={styles.header}>

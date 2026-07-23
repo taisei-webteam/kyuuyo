@@ -31,6 +31,7 @@ import type {
   BackupInfo,
   InsuranceRate,
   InsuranceRateInput,
+  UpdaterEvent,
 } from '../shared/types.js';
 
 const api = {
@@ -164,6 +165,26 @@ const api = {
       ipcRenderer.invoke(IPC.INSURANCE_RATES.UPSERT, data),
     delete: (id: number): Promise<IpcResult<{ deleted: boolean }>> =>
       ipcRenderer.invoke(IPC.INSURANCE_RATES.DELETE, { id }),
+  },
+
+  app: {
+    /** アプリの現在バージョンを取得する。 */
+    getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.APP.GET_VERSION),
+  },
+
+  updater: {
+    /** 自動更新イベントを購読する。戻り値の関数で購読解除。 */
+    onEvent: (callback: (event: UpdaterEvent) => void): (() => void) => {
+      const listener = (_e: unknown, payload: UpdaterEvent): void => callback(payload);
+      ipcRenderer.on(IPC.UPDATER.EVENT, listener);
+      return () => ipcRenderer.removeListener(IPC.UPDATER.EVENT, listener);
+    },
+    /** 購読前に発生した直近の状態を取得する。 */
+    getState: (): Promise<UpdaterEvent | null> =>
+      ipcRenderer.invoke(IPC.UPDATER.GET_STATE),
+    /** 今すぐ更新を適用して再起動する。 */
+    quitAndInstall: (): Promise<void> =>
+      ipcRenderer.invoke(IPC.UPDATER.QUIT_AND_INSTALL),
   },
 } as const;
 

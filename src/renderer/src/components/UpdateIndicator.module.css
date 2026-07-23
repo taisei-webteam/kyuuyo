@@ -1,0 +1,137 @@
+.container {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 40px);
+  padding: 16px 18px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.close:hover {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  padding-right: 20px;
+}
+
+.desc {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.bar {
+  margin-top: 12px;
+  height: 6px;
+  border-radius: 999px;
+  background-color: var(--color-primary-light);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background-color: var(--color-primary);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.barIndeterminate {
+  height: 100%;
+  width: 40%;
+  background-color: var(--color-primary);
+  border-radius: 999px;
+  animation: indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes indeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 8px;
+}
+
+.primary {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary:hover:not(:disabled) {
+  background-color: var(--color-primary-hover);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.secondary {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.secondary:hover {
+  background-color: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+@media print {
+  .container {
+    display: none !important;
+  }
+}

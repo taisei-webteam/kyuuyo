@@ -64,4 +64,16 @@ export const IPC = {
     UPSERT: 'insurance-rates:upsert',
     DELETE: 'insurance-rates:delete',
   },
+  APP: {
+    // アプリの現在バージョン取得
+    GET_VERSION: 'app:get-version',
+  },
+  UPDATER: {
+    // Main → Renderer: 自動更新の状態通知
+    EVENT: 'updater:event',
+    // Renderer → Main: 現在の状態を取得（購読前に発生したイベントの取りこぼし対策）
+    GET_STATE: 'updater:get-state',
+    // Renderer → Main: 今すぐ更新を適用して再起動
+    QUIT_AND_INSTALL: 'updater:quit-and-install',
+  },
 } as const;

@@ -378,6 +378,18 @@ interface ElectronInsuranceRatesApi {
   }>;
 }
 
+interface ElectronUpdaterApi {
+  onEvent(
+    callback: (event: import('../../shared/types').UpdaterEvent) => void,
+  ): () => void;
+  getState(): Promise<import('../../shared/types').UpdaterEvent | null>;
+  quitAndInstall(): Promise<void>;
+}
+
+interface ElectronAppApi {
+  getVersion(): Promise<string>;
+}
+
 interface ElectronApi {
   attendance: ElectronAttendanceApi;
   employees: ElectronEmployeesApi;
@@ -388,6 +400,8 @@ interface ElectronApi {
   mail: ElectronMailApi;
   backup: ElectronBackupApi;
   insuranceRates: ElectronInsuranceRatesApi;
+  updater: ElectronUpdaterApi;
+  app: ElectronAppApi;
 }
 
 interface Window {

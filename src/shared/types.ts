@@ -384,3 +384,27 @@ export interface BackupInfo {
   /** 作成日時（ISO文字列） */
   createdAt: string;
 }
+
+// ========================================
+// 自動更新 (electron-updater)
+// ========================================
+
+/** 自動更新の進捗ステータス */
+export type UpdaterStatus =
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'progress'
+  | 'downloaded'
+  | 'error';
+
+/** Main → Renderer に通知する自動更新イベント */
+export interface UpdaterEvent {
+  status: UpdaterStatus;
+  /** 対象バージョン（available / downloaded 時） */
+  version?: string;
+  /** ダウンロード進捗率 0-100（progress 時） */
+  percent?: number;
+  /** エラーメッセージ（error 時） */
+  message?: string;
+}

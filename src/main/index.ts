@@ -5,7 +5,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,6 +48,7 @@ import { registerBackupHandlers } from './ipc/backup.ipc.js';
 import { registerInsuranceRateHandlers } from './ipc/insurance-rates.ipc.js';
 import { autoBackupDaily } from './services/backup.service.js';
 import { setupAutoUpdater } from './updater.js';
+import { IPC } from '../shared/ipc-channels.js';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -107,14 +108,17 @@ if (!gotSingleInstanceLock) {
     registerBackupHandlers();
     registerInsuranceRateHandlers();
 
+    // アプリの現在バージョン（画面表示用）
+    ipcMain.handle(IPC.APP.GET_VERSION, () => app.getVersion());
+
     // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）
     void autoBackupDaily();
 
     createWindow();
 
     // 配布版のみ自動更新を確認（開発時は無効）
-    if (app.isPackaged) {
-      setupAutoUpdater();
+    if (app.isPackaged && mainWindow) {
+      setupAutoUpdater(mainWindow);
     }
 
     app.on('activate', () => {
