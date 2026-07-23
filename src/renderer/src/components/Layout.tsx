@@ -4,6 +4,14 @@ import type { ReactNode, ReactElement } from 'react'
 import styles from './Layout.module.css'
 import { getSettings, subscribe } from '../lib/settings-store'
 
+// 会社ロゴ。src/assets/logo-dark.(png|jpg|jpeg|svg|webp) を置くと自動で読み込まれる。
+// 未配置の場合は会社名テキストにフォールバックする。
+const logoModules = import.meta.glob<{ default: string }>(
+  '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
+  { eager: true },
+)
+const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
+
 interface LayoutProps {
   children: ReactNode
 }
@@ -66,7 +74,11 @@ export function Layout({ children }: LayoutProps): ReactElement {
       <div className={styles.main}>
         <header className={styles.header}>
           <h1 className={styles.headerTitle}>{pageTitle}</h1>
-          <span className={styles.headerCompany}>{companyName}</span>
+          {companyLogoSrc ? (
+            <img src={companyLogoSrc} alt={companyName} className={styles.headerLogo} />
+          ) : (
+            <span className={styles.headerCompany}>{companyName}</span>
+          )}
         </header>
         <main className={styles.content}>
           {children}
