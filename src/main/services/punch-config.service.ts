@@ -43,16 +43,29 @@ function save(data: PunchConfigData): void {
   writeFileSync(configFilePath(), buf);
 }
 
+/**
+ * 接続文字列を正規化する。
+ * 先頭に postgres:// / postgresql:// が無い場合は postgresql:// を補う
+ * （Neon コンソール等からスキームを含めずに貼り付けても動くようにする）。
+ */
+function normalizeDatabaseUrl(url: string): string {
+  const t = (url ?? '').trim();
+  if (t.length === 0) return '';
+  if (/^postgres(ql)?:\/\//i.test(t)) return t;
+  return `postgresql://${t}`;
+}
+
 /** 環境変数側の接続文字列（開発版の .env 等）。 */
 function envDatabaseUrl(): string {
-  return (process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL ?? '').trim();
+  return normalizeDatabaseUrl(process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL ?? '');
 }
 
 /**
  * 保存済みの接続文字列を返す（無ければ null）。getNeonConfig から同期利用する。
+ * 既に保存済みでスキームが欠けている値も読み込み時に正規化する。
  */
 export function getStoredDatabaseUrl(): string | null {
-  const url = load().databaseUrl;
+  const url = normalizeDatabaseUrl(load().databaseUrl);
   return url.length > 0 ? url : null;
 }
 
@@ -90,6 +103,6 @@ export function getPunchSyncConfigStatus(): PunchSyncConfigStatus {
 }
 
 export function setPunchSyncConfig(update: PunchSyncConfigUpdate): PunchSyncConfigStatus {
-  save({ databaseUrl: (update.databaseUrl ?? '').trim() });
+  save({ databaseUrl: normalizeDatabaseUrl(update.databaseUrl ?? '') });
   return getPunchSyncConfigStatus();
 }
