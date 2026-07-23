@@ -738,6 +738,85 @@ function isCalendarHoliday(dateStr: string, year: number): boolean {
 }
 
 // ========================================
+// 年度（5月始まり）ユーティリティ
+// 「2026年度」= 2026年5月〜2027年4月。年間休日もこの期間で集計する。
+// ========================================
+
+/** 指定日が属する年度（5〜12月は当年、1〜4月は前年）を返す */
+export function fiscalYearOf(date: Date = new Date()): number {
+  return date.getMonth() + 1 >= 5 ? date.getFullYear() : date.getFullYear() - 1
+}
+
+/** 年度の開始日・終了日（ISO文字列, 5月1日〜翌4月30日） */
+export function fiscalYearRange(fiscalYear: number): { start: string; end: string } {
+  return { start: `${fiscalYear}-05-01`, end: `${fiscalYear + 1}-04-30` }
+}
+
+/** 年度（5月〜翌4月）の12か月分 [{year, month}] を並び順で返す */
+export function fiscalYearMonths(fiscalYear: number): Array<{ year: number; month: number }> {
+  const months: Array<{ year: number; month: number }> = []
+  for (let m = 5; m <= 12; m++) months.push({ year: fiscalYear, month: m })
+  for (let m = 1; m <= 4; m++) months.push({ year: fiscalYear + 1, month: m })
+  return months
+}
+
+/** 年度（5月〜翌4月）のカレンダーを取得。両暦年を初期化し年度期間のみ返す */
+export function getCalendarFiscalYear(fiscalYear: number): Map<string, CalendarDay> {
+  initCalendarYear(fiscalYear)
+  initCalendarYear(fiscalYear + 1)
+  const { start, end } = fiscalYearRange(fiscalYear)
+  const result = new Map<string, CalendarDay>()
+  for (const [key, val] of calendarStore) {
+    if (key >= start && key <= end) {
+      result.set(key, val)
+    }
+  }
+  return result
+}
+
+/** 年度分（両暦年）の祝日を読み込む（既存の会社休日はマージ保持） */
+export function loadNationalHolidaysFiscalYear(fiscalYear: number): void {
+  loadNationalHolidays(fiscalYear)
+  loadNationalHolidays(fiscalYear + 1)
+}
+
+/** 年度期間（5月〜翌4月）を既定（日曜・祝日）へリセットする */
+export function resetCalendarFiscalYear(fiscalYear: number): void {
+  const { start, end } = fiscalYearRange(fiscalYear)
+  for (const key of [...calendarStore.keys()]) {
+    if (key >= start && key <= end) {
+      calendarStore.delete(key)
+    }
+  }
+  // 削除した年度期間の日付を既定値で埋め直す（期間外は温存）
+  initCalendarYear(fiscalYear)
+  initCalendarYear(fiscalYear + 1)
+}
+
+/** 年度期間（5月〜翌4月）の状態を DB 保存用配列へ書き出す */
+export function exportCalendarFiscalYearForDb(
+  fiscalYear: number,
+): Array<{ date: string; isHoliday: boolean; holidayName: string | null }> {
+  initCalendarYear(fiscalYear)
+  initCalendarYear(fiscalYear + 1)
+  const { start, end } = fiscalYearRange(fiscalYear)
+  const result: Array<{ date: string; isHoliday: boolean; holidayName: string | null }> = []
+  for (const [key, val] of calendarStore) {
+    if (key >= start && key <= end) {
+      result.push({ date: key, isHoliday: val.isHoliday, holidayName: val.holidayName })
+    }
+  }
+  return result
+}
+
+/** 年度分（両暦年）を DB からハイドレートする */
+export async function hydrateCalendarFiscalYearFromDb(fiscalYear: number): Promise<boolean> {
+  const a = await hydrateCalendarYearFromDb(fiscalYear)
+  const b = await hydrateCalendarYearFromDb(fiscalYear + 1)
+  return a || b
+}
+
+// ========================================
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number)

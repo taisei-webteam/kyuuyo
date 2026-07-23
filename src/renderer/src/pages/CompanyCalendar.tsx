@@ -2,13 +2,14 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import { buildYearSelectOptions } from '@/lib/year-options'
 import type { ReactElement } from 'react'
 import {
-  getCalendarYear,
   setCalendarDay,
-  loadNationalHolidays,
-  resetCalendarYear,
-  initCalendarYear,
-  hydrateCalendarYearFromDb,
-  exportCalendarYearForDb,
+  fiscalYearOf,
+  fiscalYearMonths,
+  getCalendarFiscalYear,
+  loadNationalHolidaysFiscalYear,
+  resetCalendarFiscalYear,
+  hydrateCalendarFiscalYearFromDb,
+  exportCalendarFiscalYearForDb,
   type CalendarDay,
 } from '@/lib/mock-data'
 import styles from './CompanyCalendar.module.css'
@@ -78,7 +79,7 @@ function MonthGrid({
 
   return (
     <div className={styles.monthCard}>
-      <div className={styles.monthTitle}>{month}月</div>
+      <div className={styles.monthTitle}>{year}年 {month}月</div>
       <div className={styles.weekHeader}>
         {WEEKDAY_LABELS.map((label, i) => (
           <span
@@ -95,8 +96,9 @@ function MonthGrid({
 }
 
 export function CompanyCalendar(): ReactElement {
-  const currentYear = new Date().getFullYear()
-  const [selectedYear, setSelectedYear] = useState(currentYear)
+  // selectedYear は「年度」（5月始まり）。例: 2026 = 2026年5月〜2027年4月
+  const currentFiscalYear = fiscalYearOf(new Date())
+  const [selectedYear, setSelectedYear] = useState(currentFiscalYear)
   const [refreshKey, setRefreshKey] = useState(0)
 
   const todayStr = useMemo(() => {
@@ -108,19 +110,20 @@ export function CompanyCalendar(): ReactElement {
     if (!hasElectronApi) return
     let cancelled = false
     void (async () => {
-      await hydrateCalendarYearFromDb(selectedYear)
+      await hydrateCalendarFiscalYearFromDb(selectedYear)
       if (!cancelled) setRefreshKey((k) => k + 1)
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [selectedYear])
 
   const calendarData = useMemo(() => {
     void refreshKey
-    return getCalendarYear(selectedYear)
+    return getCalendarFiscalYear(selectedYear)
   }, [selectedYear, refreshKey])
 
+  // 年間休日は年度期間（5月〜翌4月）で集計する
   const holidayCount = useMemo(() => {
     let count = 0
     for (const [, val] of calendarData) {
@@ -128,6 +131,9 @@ export function CompanyCalendar(): ReactElement {
     }
     return count
   }, [calendarData])
+
+  // 年度に含まれる12か月（5月→翌4月）
+  const months = useMemo(() => fiscalYearMonths(selectedYear), [selectedYear])
 
   const handleToggle = useCallback(
     (dateStr: string) => {
@@ -144,19 +150,18 @@ export function CompanyCalendar(): ReactElement {
   )
 
   const handleLoadHolidays = useCallback(() => {
-    loadNationalHolidays(selectedYear)
+    loadNationalHolidaysFiscalYear(selectedYear)
     setRefreshKey((k) => k + 1)
     if (hasElectronApi) {
-      void window.api.calendar.initYear(selectedYear, exportCalendarYearForDb(selectedYear))
+      void window.api.calendar.initYear(selectedYear, exportCalendarFiscalYearForDb(selectedYear))
     }
   }, [selectedYear])
 
   const handleReset = useCallback(() => {
-    resetCalendarYear(selectedYear)
-    initCalendarYear(selectedYear)
+    resetCalendarFiscalYear(selectedYear)
     setRefreshKey((k) => k + 1)
     if (hasElectronApi) {
-      void window.api.calendar.initYear(selectedYear, exportCalendarYearForDb(selectedYear))
+      void window.api.calendar.initYear(selectedYear, exportCalendarFiscalYearForDb(selectedYear))
     }
   }, [selectedYear])
 
@@ -169,7 +174,7 @@ export function CompanyCalendar(): ReactElement {
     <div className={styles.page}>
       <div className={styles.toolbar}>
         <button className={styles.navBtn} onClick={() => setSelectedYear((y) => y - 1)}>
-          ◀ 前年
+          ◀ 前年度
         </button>
         <select
           className={styles.yearSelect}
@@ -178,12 +183,12 @@ export function CompanyCalendar(): ReactElement {
         >
           {yearOptions.map((y) => (
             <option key={y} value={y}>
-              {y}年
+              {y}年度（{y}年5月〜{y + 1}年4月）
             </option>
           ))}
         </select>
         <button className={styles.navBtn} onClick={() => setSelectedYear((y) => y + 1)}>
-          翌年 ▶
+          翌年度 ▶
         </button>
         <button className={styles.loadBtn} onClick={handleLoadHolidays}>
           祝日を読み込む
@@ -192,7 +197,7 @@ export function CompanyCalendar(): ReactElement {
           リセット
         </button>
         <div className={styles.summary}>
-          年間休日: <span className={styles.summaryCount}>{holidayCount}</span> 日
+          年間休日（5月〜翌4月）: <span className={styles.summaryCount}>{holidayCount}</span> 日
         </div>
       </div>
 
@@ -212,10 +217,10 @@ export function CompanyCalendar(): ReactElement {
       </div>
 
       <div className={styles.calendarGrid}>
-        {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+        {months.map(({ year, month }) => (
           <MonthGrid
-            key={month}
-            year={selectedYear}
+            key={`${year}-${month}`}
+            year={year}
             month={month}
             calendarData={calendarData}
             todayStr={todayStr}
