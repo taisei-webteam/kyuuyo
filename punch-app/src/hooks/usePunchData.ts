@@ -10,13 +10,16 @@ import {
 import type { EmployeeWithStatus, PunchStatus } from '@/lib/types';
 
 function todayRange(): { start: string; end: string } {
+  // 当日の範囲は「端末ローカル(JST)の0:00〜23:59」を UTC の絶対時刻に変換して返す。
+  // punch_records.punched_at は UTC 保存で、API 側は timestamptz(=UTC)で比較するため、
+  // タイムゾーン無しの文字列で送ると UTC の0時基準になり、朝(JST)の出勤打刻が
+  // 前日UTC扱いで範囲から漏れ「退勤したのに未出勤」になる不具合が起きる。
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
+  const startLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const endLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   return {
-    start: `${y}-${m}-${d}T00:00:00`,
-    end: `${y}-${m}-${d}T23:59:59`,
+    start: startLocal.toISOString(),
+    end: endLocal.toISOString(),
   };
 }
 
