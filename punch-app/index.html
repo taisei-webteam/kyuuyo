@@ -291,6 +291,16 @@
       text-align: center; padding: 40px 16px; color: var(--text-secondary); font-size: 0.875rem;
     }
 
+    .app-version {
+      margin-top: auto; padding-top: 12px; text-align: right;
+      font-size: 0.7rem; color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .setup-version {
+      text-align: center; font-size: 0.75rem; color: var(--text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
     /* 端末登録画面 */
     .setup-overlay {
       position: fixed; inset: 0; z-index: 200;
@@ -399,6 +409,8 @@
         <tbody id="historyBody"></tbody>
       </table>
     </div>
+
+    <footer class="app-version">v__APP_VERSION__</footer>
   </div>
 
   <div class="setup-overlay" id="setupOverlay">
@@ -415,6 +427,7 @@
       </div>
       <div class="setup-error" id="setupError"></div>
       <button class="setup-btn" id="setupBtn">この端末を登録する</button>
+      <div class="setup-version">らくらく給与明細α 打刻 v__APP_VERSION__</div>
     </div>
   </div>
 
