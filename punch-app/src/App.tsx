@@ -99,6 +99,8 @@ function PunchBoard() {
           processing={processing}
         />
       )}
+
+      <footer className={styles.footer}>v{__APP_VERSION__}</footer>
     </div>
   );
 }

@@ -68,6 +68,8 @@ export function DeviceSetup({ onRegistered }: { onRegistered: () => void }) {
         <button className={styles.button} type="submit" disabled={submitting || !password}>
           {submitting ? '登録中...' : 'この端末を登録する'}
         </button>
+
+        <div className={styles.version}>らくらく給与明細α 打刻 v{__APP_VERSION__}</div>
       </form>
     </div>
   );

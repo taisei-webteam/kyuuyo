@@ -86,3 +86,11 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+.version {
+  margin-top: 4px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
