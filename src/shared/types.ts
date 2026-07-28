@@ -13,6 +13,12 @@ export type IpcResult<T> =
 export type EmployeeType = '社員' | '役員' | 'パート';
 export type HolidayMode = 'calendar' | 'individual';
 
+/**
+ * メール到達確認の状態。
+ * unverified: 未確認 / pending: 受信確認中（確認メール送信済み） / verified: 確認済み
+ */
+export type EmailVerifyStatus = 'unverified' | 'pending' | 'verified';
+
 export interface Employee {
   id: number;
   name: string;
@@ -56,12 +62,33 @@ export interface Employee {
   employmentInsuranceOverage: number;
   /** 有給残日数（手入力。0.5日単位可。自動計算は未実装） */
   paidLeaveBalance: number | null;
+  /** メール到達確認の状態 */
+  emailVerifyStatus: EmailVerifyStatus;
+  /** 確認中のトークン（Neon email_verifications の主キー） */
+  emailVerifyToken: string | null;
+  /** 確認メールの送信日時 */
+  emailVerifySentAt: string | null;
+  /** 受信者が確認ページで確定した日時 */
+  emailVerifiedAt: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
-export type EmployeeCreate = Omit<Employee, 'id' | 'createdAt' | 'updatedAt'>;
+/**
+ * 到達確認の各フィールドは確認サービス（mail:verify-*）のみが更新するため、
+ * 画面からの作成・更新入力には含めない（古い値での上書きを防ぐ）。
+ */
+type EmployeeVerifyFields =
+  | 'emailVerifyStatus'
+  | 'emailVerifyToken'
+  | 'emailVerifySentAt'
+  | 'emailVerifiedAt';
+
+export type EmployeeCreate = Omit<
+  Employee,
+  'id' | 'createdAt' | 'updatedAt' | EmployeeVerifyFields
+>;
 export type EmployeeUpdate = Partial<EmployeeCreate> & { id: number };
 
 // ========================================
@@ -284,11 +311,21 @@ export interface PunchSyncConfigStatus {
   encryptionAvailable: boolean;
   /** 認証情報を伏せたマスク表示（例: postgresql://***@host/db） */
   maskedUrl: string;
+  /**
+   * 打刻アプリ(Vercel)の公開URL。メール到達確認の確認リンク生成に使う。
+   * 秘匿情報ではないためそのまま返す。未設定なら空文字。
+   */
+  appBaseUrl: string;
 }
 
-/** 打刻連携(Neon)接続設定の更新。databaseUrl が空文字なら保存を削除する。 */
+/**
+ * 打刻連携(Neon)接続設定の更新。
+ * 各項目は省略時は据え置き、空文字なら保存を削除する。
+ */
 export interface PunchSyncConfigUpdate {
-  databaseUrl: string;
+  databaseUrl?: string;
+  /** 打刻アプリ(Vercel)の公開URL。メール到達確認の確認リンク生成に使う。 */
+  appBaseUrl?: string;
 }
 
 /** 1通分の送信メッセージ */
@@ -341,6 +378,24 @@ export interface EmailLogInput {
   type: 'payslip' | 'bonus';
   periodKey: string;
   toAddress?: string | null;
+}
+
+// ========================================
+// メール到達確認
+// ========================================
+
+/** 到達確認の状態（Neon の email_verifications と従業員の現在値） */
+export interface EmailVerifyState {
+  employeeId: number;
+  /** 確認対象のメールアドレス */
+  email: string;
+  status: EmailVerifyStatus;
+  /** 確認中のトークン。未送信なら null */
+  token: string | null;
+  /** 確認メールの送信日時 */
+  sentAt: string | null;
+  /** 受信者が確認ページで確定した日時 */
+  verifiedAt: string | null;
 }
 
 // ========================================

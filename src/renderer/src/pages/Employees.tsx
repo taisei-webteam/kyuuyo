@@ -133,9 +133,14 @@ export function Employees(): ReactElement {
     }
   }
 
-  function handleClose(): void {
+  async function handleClose(): Promise<void> {
     setIsFormOpen(false)
     setEditingEmployee(null)
+    // フォーム内のメール確認操作は保存を待たず DB を更新するため、一覧を読み直す
+    if (hasElectronApi) {
+      await reloadEmployeesFromDb()
+      setRefreshKey((k) => k + 1)
+    }
   }
 
   async function handleSyncToPunchApp(): Promise<void> {
@@ -261,7 +266,32 @@ export function Employees(): ReactElement {
                   <td>{emp.departmentName}</td>
                   <td>{emp.jobTitle}</td>
                   <td>{age !== null ? `${age}歳` : '-'}</td>
-                  <td className={styles.emailCell}>{emp.email || '-'}</td>
+                  <td className={styles.emailCell}>
+                    {emp.email ? (
+                      <div className={styles.emailCellInner}>
+                        <span className={styles.emailText}>{emp.email}</span>
+                        <span
+                          className={styles.verifyBadge}
+                          data-status={emp.emailVerifyStatus ?? 'unverified'}
+                          title={
+                            emp.emailVerifyStatus === 'verified'
+                              ? '受信確認済み'
+                              : emp.emailVerifyStatus === 'pending'
+                                ? '確認メール送信済み（相手の確認待ち）'
+                                : '受信確認をしていません'
+                          }
+                        >
+                          {emp.emailVerifyStatus === 'verified'
+                            ? '確認済み'
+                            : emp.emailVerifyStatus === 'pending'
+                              ? '確認中'
+                              : '未確認'}
+                        </span>
+                      </div>
+                    ) : (
+                      '-'
+                    )}
+                  </td>
                   <td className={styles.tdRight}>{yen(emp.basicSalary)}</td>
                   <td className={styles.tdRight}>{yen(emp.standardMonthlyRemuneration)}</td>
                   <td className={styles.tdRight}>

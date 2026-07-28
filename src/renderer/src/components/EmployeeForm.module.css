@@ -336,3 +336,78 @@
   color: var(--color-text-secondary);
   line-height: 1.5;
 }
+
+/* ── メール到達確認 ────────────────────────── */
+
+.emailRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emailRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.verifyBadge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.verifyBadge[data-status='unverified'] {
+  background: #f1f5f9;
+  color: var(--color-text-secondary);
+}
+
+.verifyBadge[data-status='pending'] {
+  background: var(--color-primary-light);
+  color: #1d4ed8;
+}
+
+.verifyBadge[data-status='verified'] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.verifyButton,
+.verifyRefreshButton {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.verifyButton {
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.verifyButton:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.verifyRefreshButton {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.verifyRefreshButton:hover:not(:disabled) {
+  background: var(--color-bg);
+}
+
+.verifyButton:disabled,
+.verifyRefreshButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

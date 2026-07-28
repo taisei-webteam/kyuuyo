@@ -77,6 +77,12 @@ export const employees = sqliteTable('employees', {
   /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
   employmentInsuranceOverage: integer('employment_insurance_overage').notNull().default(0),
   paidLeaveBalance: real('paid_leave_balance'),
+  /** メール到達確認の状態: 'unverified' | 'pending' | 'verified' */
+  emailVerifyStatus: text('email_verify_status').notNull().default('unverified'),
+  /** 確認中のトークン（Neon email_verifications の主キー）。確認URLに埋め込む */
+  emailVerifyToken: text('email_verify_token'),
+  emailVerifySentAt: text('email_verify_sent_at'),
+  emailVerifiedAt: text('email_verified_at'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
   updatedAt: text('updated_at').notNull().default(sql`(datetime('now','localtime'))`),

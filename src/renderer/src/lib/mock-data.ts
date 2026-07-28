@@ -147,6 +147,12 @@ export interface MockEmployee {
   employmentInsuranceOverage?: number
   /** 有給残日数（手入力。0.5日単位可） */
   paidLeaveBalance?: number | null
+  /** メール到達確認の状態（DB 管理。画面からは編集しない） */
+  emailVerifyStatus?: EmailVerifyStatus
+  /** 確認メールの送信日時 */
+  emailVerifySentAt?: string | null
+  /** 受信者が確認ページで確定した日時 */
+  emailVerifiedAt?: string | null
 }
 
 export type StampInType = '出勤' | '早出' | '遅刻'
@@ -592,7 +598,7 @@ import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
-import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus } from '../../../shared/types'
+import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, EmailVerifyStatus, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus } from '../../../shared/types'
 import { confirmedPaidLeaveDays } from '../../../shared/types'
 
 export type { PayslipExtraLine } from '../../../shared/types'
@@ -1492,6 +1498,9 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     bonusEligible: e.bonusEligible,
     employmentInsuranceOverage: e.employmentInsuranceOverage,
     paidLeaveBalance: e.paidLeaveBalance,
+    emailVerifyStatus: e.emailVerifyStatus,
+    emailVerifySentAt: e.emailVerifySentAt,
+    emailVerifiedAt: e.emailVerifiedAt,
   }
 }
 

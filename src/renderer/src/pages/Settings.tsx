@@ -70,6 +70,10 @@ export default function Settings(): ReactElement {
   const [punchBusy, setPunchBusy] = useState(false)
   const [punchMessage, setPunchMessage] = useState<{ text: string; ok: boolean } | null>(null)
 
+  // 打刻アプリ(Vercel)のURL。メール到達確認の確認リンク生成に使う
+  const [appBaseUrl, setAppBaseUrl] = useState('')
+  const [appUrlMessage, setAppUrlMessage] = useState<{ text: string; ok: boolean } | null>(null)
+
   useEffect(() => {
     setForm(getSettings())
     if (!hasElectronApi) return
@@ -111,7 +115,10 @@ export default function Settings(): ReactElement {
     })()
     void (async () => {
       const res = await window.api.attendance.getSyncConfig()
-      if (res.success) setPunchStatus(res.data)
+      if (res.success) {
+        setPunchStatus(res.data)
+        setAppBaseUrl(res.data.appBaseUrl)
+      }
     })()
   }, [])
 
@@ -207,6 +214,27 @@ export default function Settings(): ReactElement {
       setPunchBusy(false)
     }
   }, [])
+
+  const handleAppUrlSave = useCallback(async (): Promise<void> => {
+    setPunchBusy(true)
+    setAppUrlMessage(null)
+    try {
+      const res = await window.api.attendance.setSyncConfig({ appBaseUrl })
+      if (res.success) {
+        setPunchStatus(res.data)
+        setAppBaseUrl(res.data.appBaseUrl)
+        setAppUrlMessage(
+          res.data.appBaseUrl.length > 0
+            ? { text: `打刻アプリのURLを保存しました（${res.data.appBaseUrl}）`, ok: true }
+            : { text: 'URLの形式が正しくないため保存されませんでした', ok: false },
+        )
+      } else {
+        setAppUrlMessage({ text: res.error, ok: false })
+      }
+    } finally {
+      setPunchBusy(false)
+    }
+  }, [appBaseUrl])
 
   const handleMailSave = useCallback(async (): Promise<void> => {
     setMailBusy(true)
@@ -910,6 +938,36 @@ export default function Settings(): ReactElement {
                     <p className={styles.fieldHint}>
                       iPad 打刻データを取り込む Neon データベースの接続文字列です。認証情報を含むため、端末内に暗号化して保存され、外部には送信されません。
                       配布先の各PCで、この画面から一度だけ設定してください。
+                    </p>
+                  </div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <label className={styles.label}>打刻アプリのURL（メール確認に使用）</label>
+                    <input
+                      type="text"
+                      className={styles.input}
+                      value={appBaseUrl}
+                      onChange={(e) => setAppBaseUrl(e.target.value)}
+                      placeholder="https://punch-app.vercel.app"
+                    />
+                    <div className={styles.mailActions}>
+                      <button
+                        className={styles.btnPrimary}
+                        onClick={handleAppUrlSave}
+                        disabled={punchBusy}
+                      >
+                        URLを保存
+                      </button>
+                    </div>
+                    {appUrlMessage && (
+                      <div
+                        className={`${styles.mailMessage} ${appUrlMessage.ok ? styles.mailMessageOk : styles.mailMessageNg}`}
+                      >
+                        {appUrlMessage.text}
+                      </div>
+                    )}
+                    <p className={styles.fieldHint}>
+                      従業員のメールアドレスが受信できるか確認する「送信確認」で使う確認ページのURLです。
+                      iPad 打刻アプリと同じ URL（Vercel のアドレス）を入力してください。空欄で保存すると設定を削除します。
                     </p>
                   </div>
                 </>

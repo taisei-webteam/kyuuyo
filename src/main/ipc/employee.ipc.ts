@@ -90,7 +90,24 @@ export function registerEmployeeHandlers(): void {
       try {
         const db = getDb();
         const { id, ...data } = params;
-        db.update(employees).set(data).where(eq(employees.id, id)).run();
+        const patch: Partial<typeof employees.$inferInsert> = { ...data };
+
+        // メールアドレスを変更したら到達確認はやり直し（旧アドレスの確認済みを引き継がない）
+        if (typeof data.email === 'string') {
+          const current = db
+            .select({ email: employees.email })
+            .from(employees)
+            .where(eq(employees.id, id))
+            .get();
+          if (current && current.email !== data.email) {
+            patch.emailVerifyStatus = 'unverified';
+            patch.emailVerifyToken = null;
+            patch.emailVerifySentAt = null;
+            patch.emailVerifiedAt = null;
+          }
+        }
+
+        db.update(employees).set(patch).where(eq(employees.id, id)).run();
         return { success: true, data: { updated: true } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : '従業員の更新に失敗しました' };

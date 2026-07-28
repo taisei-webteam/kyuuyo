@@ -124,6 +124,10 @@ function initTables(): void {
       bonus_eligible INTEGER NOT NULL DEFAULT 0,
       employment_insurance_overage INTEGER NOT NULL DEFAULT 0,
       paid_leave_balance REAL,
+      email_verify_status TEXT NOT NULL DEFAULT 'unverified',
+      email_verify_token TEXT,
+      email_verify_sent_at TEXT,
+      email_verified_at TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
@@ -329,6 +333,12 @@ function runMigrations(raw: Database.Database): void {
 
   // employees: 有給残日数（手入力）
   addColumn('employees', 'paid_leave_balance', 'REAL');
+
+  // employees: メール到達確認（送信確認ボタンの状態）
+  addColumn('employees', 'email_verify_status', "TEXT NOT NULL DEFAULT 'unverified'");
+  addColumn('employees', 'email_verify_token', 'TEXT');
+  addColumn('employees', 'email_verify_sent_at', 'TEXT');
+  addColumn('employees', 'email_verified_at', 'TEXT');
 
   // attendance_records: 有給取得（区分・予定/確定）
   addColumn('attendance_records', 'paid_leave_usage', 'TEXT');

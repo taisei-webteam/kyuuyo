@@ -56,6 +56,32 @@ export async function ensureDeviceTable(sql) {
   deviceTableReady = true;
 }
 
+let emailVerificationTableReady = false;
+
+/**
+ * メール到達確認テーブルを（無ければ）作成する。冪等。
+ * employees_sync への外部キーは張らない（役員など同期対象外の従業員でも確認できるようにする）。
+ */
+export async function ensureEmailVerificationTable(sql) {
+  if (emailVerificationTableReady) return;
+  await sql`
+    create table if not exists email_verifications (
+      token text primary key,
+      employee_id integer not null,
+      email text not null,
+      status text not null default 'pending' check (status in ('pending', 'verified')),
+      sent_at timestamptz not null default now(),
+      verified_at timestamptz,
+      user_agent text
+    )
+  `;
+  await sql`
+    create index if not exists email_verifications_employee_id_idx
+      on email_verifications (employee_id)
+  `;
+  emailVerificationTableReady = true;
+}
+
 /**
  * リクエストヘッダ x-device-token を検証し、有効な端末なら { id, label } を返す。
  * 未登録・失効・トークン無しの場合は null。

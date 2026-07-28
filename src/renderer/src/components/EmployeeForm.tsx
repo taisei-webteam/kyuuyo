@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import type { ReactElement } from 'react'
+import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
@@ -59,6 +60,24 @@ function yen(amount: number): string {
   return `¥${amount.toLocaleString('ja-JP')}`
 }
 
+const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
+  unverified: '未確認',
+  pending: '受信確認中',
+  verified: '確認済み',
+}
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
+
+/** 'YYYY-MM-DD HH:MM:SS' を '5/12 14:30' 形式に短縮する。 */
+function shortDateTime(value: string | null | undefined): string {
+  if (!value) return ''
+  const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(value)
+  if (!m) return value
+  return `${Number(m[2])}/${Number(m[3])} ${m[4]}:${m[5]}`
+}
+
 export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): ReactElement {
   const [form, setForm] = useState<MockEmployee>(
     employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() },
@@ -69,6 +88,98 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
   }, [employee])
 
   const isNew = !employee
+
+  // ── メール到達確認 ──────────────────────────────
+  const [verifyStatus, setVerifyStatus] = useState<EmailVerifyStatus>('unverified')
+  const [verifySentAt, setVerifySentAt] = useState<string | null>(null)
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null)
+  const [verifyBusy, setVerifyBusy] = useState<'idle' | 'sending' | 'refreshing'>('idle')
+  const [verifyMessage, setVerifyMessage] = useState('')
+  const [verifyConfigured, setVerifyConfigured] = useState(false)
+
+  const hasElectronApi = typeof window !== 'undefined' && typeof window.api !== 'undefined'
+
+  useEffect(() => {
+    setVerifyStatus(employee?.emailVerifyStatus ?? 'unverified')
+    setVerifySentAt(employee?.emailVerifySentAt ?? null)
+    setVerifiedAt(employee?.emailVerifiedAt ?? null)
+    setVerifyMessage('')
+  }, [employee])
+
+  // 確認URLの生成には打刻アプリ(Vercel)のURLと Neon 接続が必要
+  useEffect(() => {
+    if (!hasElectronApi) return
+    let cancelled = false
+    void window.api.attendance.getSyncConfig().then((res) => {
+      if (cancelled) return
+      setVerifyConfigured(res.success && res.data.configured && res.data.appBaseUrl.length > 0)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [hasElectronApi])
+
+  /** メールアドレスが保存済みの値と一致しているか（未保存の宛先には送れない） */
+  const emailSaved = !isNew && employee?.email === form.email
+  const canSendVerification =
+    hasElectronApi &&
+    verifyConfigured &&
+    emailSaved &&
+    isValidEmail(form.email) &&
+    verifyBusy === 'idle'
+
+  function verifyHint(): string {
+    if (!hasElectronApi) return 'メール確認はデスクトップアプリ版でのみ利用できます。'
+    if (!verifyConfigured) {
+      return '設定 →「打刻連携」で接続文字列と打刻アプリのURLを登録すると利用できます。'
+    }
+    if (form.email.trim().length === 0) return 'メールアドレスを入力すると確認メールを送信できます。'
+    if (!isValidEmail(form.email)) return 'メールアドレスの形式が正しくありません。'
+    if (!emailSaved) return 'メールアドレスを保存した後に確認メールを送信できます。'
+    if (verifyStatus === 'verified') {
+      return `${shortDateTime(verifiedAt)} に受信が確認されました。`
+    }
+    if (verifyStatus === 'pending') {
+      return `${shortDateTime(verifySentAt)} に確認メールを送信しました。相手がメール内のボタンを押したら「状態を更新」で反映されます。`
+    }
+    return '確認メールを送り、相手がメール内のボタンを押すと「確認済み」になります。'
+  }
+
+  async function handleSendVerification(): Promise<void> {
+    if (!employee || !canSendVerification) return
+    setVerifyBusy('sending')
+    setVerifyMessage('')
+    const res = await window.api.mail.sendVerification(employee.id)
+    if (res.success) {
+      setVerifyStatus(res.data.status)
+      setVerifySentAt(res.data.sentAt)
+      setVerifiedAt(res.data.verifiedAt)
+      setVerifyMessage(`${form.email} に確認メールを送信しました。`)
+    } else {
+      setVerifyMessage(`送信に失敗しました: ${res.error}`)
+    }
+    setVerifyBusy('idle')
+  }
+
+  async function handleRefreshVerification(): Promise<void> {
+    if (!employee || !hasElectronApi || verifyBusy !== 'idle') return
+    setVerifyBusy('refreshing')
+    setVerifyMessage('')
+    const res = await window.api.mail.refreshVerification(employee.id)
+    if (res.success) {
+      setVerifyStatus(res.data.status)
+      setVerifySentAt(res.data.sentAt)
+      setVerifiedAt(res.data.verifiedAt)
+      setVerifyMessage(
+        res.data.status === 'verified'
+          ? '受信が確認されました。'
+          : 'まだ確認されていません。相手がメール内のボタンを押すまでお待ちください。',
+      )
+    } else {
+      setVerifyMessage(`確認状態の取得に失敗しました: ${res.error}`)
+    }
+    setVerifyBusy('idle')
+  }
 
   const autoInsurance = useMemo(() => {
     if (!form.birthDate || !form.standardMonthlyRemuneration) return null
@@ -132,14 +243,48 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     required
                   />
                 </div>
-                <div className={styles.field}>
-                  <label>メールアドレス</label>
-                  <input
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    placeholder="例: tanaka@example.co.jp"
-                  />
+                <div className={`${styles.field} ${styles.fieldFull}`}>
+                  <label>
+                    メールアドレス
+                    <span
+                      className={styles.verifyBadge}
+                      data-status={emailSaved ? verifyStatus : 'unverified'}
+                    >
+                      {VERIFY_LABEL[emailSaved ? verifyStatus : 'unverified']}
+                    </span>
+                  </label>
+                  <div className={styles.emailRow}>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(e) => handleChange('email', e.target.value)}
+                      placeholder="例: tanaka@example.co.jp"
+                    />
+                    <button
+                      type="button"
+                      className={styles.verifyButton}
+                      onClick={handleSendVerification}
+                      disabled={!canSendVerification}
+                      title="確認メールを送信して、相手が受信できるか確かめます"
+                    >
+                      {verifyBusy === 'sending'
+                        ? '送信中...'
+                        : verifyStatus === 'unverified'
+                          ? '送信確認'
+                          : '再送信'}
+                    </button>
+                    {emailSaved && verifyStatus === 'pending' && (
+                      <button
+                        type="button"
+                        className={styles.verifyRefreshButton}
+                        onClick={handleRefreshVerification}
+                        disabled={verifyBusy !== 'idle'}
+                      >
+                        {verifyBusy === 'refreshing' ? '確認中...' : '状態を更新'}
+                      </button>
+                    )}
+                  </div>
+                  <p className={styles.fieldNote}>{verifyMessage || verifyHint()}</p>
                 </div>
                 <div className={styles.field}>
                   <label>生年月日 {age !== null && <span className={styles.ageBadge}>({age}歳)</span>}</label>

@@ -499,10 +499,22 @@ export function registerAttendanceHandlers(): void {
     async (_event, params: unknown): Promise<IpcResult<PunchSyncConfigStatus>> => {
       try {
         const p = params as Partial<PunchSyncConfigUpdate> | null;
-        if (!p || typeof p.databaseUrl !== 'string') {
+        if (!p) {
+          throw new Error('打刻連携設定の入力値が不正です');
+        }
+        if (p.databaseUrl !== undefined && typeof p.databaseUrl !== 'string') {
           throw new Error('接続文字列の入力値が不正です');
         }
-        return { success: true, data: setPunchSyncConfig({ databaseUrl: p.databaseUrl }) };
+        if (p.appBaseUrl !== undefined && typeof p.appBaseUrl !== 'string') {
+          throw new Error('打刻アプリURLの入力値が不正です');
+        }
+        if (p.databaseUrl === undefined && p.appBaseUrl === undefined) {
+          throw new Error('保存する設定がありません');
+        }
+        return {
+          success: true,
+          data: setPunchSyncConfig({ databaseUrl: p.databaseUrl, appBaseUrl: p.appBaseUrl }),
+        };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : '打刻連携設定の保存に失敗しました' };
       }

@@ -52,6 +52,9 @@ export const IPC = {
     TEST: 'mail:test',
     LOG_LIST: 'mail:log-list',
     LOG_RECORD: 'mail:log-record',
+    // メール到達確認: 確認メールの送信 / 確認状態の取得
+    SEND_VERIFICATION: 'mail:send-verification',
+    REFRESH_VERIFICATION: 'mail:refresh-verification',
   },
   BACKUP: {
     RUN: 'backup:run',

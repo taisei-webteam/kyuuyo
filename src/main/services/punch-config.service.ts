@@ -14,6 +14,8 @@ import type { PunchSyncConfigStatus, PunchSyncConfigUpdate } from '../../shared/
 
 interface PunchConfigData {
   databaseUrl: string;
+  /** 打刻アプリ(Vercel)の公開URL。メール到達確認の確認リンク生成に使う */
+  appBaseUrl: string;
 }
 
 function configFilePath(): string {
@@ -27,9 +29,12 @@ function load(): PunchConfigData {
       ? safeStorage.decryptString(raw)
       : Buffer.from(raw.toString('utf8'), 'base64').toString('utf8');
     const parsed = JSON.parse(json) as Partial<PunchConfigData>;
-    return { databaseUrl: (parsed.databaseUrl ?? '').trim() };
+    return {
+      databaseUrl: (parsed.databaseUrl ?? '').trim(),
+      appBaseUrl: (parsed.appBaseUrl ?? '').trim(),
+    };
   } catch {
-    return { databaseUrl: '' };
+    return { databaseUrl: '', appBaseUrl: '' };
   }
 }
 
@@ -58,6 +63,35 @@ function normalizeDatabaseUrl(url: string): string {
 /** 環境変数側の接続文字列（開発版の .env 等）。 */
 function envDatabaseUrl(): string {
   return normalizeDatabaseUrl(process.env.DATABASE_URL ?? process.env.NEON_DATABASE_URL ?? '');
+}
+
+/**
+ * 打刻アプリ(Vercel)の公開URLを正規化する。
+ * https:// を必須とし（確認リンクをメールに載せるため）、末尾のスラッシュは除去する。
+ * 不正な値は空文字を返す。
+ */
+function normalizeAppBaseUrl(url: string): string {
+  const t = (url ?? '').trim().replace(/\/+$/, '');
+  if (t.length === 0) return '';
+  const withScheme = /^https?:\/\//i.test(t) ? t : `https://${t}`;
+  try {
+    const u = new URL(withScheme);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return '';
+    return withScheme;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 打刻アプリ(Vercel)の公開URLを返す（保存済み優先、無ければ環境変数）。未設定なら null。
+ * メール到達確認の確認リンク `${base}/api/verify-email?token=...` の生成に使う。
+ */
+export function getAppBaseUrl(): string | null {
+  const stored = normalizeAppBaseUrl(load().appBaseUrl);
+  if (stored.length > 0) return stored;
+  const env = normalizeAppBaseUrl(process.env.PUNCH_APP_BASE_URL ?? process.env.APP_BASE_URL ?? '');
+  return env.length > 0 ? env : null;
 }
 
 /**
@@ -99,10 +133,22 @@ export function getPunchSyncConfigStatus(): PunchSyncConfigStatus {
     source: stored ? 'stored' : env.length > 0 ? 'env' : 'none',
     encryptionAvailable: safeStorage.isEncryptionAvailable(),
     maskedUrl: effective ? maskUrl(effective) : '',
+    appBaseUrl: getAppBaseUrl() ?? '',
   };
 }
 
 export function setPunchSyncConfig(update: PunchSyncConfigUpdate): PunchSyncConfigStatus {
-  save({ databaseUrl: normalizeDatabaseUrl(update.databaseUrl ?? '') });
+  // 省略された項目は据え置く（一方だけ更新する画面操作で他方を消さない）
+  const current = load();
+  save({
+    databaseUrl:
+      update.databaseUrl === undefined
+        ? normalizeDatabaseUrl(current.databaseUrl)
+        : normalizeDatabaseUrl(update.databaseUrl),
+    appBaseUrl:
+      update.appBaseUrl === undefined
+        ? normalizeAppBaseUrl(current.appBaseUrl)
+        : normalizeAppBaseUrl(update.appBaseUrl),
+  });
   return getPunchSyncConfigStatus();
 }

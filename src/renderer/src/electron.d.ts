@@ -215,6 +215,20 @@ interface ElectronMailApi {
     success: false;
     error: string;
   }>;
+  sendVerification(employeeId: number): Promise<{
+    success: true;
+    data: import('../../shared/types').EmailVerifyState;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  refreshVerification(employeeId: number): Promise<{
+    success: true;
+    data: import('../../shared/types').EmailVerifyState;
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronPayslipsApi {
