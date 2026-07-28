@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
+import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
 import styles from './EmployeeForm.module.css'
 
@@ -106,13 +107,13 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     setVerifyMessage('')
   }, [employee])
 
-  // 確認URLの生成には打刻アプリ(Vercel)のURLと Neon 接続が必要
+  // 確認状態は Neon に記録するため、打刻連携の接続文字列が設定済みであることが前提
   useEffect(() => {
     if (!hasElectronApi) return
     let cancelled = false
     void window.api.attendance.getSyncConfig().then((res) => {
       if (cancelled) return
-      setVerifyConfigured(res.success && res.data.configured && res.data.appBaseUrl.length > 0)
+      setVerifyConfigured(res.success && res.data.configured)
     })
     return () => {
       cancelled = true
@@ -131,7 +132,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
   function verifyHint(): string {
     if (!hasElectronApi) return 'メール確認はデスクトップアプリ版でのみ利用できます。'
     if (!verifyConfigured) {
-      return '設定 →「打刻連携」で接続文字列と打刻アプリのURLを登録すると利用できます。'
+      return '設定 →「打刻連携」で接続文字列(DATABASE_URL)を登録すると利用できます。'
     }
     if (form.email.trim().length === 0) return 'メールアドレスを入力すると確認メールを送信できます。'
     if (!isValidEmail(form.email)) return 'メールアドレスの形式が正しくありません。'
@@ -140,7 +141,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
       return `${shortDateTime(verifiedAt)} に受信が確認されました。`
     }
     if (verifyStatus === 'pending') {
-      return `${shortDateTime(verifySentAt)} に確認メールを送信しました。相手がメール内のボタンを押したら「状態を更新」で反映されます。`
+      return `${shortDateTime(verifySentAt)} に確認メールを送信しました。相手がメール内のボタンを押すと自動で反映されます。すぐに反映されない場合は「状態を更新」を押してください。`
     }
     return '確認メールを送り、相手がメール内のボタンを押すと「確認済み」になります。'
   }
@@ -160,6 +161,23 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     }
     setVerifyBusy('idle')
   }
+
+  /** 通知を出さずに確認状態を取り込む（ウィンドウ復帰時の自動照会用）。 */
+  const refreshVerificationSilently = useCallback(async (): Promise<void> => {
+    if (!employee) return
+    const res = await window.api.mail.refreshVerification(employee.id)
+    if (!res.success) return
+    setVerifyStatus(res.data.status)
+    setVerifySentAt(res.data.sentAt)
+    setVerifiedAt(res.data.verifiedAt)
+    // 変化がないときに何度も同じ文言を出しても意味がないため、確認できたときだけ知らせる
+    if (res.data.status === 'verified') setVerifyMessage('受信が確認されました。')
+  }, [employee])
+
+  useVerifyAutoRefresh(
+    hasElectronApi && emailSaved && verifyStatus === 'pending' && verifyBusy === 'idle',
+    refreshVerificationSilently,
+  )
 
   async function handleRefreshVerification(): Promise<void> {
     if (!employee || !hasElectronApi || verifyBusy !== 'idle') return

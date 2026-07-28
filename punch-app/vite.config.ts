@@ -40,6 +40,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // /api/ 配下は Vercel の関数が HTML やJSONを返す。除外しないと
+        // ナビゲーションフォールバックが打刻画面(index.html)に差し替えてしまい、
+        // メール到達確認ページが開けなくなる。
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: /\/api\/.*/i,

@@ -1,0 +1,8 @@
+# Vercel にデプロイするのは打刻アプリ(punch-app)のみ。
+# Electron 本体や node_modules を含めるとアップロード上限を超える。
+/*
+!/punch-app
+/punch-app/node_modules
+/punch-app/dist
+/punch-app/.env
+/punch-app/.env.local

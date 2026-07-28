@@ -398,6 +398,28 @@ export interface EmailVerifyState {
   verifiedAt: string | null;
 }
 
+/** 一括処理における従業員1名分の結果 */
+export interface EmailVerifyBulkItem {
+  employeeId: number;
+  name: string;
+  email: string;
+  /** 処理が成功したか（失敗しても他の従業員の処理は継続する） */
+  success: boolean;
+  status: EmailVerifyStatus;
+  error?: string;
+}
+
+/** 到達確認の一括送信・一括更新の結果 */
+export interface EmailVerifyBulkResult {
+  items: EmailVerifyBulkItem[];
+  /** 成功件数 */
+  ok: number;
+  /** 失敗件数 */
+  failed: number;
+  /** 一括更新でこの操作により確認済みになった件数（一括送信では 0） */
+  newlyVerified: number;
+}
+
 // ========================================
 // 社会保険料率マスタ
 // ========================================

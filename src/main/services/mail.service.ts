@@ -237,6 +237,12 @@ async function getAccessToken(config: MailConfigData): Promise<string> {
   });
   if (!res.ok) {
     const text = await res.text();
+    // invalid_grant はトークンの失効・取り消し。利用者が取るべき行動を示す
+    if (text.includes('invalid_grant')) {
+      throw new Error(
+        'Googleとの連携の有効期限が切れています。設定 →「メール」から「Googleと連携」をやり直してください。',
+      );
+    }
     throw new Error(`アクセストークンの更新に失敗しました: ${text}`);
   }
   const json = (await res.json()) as { access_token?: string };

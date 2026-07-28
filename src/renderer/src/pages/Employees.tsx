@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import {
   getEmployees,
@@ -10,7 +10,10 @@ import {
   isEmployeeRetired,
   type MockEmployee,
 } from '@/lib/mock-data'
+import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
+import { ActionMenu } from '@/components/ActionMenu'
 import { EmployeeForm } from '@/components/EmployeeForm'
+import { EmailVerifyBulkModal } from '@/components/EmailVerifyBulkModal'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
 import { StandardRemunerationModal } from '@/components/StandardRemunerationModal'
 import styles from './Employees.module.css'
@@ -28,6 +31,8 @@ export function Employees(): ReactElement {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isResidentTaxOpen, setIsResidentTaxOpen] = useState(false)
   const [isStdRemunOpen, setIsStdRemunOpen] = useState(false)
+  const [isVerifyBulkOpen, setIsVerifyBulkOpen] = useState(false)
+  const [verifyRefreshing, setVerifyRefreshing] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
@@ -35,14 +40,41 @@ export function Employees(): ReactElement {
   const [deleteTarget, setDeleteTarget] = useState<MockEmployee | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  useEffect(() => {
-    if (!hasElectronApi) return
-    void reloadEmployeesFromDb().then((ok) => {
-      if (ok) setRefreshKey((k) => k + 1)
-    })
+  /** 確認中の従業員がいれば照会し、確認済みになったものを取り込む（通知は出さない）。 */
+  const refreshVerificationsSilently = useCallback(async (): Promise<void> => {
+    if (!getEmployees().some((emp) => emp.emailVerifyStatus === 'pending')) return
+    const res = await window.api.mail.refreshVerificationBulk()
+    if (!res.success || res.data.newlyVerified === 0) return
+    await reloadEmployeesFromDb()
+    setRefreshKey((k) => k + 1)
   }, [])
 
+  useEffect(() => {
+    if (!hasElectronApi) return
+    void (async () => {
+      const ok = await reloadEmployeesFromDb()
+      if (!ok) return
+      setRefreshKey((k) => k + 1)
+      try {
+        await refreshVerificationsSilently()
+      } catch {
+        // 自動照会の失敗は無視する（メニューから手動で再実行できる）
+      }
+    })()
+  }, [refreshVerificationsSilently])
+
   const employees = useMemo(() => getEmployees(), [refreshKey])
+
+  const hasPendingVerification = useMemo(
+    () => employees.some((emp) => emp.emailVerifyStatus === 'pending'),
+    [employees],
+  )
+
+  // 編集フォームを開いている間はフォーム側が照会するため、一覧側は発火させない
+  useVerifyAutoRefresh(
+    hasElectronApi && !isFormOpen && !verifyRefreshing && hasPendingVerification,
+    refreshVerificationsSilently,
+  )
 
   const filtered = useMemo(() => {
     return employees
@@ -143,6 +175,37 @@ export function Employees(): ReactElement {
     }
   }
 
+  /** 確認中の従業員をまとめて照会し、相手が確認済みにしたものを一覧へ反映する。 */
+  async function handleRefreshVerifications(): Promise<void> {
+    if (!hasElectronApi) {
+      setSyncMessage('Electron モードで起動してください')
+      return
+    }
+    setVerifyRefreshing(true)
+    setSyncMessage(null)
+    try {
+      const res = await window.api.mail.refreshVerificationBulk()
+      if (!res.success) {
+        setSyncMessage(`確認状態の更新に失敗しました: ${res.error}`)
+        return
+      }
+      await reloadEmployeesFromDb()
+      setRefreshKey((k) => k + 1)
+      const { items, newlyVerified } = res.data
+      setSyncMessage(
+        items.length === 0
+          ? '確認中の従業員はいません'
+          : `${items.length}名を照会し、${newlyVerified}名が確認済みになりました`,
+      )
+    } catch (err) {
+      setSyncMessage(
+        `確認状態の更新に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`,
+      )
+    } finally {
+      setVerifyRefreshing(false)
+    }
+  }
+
   async function handleSyncToPunchApp(): Promise<void> {
     if (!hasElectronApi) {
       setSyncMessage('Electron モードで起動してください')
@@ -201,12 +264,37 @@ export function Employees(): ReactElement {
           </div>
         </div>
         <div className={styles.headerActions}>
-          <button className={styles.btnSecondary} onClick={() => setIsStdRemunOpen(true)}>
-            標準報酬の定時決定
-          </button>
-          <button className={styles.btnSecondary} onClick={() => setIsResidentTaxOpen(true)}>
-            住民税を一括入力
-          </button>
+          <ActionMenu
+            label="一括入力"
+            items={[
+              {
+                label: '標準報酬の定時決定',
+                description: '4〜6月の報酬から標準報酬月額をまとめて決定します',
+                onSelect: () => setIsStdRemunOpen(true),
+              },
+              {
+                label: '住民税を一括入力',
+                description: '特別徴収税額の決定通知書の月額をまとめて登録します',
+                onSelect: () => setIsResidentTaxOpen(true),
+              },
+            ]}
+          />
+          <ActionMenu
+            label="メール確認"
+            items={[
+              {
+                label: '到達確認メールを一括送信',
+                description: '給与明細メールが届くかを確かめる確認メールを送ります',
+                onSelect: () => setIsVerifyBulkOpen(true),
+              },
+              {
+                label: verifyRefreshing ? '確認状態を取得中...' : '確認状態を最新にする',
+                description: '従業員が確認ボタンを押したかどうかを取得して反映します',
+                disabled: verifyRefreshing,
+                onSelect: () => void handleRefreshVerifications(),
+              },
+            ]}
+          />
           <button className={styles.btnSecondary} onClick={handleSyncToPunchApp} disabled={syncing}>
             {syncing ? '同期中...' : '打刻アプリへ同期'}
           </button>
@@ -338,6 +426,14 @@ export function Employees(): ReactElement {
           employees={employees}
           onClose={() => setIsResidentTaxOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {isVerifyBulkOpen && (
+        <EmailVerifyBulkModal
+          employees={employees}
+          onClose={() => setIsVerifyBulkOpen(false)}
+          onSent={() => setRefreshKey((k) => k + 1)}
         />
       )}
 

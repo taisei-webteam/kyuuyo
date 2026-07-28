@@ -947,7 +947,7 @@ export default function Settings(): ReactElement {
                       className={styles.input}
                       value={appBaseUrl}
                       onChange={(e) => setAppBaseUrl(e.target.value)}
-                      placeholder="https://punch-app.vercel.app"
+                      placeholder="https://kyuuyo-tau.vercel.app"
                     />
                     <div className={styles.mailActions}>
                       <button
@@ -967,7 +967,8 @@ export default function Settings(): ReactElement {
                     )}
                     <p className={styles.fieldHint}>
                       従業員のメールアドレスが受信できるか確認する「送信確認」で使う確認ページのURLです。
-                      iPad 打刻アプリと同じ URL（Vercel のアドレス）を入力してください。空欄で保存すると設定を削除します。
+                      通常は初期値のままで動作します。打刻アプリの移転などでアドレスが変わった場合のみ変更してください。
+                      空欄で保存すると初期値に戻ります。
                     </p>
                   </div>
                 </>

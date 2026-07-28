@@ -12,6 +12,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { PunchSyncConfigStatus, PunchSyncConfigUpdate } from '../../shared/types.js';
 
+/**
+ * 打刻アプリ(Vercel)の既定URL。秘匿情報ではなく運用上ほぼ固定のため既定値として持つ。
+ * 移転時は設定画面から上書きできる。
+ */
+const DEFAULT_APP_BASE_URL = 'https://kyuuyo-tau.vercel.app';
+
 interface PunchConfigData {
   databaseUrl: string;
   /** 打刻アプリ(Vercel)の公開URL。メール到達確認の確認リンク生成に使う */
@@ -84,14 +90,14 @@ function normalizeAppBaseUrl(url: string): string {
 }
 
 /**
- * 打刻アプリ(Vercel)の公開URLを返す（保存済み優先、無ければ環境変数）。未設定なら null。
+ * 打刻アプリ(Vercel)の公開URLを返す（保存済み > 環境変数 > 既定値）。
  * メール到達確認の確認リンク `${base}/api/verify-email?token=...` の生成に使う。
  */
-export function getAppBaseUrl(): string | null {
+export function getAppBaseUrl(): string {
   const stored = normalizeAppBaseUrl(load().appBaseUrl);
   if (stored.length > 0) return stored;
   const env = normalizeAppBaseUrl(process.env.PUNCH_APP_BASE_URL ?? process.env.APP_BASE_URL ?? '');
-  return env.length > 0 ? env : null;
+  return env.length > 0 ? env : DEFAULT_APP_BASE_URL;
 }
 
 /**
@@ -133,7 +139,7 @@ export function getPunchSyncConfigStatus(): PunchSyncConfigStatus {
     source: stored ? 'stored' : env.length > 0 ? 'env' : 'none',
     encryptionAvailable: safeStorage.isEncryptionAvailable(),
     maskedUrl: effective ? maskUrl(effective) : '',
-    appBaseUrl: getAppBaseUrl() ?? '',
+    appBaseUrl: getAppBaseUrl(),
   };
 }
 

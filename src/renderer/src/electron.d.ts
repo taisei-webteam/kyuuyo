@@ -229,6 +229,20 @@ interface ElectronMailApi {
     success: false;
     error: string;
   }>;
+  sendVerificationBulk(employeeIds: number[]): Promise<{
+    success: true;
+    data: import('../../shared/types').EmailVerifyBulkResult;
+  } | {
+    success: false;
+    error: string;
+  }>;
+  refreshVerificationBulk(): Promise<{
+    success: true;
+    data: import('../../shared/types').EmailVerifyBulkResult;
+  } | {
+    success: false;
+    error: string;
+  }>;
 }
 
 interface ElectronPayslipsApi {

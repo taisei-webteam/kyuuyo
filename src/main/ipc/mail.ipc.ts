@@ -25,6 +25,8 @@ import type {
   MailSendResult,
   EmailLog,
   EmailLogInput,
+  EmailVerifyBulkItem,
+  EmailVerifyBulkResult,
   EmailVerifyState,
   EmailVerifyStatus,
 } from '../../shared/types.js';
@@ -118,6 +120,144 @@ function validateEmployeeId(params: unknown): number {
     throw new Error('従業員IDが不正です');
   }
   return p.employeeId;
+}
+
+/** 一括送信の上限。誤操作による大量送信と Gmail の送信制限超過を防ぐ。 */
+const BULK_LIMIT = 200;
+
+function validateEmployeeIds(params: unknown): number[] {
+  const p = params as { employeeIds?: unknown } | null;
+  if (!p || !Array.isArray(p.employeeIds)) {
+    throw new Error('従業員IDの一覧が不正です');
+  }
+  const ids = p.employeeIds.filter(
+    (id): id is number => typeof id === 'number' && Number.isInteger(id),
+  );
+  if (ids.length === 0) throw new Error('送信対象が選択されていません');
+  if (ids.length > BULK_LIMIT) {
+    throw new Error(`一度に処理できるのは${BULK_LIMIT}名までです`);
+  }
+  return [...new Set(ids)];
+}
+
+/**
+ * 到達確認メールを1名に送り、ローカルを「受信確認中(pending)」にする。
+ * 単体送信と一括送信で共通に使う。
+ */
+async function sendVerificationTo(employeeId: number): Promise<EmailVerifyState> {
+  const target = getVerifyTarget(employeeId);
+  const db = getDb();
+  const company = db.select({ name: companies.name }).from(companies).get();
+
+  const sent = await sendVerificationMail({
+    employeeId,
+    email: target.email,
+    employeeName: target.name,
+    companyName: company?.name ?? '',
+  });
+
+  const sentAt = toLocalDateTime(new Date());
+  db.update(employees)
+    .set({
+      emailVerifyStatus: 'pending',
+      emailVerifyToken: sent.token,
+      emailVerifySentAt: sentAt,
+      emailVerifiedAt: null,
+    })
+    .where(eq(employees.id, employeeId))
+    .run();
+
+  return {
+    employeeId,
+    email: target.email,
+    status: 'pending',
+    token: sent.token,
+    sentAt,
+    verifiedAt: null,
+  };
+}
+
+/**
+ * Neon を照会して1名の確認状態をローカルへ反映する。
+ * 単体更新と一括更新で共通に使う。
+ */
+async function refreshVerificationOf(employeeId: number): Promise<EmailVerifyState> {
+  const target = getVerifyTarget(employeeId);
+  const db = getDb();
+
+  // 未送信なら照会するものが無いので現在値をそのまま返す
+  if (!target.emailVerifyToken) {
+    return {
+      employeeId,
+      email: target.email,
+      status: target.emailVerifyStatus as EmailVerifyStatus,
+      token: null,
+      sentAt: target.emailVerifySentAt,
+      verifiedAt: target.emailVerifiedAt,
+    };
+  }
+
+  const remote = await fetchVerificationState({
+    employeeId,
+    token: target.emailVerifyToken,
+  });
+
+  // Neon 側に記録が無い（削除された等）場合は未確認に戻して再送を促す
+  if (!remote) {
+    db.update(employees)
+      .set({
+        emailVerifyStatus: 'unverified',
+        emailVerifyToken: null,
+        emailVerifySentAt: null,
+        emailVerifiedAt: null,
+      })
+      .where(eq(employees.id, employeeId))
+      .run();
+    return {
+      employeeId,
+      email: target.email,
+      status: 'unverified',
+      token: null,
+      sentAt: null,
+      verifiedAt: null,
+    };
+  }
+
+  if (remote.status !== 'verified') {
+    return {
+      employeeId,
+      email: target.email,
+      status: 'pending',
+      token: target.emailVerifyToken,
+      sentAt: target.emailVerifySentAt,
+      verifiedAt: null,
+    };
+  }
+
+  const verifiedAt = toLocalDateTime(remote.verifiedAt ? new Date(remote.verifiedAt) : new Date());
+  db.update(employees)
+    .set({ emailVerifyStatus: 'verified', emailVerifiedAt: verifiedAt })
+    .where(eq(employees.id, employeeId))
+    .run();
+
+  return {
+    employeeId,
+    email: target.email,
+    status: 'verified',
+    token: target.emailVerifyToken,
+    sentAt: target.emailVerifySentAt,
+    verifiedAt,
+  };
+}
+
+/** 一括処理の結果を集計する。 */
+function summarize(items: EmailVerifyBulkItem[], newlyVerified: number): EmailVerifyBulkResult {
+  return {
+    items,
+    ok: items.filter((i) => i.success).length,
+    failed: items.filter((i) => !i.success).length,
+    newlyVerified,
+  };
 }
 
 export function registerMailHandlers(): void {
@@ -237,42 +377,48 @@ export function registerMailHandlers(): void {
     IPC.MAIL.SEND_VERIFICATION,
     async (_event, params: unknown): Promise<IpcResult<EmailVerifyState>> => {
       try {
-        const employeeId = validateEmployeeId(params);
-        const target = getVerifyTarget(employeeId);
-        const db = getDb();
-        const company = db.select({ name: companies.name }).from(companies).get();
-
-        const sent = await sendVerificationMail({
-          employeeId,
-          email: target.email,
-          employeeName: target.name,
-          companyName: company?.name ?? '',
-        });
-
-        const sentAt = toLocalDateTime(new Date());
-        db.update(employees)
-          .set({
-            emailVerifyStatus: 'pending',
-            emailVerifyToken: sent.token,
-            emailVerifySentAt: sentAt,
-            emailVerifiedAt: null,
-          })
-          .where(eq(employees.id, employeeId))
-          .run();
-
-        return {
-          success: true,
-          data: {
-            employeeId,
-            email: target.email,
-            status: 'pending',
-            token: sent.token,
-            sentAt,
-            verifiedAt: null,
-          },
-        };
+        return { success: true, data: await sendVerificationTo(validateEmployeeId(params)) };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : '確認メールの送信に失敗しました' };
+      }
+    },
+  );
+
+  /**
+   * 到達確認メールの一括送信。
+   * Gmail API の制限を避けるため1件ずつ順に送り、失敗しても残りの送信は続行する。
+   */
+  ipcMain.handle(
+    IPC.MAIL.SEND_VERIFICATION_BULK,
+    async (_event, params: unknown): Promise<IpcResult<EmailVerifyBulkResult>> => {
+      try {
+        const ids = validateEmployeeIds(params);
+        const items: EmailVerifyBulkItem[] = [];
+
+        for (const employeeId of ids) {
+          let name = '';
+          let email = '';
+          try {
+            const target = getVerifyTarget(employeeId);
+            name = target.name;
+            email = target.email;
+            const state = await sendVerificationTo(employeeId);
+            items.push({ employeeId, name, email, success: true, status: state.status });
+          } catch (err) {
+            items.push({
+              employeeId,
+              name,
+              email,
+              success: false,
+              status: 'unverified',
+              error: err instanceof Error ? err.message : '送信に失敗しました',
+            });
+          }
+        }
+
+        return { success: true, data: summarize(items, 0) };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '確認メールの一括送信に失敗しました' };
       }
     },
   );
@@ -285,89 +431,62 @@ export function registerMailHandlers(): void {
     IPC.MAIL.REFRESH_VERIFICATION,
     async (_event, params: unknown): Promise<IpcResult<EmailVerifyState>> => {
       try {
-        const employeeId = validateEmployeeId(params);
-        const target = getVerifyTarget(employeeId);
-        const db = getDb();
-
-        // 未送信なら照会するものが無いので現在値をそのまま返す
-        if (!target.emailVerifyToken) {
-          return {
-            success: true,
-            data: {
-              employeeId,
-              email: target.email,
-              status: target.emailVerifyStatus as EmailVerifyStatus,
-              token: null,
-              sentAt: target.emailVerifySentAt,
-              verifiedAt: target.emailVerifiedAt,
-            },
-          };
-        }
-
-        const remote = await fetchVerificationState({
-          employeeId,
-          token: target.emailVerifyToken,
-        });
-
-        // Neon 側に記録が無い（削除された等）場合は未確認に戻して再送を促す
-        if (!remote) {
-          db.update(employees)
-            .set({
-              emailVerifyStatus: 'unverified',
-              emailVerifyToken: null,
-              emailVerifySentAt: null,
-              emailVerifiedAt: null,
-            })
-            .where(eq(employees.id, employeeId))
-            .run();
-          return {
-            success: true,
-            data: {
-              employeeId,
-              email: target.email,
-              status: 'unverified',
-              token: null,
-              sentAt: null,
-              verifiedAt: null,
-            },
-          };
-        }
-
-        if (remote.status !== 'verified') {
-          return {
-            success: true,
-            data: {
-              employeeId,
-              email: target.email,
-              status: 'pending',
-              token: target.emailVerifyToken,
-              sentAt: target.emailVerifySentAt,
-              verifiedAt: null,
-            },
-          };
-        }
-
-        const verifiedAt = toLocalDateTime(
-          remote.verifiedAt ? new Date(remote.verifiedAt) : new Date(),
-        );
-        db.update(employees)
-          .set({ emailVerifyStatus: 'verified', emailVerifiedAt: verifiedAt })
-          .where(eq(employees.id, employeeId))
-          .run();
-
-        return {
-          success: true,
-          data: {
-            employeeId,
-            email: target.email,
-            status: 'verified',
-            token: target.emailVerifyToken,
-            sentAt: target.emailVerifySentAt,
-            verifiedAt,
-          },
-        };
+        return { success: true, data: await refreshVerificationOf(validateEmployeeId(params)) };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : '確認状態の取得に失敗しました' };
+      }
+    },
+  );
+
+  /**
+   * 確認状態の一括更新。
+   * 送信済み(pending)の従業員をまとめて照会し、確認済みになったものを反映する。
+   */
+  ipcMain.handle(
+    IPC.MAIL.REFRESH_VERIFICATION_BULK,
+    async (): Promise<IpcResult<EmailVerifyBulkResult>> => {
+      try {
+        const db = getDb();
+        const targets = db
+          .select({
+            id: employees.id,
+            name: employees.name,
+            email: employees.email,
+            status: employees.emailVerifyStatus,
+          })
+          .from(employees)
+          .where(eq(employees.emailVerifyStatus, 'pending'))
+          .all();
+
+        const items: EmailVerifyBulkItem[] = [];
+        let newlyVerified = 0;
+
+        for (const target of targets) {
+          try {
+            const state = await refreshVerificationOf(target.id);
+            if (state.status === 'verified') newlyVerified += 1;
+            items.push({
+              employeeId: target.id,
+              name: target.name,
+              email: target.email,
+              success: true,
+              status: state.status,
+            });
+          } catch (err) {
+            items.push({
+              employeeId: target.id,
+              name: target.name,
+              email: target.email,
+              success: false,
+              status: 'pending',
+              error: err instanceof Error ? err.message : '状態の取得に失敗しました',
+            });
+          }
+        }
+
+        return { success: true, data: summarize(items, newlyVerified) };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '確認状態の一括更新に失敗しました' };
       }
     },
   );

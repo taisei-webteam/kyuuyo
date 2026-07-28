@@ -55,6 +55,9 @@ export const IPC = {
     // メール到達確認: 確認メールの送信 / 確認状態の取得
     SEND_VERIFICATION: 'mail:send-verification',
     REFRESH_VERIFICATION: 'mail:refresh-verification',
+    // メール到達確認（複数名まとめて）
+    SEND_VERIFICATION_BULK: 'mail:send-verification-bulk',
+    REFRESH_VERIFICATION_BULK: 'mail:refresh-verification-bulk',
   },
   BACKUP: {
     RUN: 'backup:run',

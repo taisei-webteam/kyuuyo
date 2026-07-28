@@ -15,7 +15,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { neon } from '@neondatabase/serverless';
-import { sendMail } from './mail.service.js';
+import { getMailConfigStatus, sendMail } from './mail.service.js';
 import { getAppBaseUrl, getEffectiveDatabaseUrl } from './punch-config.service.js';
 import type { EmailVerifyStatus, EmailVerifyState } from '../../shared/types.js';
 
@@ -45,16 +45,6 @@ function getSql(): SqlClient {
   return neon(databaseUrl);
 }
 
-function getBaseUrl(): string {
-  const base = getAppBaseUrl();
-  if (!base) {
-    throw new Error(
-      '確認URLの生成先が未設定です。設定 →「打刻連携」で打刻アプリのURLを登録してください。',
-    );
-  }
-  return base;
-}
-
 /** テーブルを（無ければ）作成する。punch-app 側と同一定義。冪等。 */
 async function ensureTable(sql: SqlClient): Promise<void> {
   await sql`
@@ -79,48 +69,60 @@ function buildVerifyUrl(baseUrl: string, token: string): string {
   return `${baseUrl}/api/verify-email?token=${token}`;
 }
 
+/**
+ * 到達確認メールの文面を組み立てる。
+ *
+ * 「知らないドメインのリンクを押させる確認メール」はフィッシングの典型形のため、
+ * 迷惑メール判定を避けるよう次の点に配慮している。
+ *   - 件名に煽り表現（【要確認】等）を入れず、会社名を含めて事務連絡と分かるようにする
+ *   - 迷惑メール関連の語句を本文に含めない（フィルタの減点要因になりうる）
+ *   - 送信理由と問い合わせ先を明記する
+ *   - ボタンの下に実URLも併記する。装飾が落ちる受信環境への保険を兼ねつつ、
+ *     リンク先を隠さないことで警戒されにくくする
+ */
 function buildMailBody(params: {
   employeeName: string;
   companyName: string;
   verifyUrl: string;
+  senderAddress: string;
 }): { subject: string; body: string; html: string } {
-  const { employeeName, companyName, verifyUrl } = params;
-  const subject = '【要確認】給与明細メールの受信確認のお願い';
+  const { employeeName, companyName, verifyUrl, senderAddress } = params;
+  const company = companyName.trim().length > 0 ? companyName.trim() : '給与担当';
+  const subject = `給与明細メール配信の事前確認のご案内（${company}）`;
+
+  const contactLine =
+    senderAddress.length > 0
+      ? `心当たりがない場合は ${senderAddress} までご連絡ください。`
+      : '心当たりがない場合は給与担当までご連絡ください。';
 
   const body = [
     `${employeeName} 様`,
     '',
-    'このメールは、給与明細をメールでお届けするための受信確認です。',
-    '下記のURLを開き、「確認する」ボタンを押してください。',
+    `${company} 給与担当です。`,
+    '給与明細をメールでお届けするため、このアドレスで受信できるかを確認しています。',
+    '',
+    '下記のページを開き、「確認する」を押してください。',
     '',
     verifyUrl,
     '',
-    'ボタンを押していただくと、確認が完了します。',
-    'このメールが迷惑メールフォルダに入っていた場合は、',
-    'お手数ですが受信可能な設定（迷惑メール解除）をお願いします。',
+    contactLine,
     '',
-    '※このメールに心当たりがない場合は、破棄してください。',
-    '',
-    companyName,
+    company,
   ].join('\n');
 
+  const url = escapeHtml(verifyUrl);
   const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',Meiryo,sans-serif;font-size:14px;color:#1f2937;line-height:1.8;">
   <p>${escapeHtml(employeeName)} 様</p>
-  <p>このメールは、給与明細をメールでお届けするための<strong>受信確認</strong>です。<br>
-  下のボタンを押して、確認を完了してください。</p>
+  <p>${escapeHtml(company)} 給与担当です。<br>
+  給与明細をメールでお届けするため、このアドレスで受信できるかを確認しています。</p>
+  <p>下記のボタンを押してください。</p>
   <p style="margin:24px 0;">
-    <a href="${escapeHtml(verifyUrl)}"
-       style="display:inline-block;padding:14px 28px;background:#2563eb;color:#ffffff;
-              font-size:15px;font-weight:bold;text-decoration:none;border-radius:8px;">
-      受信確認ページを開く
-    </a>
+    <a href="${url}" style="display:inline-block;padding:13px 32px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">確認する</a>
   </p>
-  <p style="font-size:13px;color:#6b7280;">ボタンが押せない場合は、次のURLを開いてください。<br>
-  <a href="${escapeHtml(verifyUrl)}">${escapeHtml(verifyUrl)}</a></p>
-  <p style="font-size:13px;color:#6b7280;">このメールが迷惑メールフォルダに入っていた場合は、
-  お手数ですが受信可能な設定（迷惑メール解除）をお願いします。<br>
-  心当たりがない場合は破棄してください。</p>
-  <p style="margin-top:24px;">${escapeHtml(companyName)}</p>
+  <p style="font-size:13px;color:#6b7280;">ボタンが押せない場合は、下記のURLを開いてください。<br>
+  <a href="${url}" style="color:#2563eb;">${url}</a></p>
+  <p style="font-size:13px;color:#6b7280;">${escapeHtml(contactLine)}</p>
+  <p style="margin-top:24px;">${escapeHtml(company)}</p>
 </div>`;
 
   return { subject, body, html };
@@ -151,7 +153,7 @@ export async function sendVerificationMail(params: {
   companyName: string;
 }): Promise<EmailVerifyState> {
   const { employeeId, email, employeeName, companyName } = params;
-  const baseUrl = getBaseUrl();
+  const baseUrl = getAppBaseUrl();
   const sql = getSql();
   await ensureTable(sql);
 
@@ -168,7 +170,8 @@ export async function sendVerificationMail(params: {
   `;
 
   const verifyUrl = buildVerifyUrl(baseUrl, token);
-  const mail = buildMailBody({ employeeName, companyName, verifyUrl });
+  const senderAddress = (await getMailConfigStatus()).senderAddress;
+  const mail = buildMailBody({ employeeName, companyName, verifyUrl, senderAddress });
 
   // 送信できていないトークンは残さない（確認待ちのまま滞留させない）
   let results;

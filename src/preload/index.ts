@@ -28,6 +28,7 @@ import type {
   PunchSyncConfigUpdate,
   EmailLog,
   EmailLogInput,
+  EmailVerifyBulkResult,
   EmailVerifyState,
   BackupInfo,
   InsuranceRate,
@@ -150,6 +151,10 @@ const api = {
       ipcRenderer.invoke(IPC.MAIL.SEND_VERIFICATION, { employeeId }),
     refreshVerification: (employeeId: number): Promise<IpcResult<EmailVerifyState>> =>
       ipcRenderer.invoke(IPC.MAIL.REFRESH_VERIFICATION, { employeeId }),
+    sendVerificationBulk: (employeeIds: number[]): Promise<IpcResult<EmailVerifyBulkResult>> =>
+      ipcRenderer.invoke(IPC.MAIL.SEND_VERIFICATION_BULK, { employeeIds }),
+    refreshVerificationBulk: (): Promise<IpcResult<EmailVerifyBulkResult>> =>
+      ipcRenderer.invoke(IPC.MAIL.REFRESH_VERIFICATION_BULK),
   },
 
   backup: {
