@@ -5,11 +5,14 @@
 export {
   roundClockIn,
   roundClockOut,
+  roundHolidayClockIn,
   calcEarlyOvertime,
+  calcBreakMinutes,
   roundOvertimeMinutes,
   floorToUnit,
   toMinutes,
   fromMinutes,
+  LEGAL_BREAK_THRESHOLD_MINUTES,
 } from '../../../shared/time-rounding'
 
 export type {

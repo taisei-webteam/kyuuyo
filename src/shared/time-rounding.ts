@@ -94,6 +94,45 @@ export function roundClockOut(rawTime: string, roundingUnit: number): string {
 }
 
 /**
+ * 休日の出勤丸め。
+ * 平日定時（例: 09:00）へは上げない。
+ * 早出開始があればそれをその日の開始とし、より前の打刻は開始時刻に切上げる。
+ * 早出開始が無い場合は丸め単位で切捨てる。
+ */
+export function roundHolidayClockIn(
+  rawTime: string,
+  roundingUnit: number,
+  gracePeriod: number,
+  earlyWorkStart: string | null,
+): string {
+  if (earlyWorkStart) {
+    return roundClockIn(rawTime, {
+      scheduledStart: earlyWorkStart,
+      earlyWorkStart: null,
+      earlyWorkEnd: null,
+      roundingUnit,
+      gracePeriod,
+    }).time
+  }
+  return fromMinutes(floorToUnit(toMinutes(rawTime), roundingUnit))
+}
+
+/** 労働基準法34条: 6時間を超える場合に休憩を与える */
+export const LEGAL_BREAK_THRESHOLD_MINUTES = 6 * 60
+
+/**
+ * その日の休憩時間（分）を決める。
+ *
+ * 拘束時間（出勤〜退勤 − 外出）が 6 時間以下なら 0。
+ * 6 時間を超える日は会社設定の昼休憩（通常 60 分）を適用する。
+ * 8 時間超の法定 60 分は、会社既定 60 分で満たす。
+ */
+export function calcBreakMinutes(spanMinutes: number, defaultBreakMinutes: number): number {
+  if (spanMinutes <= LEGAL_BREAK_THRESHOLD_MINUTES) return 0
+  return Math.max(0, defaultBreakMinutes)
+}
+
+/**
  * 早出時間を計算（分）
  *
  * 「実打刻」を基準に、早出終了までの時間を早出丸め単位で切り捨てて返す。

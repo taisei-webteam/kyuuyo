@@ -594,7 +594,7 @@ const employees: MockEmployee[] = [
 // ========================================
 
 import { getHolidaysForYear } from './holidays-jp'
-import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
+import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
@@ -977,9 +977,10 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
       workEndMin = Math.min(workEndMin, otEndMin)
     }
 
-    const breakMinutes = settings.defaultBreakMinutes
-    const totalWork = Math.max(0, workEndMin - workStartMin - breakMinutes - goOutMinutes)
-    const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - breakMinutes
+    const spanMinutes = Math.max(0, workEndMin - workStartMin - goOutMinutes)
+    const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
+    const totalWork = Math.max(0, spanMinutes - breakMinutes)
+    const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - settings.defaultBreakMinutes
 
     let overtime = 0
     if (!overtimeAllowed) {

@@ -424,6 +424,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     />
                   </div>
                 </div>
+                <p className={styles.fieldNote}>
+                  開始より前の打刻は開始時刻に切り上げます。休日出勤も定時ではなく、この開始時刻から数えます（休日の早出割増は付けません）。
+                </p>
                 <div className={styles.field}>
                   <label className={styles.checkboxLabel}>
                     <input

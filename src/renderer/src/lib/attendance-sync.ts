@@ -6,7 +6,7 @@
 
 import { supabase, isSupabaseConfigured } from './supabase'
 import type { MockAttendanceDay, MockEmployee, StampInType, StampOutType } from './mock-data'
-import { roundClockIn, roundClockOut, calcEarlyOvertime } from './time-rounding'
+import { roundClockIn, roundClockOut, roundHolidayClockIn, calcEarlyOvertime, calcBreakMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 
@@ -188,15 +188,21 @@ function pairToAttendanceDay(
   let earlyOvertimeMinutes = 0
 
   if (rawIn) {
-    const result = roundClockIn(rawIn, clockInConfig)
-    clockIn = result.time
-    stampIn = clockInTypeToStampIn(result.type)
-    earlyOvertimeMinutes = calcEarlyOvertime(
-      rawIn,
-      employee.earlyWorkStart,
-      employee.earlyWorkEnd,
-      settings.earlyRoundingUnit,
-    )
+    if (isHoliday) {
+      clockIn = roundHolidayClockIn(rawIn, settings.roundingUnit, settings.gracePeriod, employee.earlyWorkStart)
+      stampIn = '出勤'
+      earlyOvertimeMinutes = 0
+    } else {
+      const result = roundClockIn(rawIn, clockInConfig)
+      clockIn = result.time
+      stampIn = clockInTypeToStampIn(result.type)
+      earlyOvertimeMinutes = calcEarlyOvertime(
+        rawIn,
+        employee.earlyWorkStart,
+        employee.earlyWorkEnd,
+        settings.earlyRoundingUnit,
+      )
+    }
   }
 
   let clockOut: string | null = null
@@ -213,11 +219,12 @@ function pairToAttendanceDay(
   if (clockIn && clockOut) {
     const inMin = toMinutes(clockIn)
     const outMin = toMinutes(clockOut)
-    const breakMinutes = settings.defaultBreakMinutes
+    const spanMinutes = Math.max(0, outMin - inMin)
+    const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
     const scheduledMinutes =
-      toMinutes(employee.scheduledEnd) - toMinutes(employee.scheduledStart) - breakMinutes
-    workMinutes = Math.max(0, outMin - inMin - breakMinutes)
-    overtimeMinutes = Math.max(0, workMinutes - scheduledMinutes)
+      toMinutes(employee.scheduledEnd) - toMinutes(employee.scheduledStart) - settings.defaultBreakMinutes
+    workMinutes = Math.max(0, spanMinutes - breakMinutes)
+    overtimeMinutes = isHoliday ? workMinutes : Math.max(0, workMinutes - scheduledMinutes)
   }
 
   return {

@@ -24,7 +24,9 @@ import { validateAttendance } from '../services/attendance.validate.js';
 import {
   roundClockIn,
   roundClockOut,
+  roundHolidayClockIn,
   calcEarlyOvertime,
+  calcBreakMinutes,
   toMinutes,
   type ClockInConfig,
 } from '../../shared/time-rounding.js';
@@ -195,8 +197,11 @@ function roundAndUpsertOne(
     gracePeriod: company.grace_period,
   };
 
-  const clockInResult = roundClockIn(rawIn.slice(0, 5), clockInConfig);
-  const clockIn = clockInResult.time;
+  const rawInHHMM = rawIn.slice(0, 5);
+  // 休日は平日定時へ上げず、早出開始（未設定なら実打刻の切捨て）で丸める
+  const clockIn = isHoliday
+    ? roundHolidayClockIn(rawInHHMM, company.rounding_unit, company.grace_period, emp.early_work_start)
+    : roundClockIn(rawInHHMM, clockInConfig).time;
   const clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
 
   // 外出・戻りは丸めず実打刻の HH:MM をそのまま採用する
@@ -205,13 +210,12 @@ function roundAndUpsertOne(
   const goOutMinutes =
     goOut && goReturn ? Math.max(0, toMinutes(goReturn) - toMinutes(goOut)) : 0;
 
-  const breakMinutes = company.default_break_minutes;
-
   let workMinutes = 0;
   let overtimeMinutes = 0;
+  let breakMinutes = 0;
   // 早出は「実打刻」を基準に算出（早出開始前は0、早出終了までを早出単位で切り捨て）
   let earlyOvertimeMinutes = calcEarlyOvertime(
-    rawIn.slice(0, 5),
+    rawInHHMM,
     emp.early_work_start,
     emp.early_work_end,
     company.early_rounding_unit,
@@ -222,7 +226,9 @@ function roundAndUpsertOne(
     // 休日出勤: 定時の概念を適用せず、実働時間の全体を残業（割増対象）とする。
     // 早出は休日には適用しない（二重計上を避ける）。
     if (clockOut) {
-      workMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - breakMinutes - goOutMinutes);
+      const spanMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - goOutMinutes);
+      breakMinutes = calcBreakMinutes(spanMinutes, company.default_break_minutes);
+      workMinutes = Math.max(0, spanMinutes - breakMinutes);
     }
     overtimeMinutes = workMinutes;
     earlyOvertimeMinutes = 0;
@@ -239,9 +245,12 @@ function roundAndUpsertOne(
       workEndMin = Math.min(workEndMin, toMinutes(emp.overtime_end));
     }
 
-    const scheduledMinutes = scheduledEndMin - toMinutes(emp.scheduled_start) - breakMinutes;
+    const scheduledMinutes =
+      scheduledEndMin - toMinutes(emp.scheduled_start) - company.default_break_minutes;
+    const spanMinutes = Math.max(0, workEndMin - workStartMin - goOutMinutes);
+    breakMinutes = calcBreakMinutes(spanMinutes, company.default_break_minutes);
     // 外出〜戻りの時間は無給休憩として労働時間から控除する
-    workMinutes = Math.max(0, workEndMin - workStartMin - breakMinutes - goOutMinutes);
+    workMinutes = Math.max(0, spanMinutes - breakMinutes);
 
     if (!overtimeAllowed) {
       overtimeMinutes = 0;
@@ -280,6 +289,69 @@ function roundAndUpsertOne(
     workMinutes, overtimeMinutes, earlyOvertimeMinutes,
     breakMinutes, isHoliday ? 1 : 0, isHolidayWork ? 1 : 0,
   );
+}
+
+interface RawPunchRoundRow {
+  employeeId: number;
+  date: string;
+  rawClockIn: string | null;
+  rawClockOut: string | null;
+  rawGoOut: string | null;
+  rawGoReturn: string | null;
+}
+
+function roundPunchList(punches: RawPunchRoundRow[]): number {
+  const company = getCompanySettings();
+  const empMap = getEmployeeMap();
+  const calendar = getCalendarOverrides('');
+  const nationalCache = new Map<number, Set<string>>();
+  let processed = 0;
+  for (const p of punches) {
+    const emp = empMap.get(p.employeeId);
+    if (!emp) continue;
+    const year = Number(p.date.slice(0, 4));
+    let national = nationalCache.get(year);
+    if (!national) {
+      national = getNationalHolidaySet(year);
+      nationalCache.set(year, national);
+    }
+    const holiday = isHolidayDate(p.date, calendar, national);
+    roundAndUpsertOne(
+      p.employeeId, p.date, p.rawClockIn, p.rawClockOut, emp, company, holiday,
+      p.rawGoOut, p.rawGoReturn,
+    );
+    processed++;
+  }
+  return processed;
+}
+
+function loadRawPunches(datePrefix: string): RawPunchRoundRow[] {
+  const raw = getSqlite();
+  return raw.prepare(`
+    SELECT employee_id AS employeeId, date,
+           raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut,
+           raw_go_out AS rawGoOut, raw_go_return AS rawGoReturn
+    FROM raw_punches
+    WHERE date LIKE ? || '%'
+    ORDER BY employee_id, date
+  `).all(datePrefix) as RawPunchRoundRow[];
+}
+
+/** 早出開始の既定埋め後、保存済み実打刻を新ルールで再丸めする（一度だけ） */
+function applyEarlyWorkAttendanceRecalcOnce(): void {
+  const raw = getSqlite();
+  const done = raw.prepare(
+    "SELECT value FROM app_meta WHERE key = 'attendance_recalc_early_work_v1'",
+  ).get() as { value: string } | undefined;
+  if (done) return;
+  const punches = loadRawPunches('');
+  const tx = raw.transaction(() => {
+    roundPunchList(punches);
+    raw.prepare(
+      "INSERT INTO app_meta (key, value) VALUES ('attendance_recalc_early_work_v1', '1')",
+    ).run();
+  });
+  tx();
 }
 
 export function registerAttendanceHandlers(): void {
@@ -323,6 +395,7 @@ export function registerAttendanceHandlers(): void {
           }
         });
         tx();
+        roundPunchList(loadRawPunches(`${params.year}-${String(params.month).padStart(2, '0')}`));
 
         return {
           success: true,
@@ -375,36 +448,10 @@ export function registerAttendanceHandlers(): void {
       try {
         const raw = getSqlite();
         const monthStr = `${params.year}-${String(params.month).padStart(2, '0')}`;
-        const company = getCompanySettings();
-        const empMap = getEmployeeMap();
-        const calendar = getCalendarOverrides(monthStr);
-        const nationalSet = getNationalHolidaySet(params.year);
-
-        const punches = raw.prepare(`
-          SELECT employee_id AS employeeId, date,
-                 raw_clock_in AS rawClockIn, raw_clock_out AS rawClockOut,
-                 raw_go_out AS rawGoOut, raw_go_return AS rawGoReturn
-          FROM raw_punches
-          WHERE date LIKE ? || '%'
-          ORDER BY employee_id, date
-        `).all(monthStr) as Array<{
-          employeeId: number;
-          date: string;
-          rawClockIn: string | null;
-          rawClockOut: string | null;
-          rawGoOut: string | null;
-          rawGoReturn: string | null;
-        }>;
-
+        const punches = loadRawPunches(monthStr);
         let processed = 0;
         const tx = raw.transaction(() => {
-          for (const p of punches) {
-            const emp = empMap.get(p.employeeId);
-            if (!emp) continue;
-            const holiday = isHolidayDate(p.date, calendar, nationalSet);
-            roundAndUpsertOne(p.employeeId, p.date, p.rawClockIn, p.rawClockOut, emp, company, holiday, p.rawGoOut, p.rawGoReturn);
-            processed++;
-          }
+          processed = roundPunchList(punches);
         });
         tx();
 
@@ -671,4 +718,6 @@ export function registerAttendanceHandlers(): void {
       }
     },
   );
+
+  applyEarlyWorkAttendanceRecalcOnce();
 }

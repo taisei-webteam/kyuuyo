@@ -359,6 +359,25 @@ function runMigrations(raw: Database.Database): void {
 
   // 既存 DB の表示順を master.csv の並び(上からの順=絶対)へ一度だけ補正する
   fixDisplayOrderFromMasterOnce(raw);
+
+  raw.exec(`
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  `);
+
+  // 早出開始が未設定の従業員は 08:00〜定時開始 を入れる（丸めの基準）
+  raw.prepare(`
+    UPDATE employees
+    SET early_work_start = '08:00',
+        early_work_end = CASE
+          WHEN early_work_end IS NULL OR early_work_end = '' THEN scheduled_start
+          ELSE early_work_end
+        END,
+        updated_at = datetime('now', 'localtime')
+    WHERE early_work_start IS NULL OR early_work_start = ''
+  `).run();
 }
 
 /**

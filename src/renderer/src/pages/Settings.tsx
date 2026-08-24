@@ -487,6 +487,9 @@ export default function Settings(): ReactElement {
                   <span className={styles.ruleUnit}>分</span>
                 </div>
               </div>
+              <p className={styles.ruleHint}>
+                拘束時間が6時間を超える日に適用します（労働基準法34条）。6時間以下の日は0分です。
+              </p>
 
               <div className={styles.ruleRow}>
                 <span className={styles.ruleLabel}>早出丸め単位</span>

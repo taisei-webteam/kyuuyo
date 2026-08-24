@@ -15,7 +15,7 @@ import {
 import { buildYearSelectOptions } from '@/lib/year-options'
 import { AttendanceBookModal } from '@/components/AttendanceBookModal'
 import { getSettings } from '@/lib/settings-store'
-import { floorToUnit } from '@/lib/time-rounding'
+import { floorToUnit, calcBreakMinutes } from '@/lib/time-rounding'
 import {
   paidLeaveUsageToDays,
   confirmedPaidLeaveDays,
@@ -27,7 +27,6 @@ import styles from './Attendance.module.css'
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
-const BREAK_MINUTES = 60
 const STANDARD_MINUTES = 480
 
 const STAMP_IN_OPTIONS: StampInType[] = ['出勤', '早出', '遅刻']
@@ -50,12 +49,36 @@ function parseTimeToMinutes(time: string): number {
   return h * 60 + m
 }
 
-function recalcFromTimes(clockIn: string, clockOut: string): { workMinutes: number; overtimeMinutes: number } {
+function resolveBreakMinutes(
+  clockIn: string,
+  clockOut: string,
+  goOut: string | null,
+  goReturn: string | null,
+): number {
   const inMin = parseTimeToMinutes(clockIn)
   const outMin = parseTimeToMinutes(clockOut)
-  const totalWork = Math.max(0, outMin - inMin - BREAK_MINUTES)
-  const overtime = Math.max(0, totalWork - STANDARD_MINUTES)
-  return { workMinutes: totalWork, overtimeMinutes: overtime }
+  const goOutMinutes =
+    goOut && goReturn ? Math.max(0, parseTimeToMinutes(goReturn) - parseTimeToMinutes(goOut)) : 0
+  const span = Math.max(0, outMin - inMin - goOutMinutes)
+  return calcBreakMinutes(span, getSettings().defaultBreakMinutes)
+}
+
+function recalcFromTimes(
+  clockIn: string,
+  clockOut: string,
+  isHoliday: boolean,
+  goOut: string | null = null,
+  goReturn: string | null = null,
+): { workMinutes: number; overtimeMinutes: number; breakMinutes: number } {
+  const inMin = parseTimeToMinutes(clockIn)
+  const outMin = parseTimeToMinutes(clockOut)
+  const goOutMinutes =
+    goOut && goReturn ? Math.max(0, parseTimeToMinutes(goReturn) - parseTimeToMinutes(goOut)) : 0
+  const span = Math.max(0, outMin - inMin - goOutMinutes)
+  const breakMinutes = calcBreakMinutes(span, getSettings().defaultBreakMinutes)
+  const totalWork = Math.max(0, span - breakMinutes)
+  const overtime = isHoliday ? totalWork : Math.max(0, totalWork - STANDARD_MINUTES)
+  return { workMinutes: totalWork, overtimeMinutes: overtime, breakMinutes }
 }
 
 function stampInClass(stamp: StampInType | null): string {
@@ -201,16 +224,16 @@ export function Attendance(): ReactElement {
         const goOut = field === 'goOut' ? value : row.goOut
         const goReturn = field === 'goReturn' ? value : row.goReturn
         if (clockIn && clockOut) {
-          let goOutMinutes = 0
-          if (goOut && goReturn) {
-            goOutMinutes = Math.max(0, parseTimeToMinutes(goReturn) - parseTimeToMinutes(goOut))
-          }
-          const inMin = parseTimeToMinutes(clockIn)
-          const outMin = parseTimeToMinutes(clockOut)
-          const totalWork = Math.max(0, outMin - inMin - BREAK_MINUTES - goOutMinutes)
-          const overtime = Math.max(0, totalWork - STANDARD_MINUTES)
-          row.workMinutes = totalWork
-          row.overtimeMinutes = overtime
+          const { workMinutes, overtimeMinutes } = recalcFromTimes(
+            clockIn,
+            clockOut,
+            row.isHoliday,
+            goOut,
+            goReturn,
+          )
+          row.workMinutes = workMinutes
+          row.overtimeMinutes = overtimeMinutes
+          if (row.isHoliday) row.isHolidayWork = workMinutes > 0
         }
         updated[idx] = row
         return updated
@@ -453,7 +476,9 @@ export function Attendance(): ReactElement {
                       workMinutes: day.workMinutes,
                       overtimeMinutes: day.overtimeMinutes,
                       earlyOvertimeMinutes: day.earlyOvertimeMinutes,
-                      breakMinutes: BREAK_MINUTES,
+                      breakMinutes: day.clockIn && day.clockOut
+                        ? resolveBreakMinutes(day.clockIn, day.clockOut, day.goOut, day.goReturn)
+                        : 0,
                       isHoliday: day.isHoliday,
                       isHolidayWork: day.isHolidayWork,
                       paidLeaveUsage: day.paidLeaveUsage,
