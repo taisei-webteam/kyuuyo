@@ -15,7 +15,7 @@ import { ActionMenu } from '@/components/ActionMenu'
 import { EmployeeForm } from '@/components/EmployeeForm'
 import { EmailVerifyBulkModal } from '@/components/EmailVerifyBulkModal'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
-import { StandardRemunerationModal } from '@/components/StandardRemunerationModal'
+import { SocialInsuranceBulkModal } from '@/components/SocialInsuranceBulkModal'
 import styles from './Employees.module.css'
 
 function yen(amount: number): string {
@@ -30,7 +30,7 @@ export function Employees(): ReactElement {
   const [editingEmployee, setEditingEmployee] = useState<MockEmployee | null>(null)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isResidentTaxOpen, setIsResidentTaxOpen] = useState(false)
-  const [isStdRemunOpen, setIsStdRemunOpen] = useState(false)
+  const [isSocialInsuranceOpen, setIsSocialInsuranceOpen] = useState(false)
   const [isVerifyBulkOpen, setIsVerifyBulkOpen] = useState(false)
   const [verifyRefreshing, setVerifyRefreshing] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -268,9 +268,9 @@ export function Employees(): ReactElement {
             label="一括入力"
             items={[
               {
-                label: '標準報酬の定時決定',
-                description: '4〜6月の報酬から標準報酬月額をまとめて決定します',
-                onSelect: () => setIsStdRemunOpen(true),
+                label: '健康・介護保険を一括入力',
+                description: '健康保険と介護保険の合算額（本人負担）をまとめて登録します',
+                onSelect: () => setIsSocialInsuranceOpen(true),
               },
               {
                 label: '住民税を一括入力',
@@ -316,10 +316,9 @@ export function Employees(): ReactElement {
               <th>年齢</th>
               <th>メール</th>
               <th className={styles.thRight}>基本給/時給</th>
-              <th className={styles.thRight}>標準報酬月額</th>
+              <th className={styles.thRight}>健康・介護</th>
               <th className={styles.thRight}>有給残</th>
               <th className={styles.thRight}>交通費</th>
-              <th className={styles.thRight}>健康保険</th>
               <th className={styles.thRight}>厚生年金</th>
               <th>操作</th>
             </tr>
@@ -381,12 +380,11 @@ export function Employees(): ReactElement {
                     )}
                   </td>
                   <td className={styles.tdRight}>{yen(emp.basicSalary)}</td>
-                  <td className={styles.tdRight}>{yen(emp.standardMonthlyRemuneration)}</td>
+                  <td className={styles.tdRight}>{yen(emp.healthInsurance)}</td>
                   <td className={styles.tdRight}>
                     {emp.paidLeaveBalance != null ? `${emp.paidLeaveBalance}日` : '-'}
                   </td>
                   <td className={styles.tdRight}>{yen(emp.transportAllowance)}</td>
-                  <td className={styles.tdRight}>{yen(emp.healthInsurance)}</td>
                   <td className={styles.tdRight}>{yen(emp.welfarePension)}</td>
                   <td>
                     <div className={styles.actions}>
@@ -437,10 +435,10 @@ export function Employees(): ReactElement {
         />
       )}
 
-      {isStdRemunOpen && (
-        <StandardRemunerationModal
+      {isSocialInsuranceOpen && (
+        <SocialInsuranceBulkModal
           employees={employees}
-          onClose={() => setIsStdRemunOpen(false)}
+          onClose={() => setIsSocialInsuranceOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
-import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId, isHealthInsuranceAge, isNursingCareAge, isWelfarePensionAge } from '@/lib/mock-data'
+import { calcAge, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
@@ -57,10 +57,6 @@ const emptyEmployee: MockEmployee = {
   paidLeaveBalance: null,
   fixedOvertimePay: 0,
   incomeTaxExempt: false,
-}
-
-function yen(amount: number): string {
-  return `¥${amount.toLocaleString('ja-JP')}`
 }
 
 const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
@@ -201,14 +197,6 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     setVerifyBusy('idle')
   }
 
-  const autoInsurance = useMemo(() => {
-    if (!form.birthDate || !form.standardMonthlyRemuneration) return null
-    const totalPayment = form.basicSalary + form.transportAllowance + form.positionAllowance +
-      form.familyAllowance + form.specialAllowance + form.dangerAllowance + form.salesAllowance
-    return calculateInsurancePremiums(form.standardMonthlyRemuneration, form.birthDate, totalPayment)
-  }, [form.standardMonthlyRemuneration, form.birthDate, form.basicSalary, form.transportAllowance,
-    form.positionAllowance, form.familyAllowance, form.specialAllowance, form.dangerAllowance, form.salesAllowance])
-
   const age = useMemo(() => {
     if (!form.birthDate) return null
     return calcAge(form.birthDate)
@@ -220,12 +208,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
 
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
-    const saveData = { ...form }
-    if (autoInsurance) {
-      saveData.healthInsurance = autoInsurance.healthInsurance
-      saveData.welfarePension = autoInsurance.welfarePension
-    }
-    onSave(saveData)
+    onSave(form)
   }
 
   const overlay = useOverlayDismiss(onClose)
@@ -588,15 +571,6 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   </div>
                 )}
                 <div className={styles.field}>
-                  <label>標準報酬月額</label>
-                  <input
-                    type="number"
-                    value={form.standardMonthlyRemuneration}
-                    onChange={(e) => handleChange('standardMonthlyRemuneration', Number(e.target.value))}
-                    min={0}
-                  />
-                </div>
-                <div className={styles.field}>
                   <label>交通費</label>
                   <input
                     type="number"
@@ -664,61 +638,31 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             </div>
 
             <div className={styles.section}>
-              <div className={styles.sectionTitle}>
-                社会保険料
-                {autoInsurance && <span className={styles.autoCalcBadge}>自動計算</span>}
+              <div className={styles.sectionTitle}>社会保険料</div>
+              <p className={styles.fieldNote}>
+                健康保険と介護保険は合算額を入力します。雇用保険は給与作成時に総支給額から自動計算します。
+              </p>
+              <div className={styles.fieldGrid}>
+                <div className={styles.field}>
+                  <label>健康・介護保険（合算・月額）</label>
+                  <input
+                    type="number"
+                    value={form.healthInsurance}
+                    onChange={(e) => handleChange('healthInsurance', Number(e.target.value))}
+                    min={0}
+                    placeholder="例: 10340"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>厚生年金（月額）</label>
+                  <input
+                    type="number"
+                    value={form.welfarePension}
+                    onChange={(e) => handleChange('welfarePension', Number(e.target.value))}
+                    min={0}
+                  />
+                </div>
               </div>
-              {autoInsurance ? (
-                <div className={styles.autoCalcGrid}>
-                  <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>
-                      健康保険料
-                      {age !== null && !isHealthInsuranceAge(age) && <span className={styles.notApplicable}>（75歳以上・対象外）</span>}
-                    </span>
-                    <span className={styles.autoCalcValue}>{yen(autoInsurance.healthInsurance)}</span>
-                    <span className={styles.autoCalcRate}>
-                      {age !== null && isHealthInsuranceAge(age)
-                        ? `料率 ${(INSURANCE_RATES.healthRate * 100).toFixed(3)}%`
-                        : '75歳未満が対象'}
-                    </span>
-                  </div>
-                  <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>
-                      介護保険料
-                      {age !== null && !isNursingCareAge(age) && <span className={styles.notApplicable}>（対象外）</span>}
-                    </span>
-                    <span className={styles.autoCalcValue}>{yen(autoInsurance.nursingInsurance)}</span>
-                    <span className={styles.autoCalcRate}>
-                      {age !== null && isNursingCareAge(age)
-                        ? `料率 ${(INSURANCE_RATES.nursingRate * 100).toFixed(3)}%`
-                        : '40歳以上65歳未満が対象'}
-                    </span>
-                  </div>
-                  <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>
-                      厚生年金保険料
-                      {age !== null && !isWelfarePensionAge(age) && <span className={styles.notApplicable}>（70歳以上・対象外）</span>}
-                    </span>
-                    <span className={styles.autoCalcValue}>{yen(autoInsurance.welfarePension)}</span>
-                    <span className={styles.autoCalcRate}>
-                      {age !== null && isWelfarePensionAge(age)
-                        ? `料率 ${(INSURANCE_RATES.pensionRate * 100).toFixed(2)}%`
-                        : '70歳未満が対象'}
-                    </span>
-                  </div>
-                  <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>雇用保険料</span>
-                    <span className={styles.autoCalcValue}>{yen(autoInsurance.employmentInsurance)}</span>
-                    <span className={styles.autoCalcRate}>
-                      料率 {(INSURANCE_RATES.employmentRate * 100).toFixed(1)}%（{INSURANCE_RATES.employmentRate}＝5/1000・総支給額ベース）
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className={styles.autoCalcHint}>
-                  生年月日と標準報酬月額を入力すると自動計算されます
-                </div>
-              )}
             </div>
 
             <div className={styles.section}>

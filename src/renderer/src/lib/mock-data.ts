@@ -1305,13 +1305,10 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    const age = emp.birthDate ? calcAge(emp.birthDate, monthEndDate(year, month)) : 0
-    const social = employment.socialInsuranceApplies
-      ? calcAgeBasedSocialInsurance(emp.standardMonthlyRemuneration, age)
-      : { healthInsurance: 0, nursingInsurance: 0, welfarePension: 0 }
-    const healthInsurance = social.healthInsurance
-    const nursingInsurance = social.nursingInsurance
-    const welfarePension = social.welfarePension
+    // 健保+介護は従業員マスタの合算額をそのまま使う（標準報酬からの自動計算はしない）
+    const healthInsurance = employment.socialInsuranceApplies ? emp.healthInsurance : 0
+    const nursingInsurance = 0
+    const welfarePension = employment.socialInsuranceApplies ? emp.welfarePension : 0
     // 雇用保険: 超過分を除く支給合計 × 料率（円未満切捨て）
     const employmentInsurance = Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
 
