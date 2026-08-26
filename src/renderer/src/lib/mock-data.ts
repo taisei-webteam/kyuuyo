@@ -171,6 +171,8 @@ export interface MockEmployee {
   dangerAllowance: number
   salesAllowance: number
   healthInsurance: number
+  /** true のとき給与作成は標準報酬から計算せず、healthInsurance（健保+介護の合算）を使う */
+  healthInsuranceManual?: boolean
   welfarePension: number
   residentTax: number
   savingsDeduction: number
@@ -1305,10 +1307,16 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 健保+介護は従業員マスタの合算額をそのまま使う（標準報酬からの自動計算はしない）
-    const healthInsurance = employment.socialInsuranceApplies ? emp.healthInsurance : 0
+    const age = emp.birthDate ? calcAge(emp.birthDate, monthEndDate(year, month)) : 0
+    const social = employment.socialInsuranceApplies
+      ? calcAgeBasedSocialInsurance(emp.standardMonthlyRemuneration, age)
+      : { healthInsurance: 0, nursingInsurance: 0, welfarePension: 0 }
+    // 労務士合算を手入力した人だけマスタの健康・介護を使う。それ以外は標準報酬＋年齢で計算する。
+    const healthInsurance = emp.healthInsuranceManual
+      ? emp.healthInsurance
+      : social.healthInsurance + social.nursingInsurance
     const nursingInsurance = 0
-    const welfarePension = employment.socialInsuranceApplies ? emp.welfarePension : 0
+    const welfarePension = social.welfarePension
     // 雇用保険: 超過分を除く支給合計 × 料率（円未満切捨て）
     const employmentInsurance = Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
 
@@ -1541,6 +1549,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     dangerAllowance: m.dangerAllowance,
     salesAllowance: m.salesAllowance,
     healthInsurance: m.healthInsurance,
+    healthInsuranceManual: m.healthInsuranceManual ?? false,
     welfarePension: m.welfarePension,
     residentTax: m.residentTax,
     savingsDeduction: m.savingsDeduction,
@@ -1591,6 +1600,7 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     dangerAllowance: e.dangerAllowance,
     salesAllowance: e.salesAllowance,
     healthInsurance: e.healthInsurance,
+    healthInsuranceManual: e.healthInsuranceManual,
     welfarePension: e.welfarePension,
     residentTax: e.residentTax,
     savingsDeduction: e.savingsDeduction,

@@ -62,6 +62,7 @@ export function registerEmployeeHandlers(): void {
           dangerAllowance: params.dangerAllowance,
           salesAllowance: params.salesAllowance,
           healthInsurance: params.healthInsurance,
+          healthInsuranceManual: params.healthInsuranceManual,
           welfarePension: params.welfarePension,
           residentTax: params.residentTax,
           savingsDeduction: params.savingsDeduction,

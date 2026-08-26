@@ -314,6 +314,7 @@ function runMigrations(raw: Database.Database): void {
   addColumn('employees', 'employment_insurance_overage', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('employees', 'fixed_overtime_pay', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('employees', 'income_tax_exempt', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('employees', 'health_insurance_manual', 'INTEGER NOT NULL DEFAULT 0');
 
   // payslips: 追加支給・控除行（JSON 配列）
   addColumn('payslips', 'extra_payment_lines', "TEXT NOT NULL DEFAULT '[]'");

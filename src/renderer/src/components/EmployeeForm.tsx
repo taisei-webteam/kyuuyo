@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
-import { calcAge, nextEmployeeId } from '@/lib/mock-data'
+import { calcAge, nextEmployeeId, calculateInsurancePremiums } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
@@ -38,6 +38,7 @@ const emptyEmployee: MockEmployee = {
   dangerAllowance: 0,
   salesAllowance: 0,
   healthInsurance: 0,
+  healthInsuranceManual: false,
   welfarePension: 0,
   residentTax: 0,
   savingsDeduction: 0,
@@ -57,6 +58,10 @@ const emptyEmployee: MockEmployee = {
   paidLeaveBalance: null,
   fixedOvertimePay: 0,
   incomeTaxExempt: false,
+}
+
+function yen(amount: number): string {
+  return `¥${amount.toLocaleString('ja-JP')}`
 }
 
 const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
@@ -202,13 +207,26 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     return calcAge(form.birthDate)
   }, [form.birthDate])
 
+  const autoInsurance = useMemo(() => {
+    if (!form.birthDate || !form.standardMonthlyRemuneration) return null
+    const totalPayment = form.basicSalary + form.transportAllowance + form.positionAllowance +
+      form.familyAllowance + form.specialAllowance + form.dangerAllowance + form.salesAllowance
+    return calculateInsurancePremiums(form.standardMonthlyRemuneration, form.birthDate, totalPayment)
+  }, [form.standardMonthlyRemuneration, form.birthDate, form.basicSalary, form.transportAllowance,
+    form.positionAllowance, form.familyAllowance, form.specialAllowance, form.dangerAllowance, form.salesAllowance])
+
   function handleChange(field: keyof MockEmployee, value: string | number | boolean): void {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
-    onSave(form)
+    const saveData = { ...form }
+    if (!saveData.healthInsuranceManual && autoInsurance) {
+      saveData.healthInsurance = autoInsurance.healthInsurance + autoInsurance.nursingInsurance
+      saveData.welfarePension = autoInsurance.welfarePension
+    }
+    onSave(saveData)
   }
 
   const overlay = useOverlayDismiss(onClose)
@@ -571,6 +589,15 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   </div>
                 )}
                 <div className={styles.field}>
+                  <label>標準報酬月額</label>
+                  <input
+                    type="number"
+                    value={form.standardMonthlyRemuneration}
+                    onChange={(e) => handleChange('standardMonthlyRemuneration', Number(e.target.value))}
+                    min={0}
+                  />
+                </div>
+                <div className={styles.field}>
                   <label>交通費</label>
                   <input
                     type="number"
@@ -640,29 +667,39 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             <div className={styles.section}>
               <div className={styles.sectionTitle}>社会保険料</div>
               <p className={styles.fieldNote}>
-                健康保険と介護保険は合算額を入力します。雇用保険は給与作成時に総支給額から自動計算します。
+                給与作成は標準報酬月額と生年月日から健保・介護・厚生年金を計算します。
+                労務士の合算額を使うときは手入力に切り替えてください。雇用保険は総支給額から自動計算します。
               </p>
-              <div className={styles.fieldGrid}>
-                <div className={styles.field}>
-                  <label>健康・介護保険（合算・月額）</label>
+              <div className={styles.field}>
+                <label className={styles.checkboxLabel}>
                   <input
-                    type="number"
-                    value={form.healthInsurance}
-                    onChange={(e) => handleChange('healthInsurance', Number(e.target.value))}
-                    min={0}
-                    placeholder="例: 10340"
+                    type="checkbox"
+                    checked={form.healthInsuranceManual ?? false}
+                    onChange={(e) => handleChange('healthInsuranceManual', e.target.checked)}
                   />
-                </div>
-                <div className={styles.field}>
-                  <label>厚生年金（月額）</label>
-                  <input
-                    type="number"
-                    value={form.welfarePension}
-                    onChange={(e) => handleChange('welfarePension', Number(e.target.value))}
-                    min={0}
-                  />
-                </div>
+                  健康・介護保険は労務士の合算額を手入力する
+                </label>
               </div>
+              {form.healthInsuranceManual ? (
+                <div className={styles.fieldGrid}>
+                  <div className={styles.field}>
+                    <label>健康・介護保険（合算・月額）</label>
+                    <input
+                      type="number"
+                      value={form.healthInsurance}
+                      onChange={(e) => handleChange('healthInsurance', Number(e.target.value))}
+                      min={0}
+                      placeholder="例: 10340"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <p className={styles.fieldNote}>
+                  {autoInsurance
+                    ? `計算見込み: 健康・介護 ${yen(autoInsurance.healthInsurance + autoInsurance.nursingInsurance)} / 厚生年金 ${yen(autoInsurance.welfarePension)}`
+                    : '生年月日と標準報酬月額を入れると見込み額を表示します。'}
+                </p>
+              )}
             </div>
 
             <div className={styles.section}>

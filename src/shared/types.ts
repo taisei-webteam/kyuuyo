@@ -43,6 +43,8 @@ export interface Employee {
   dangerAllowance: number;
   salesAllowance: number;
   healthInsurance: number;
+  /** true のとき給与作成は標準報酬計算せず、healthInsurance（健保+介護の合算）を使う */
+  healthInsuranceManual: boolean;
   welfarePension: number;
   residentTax: number;
   savingsDeduction: number;

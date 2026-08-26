@@ -60,6 +60,8 @@ export const employees = sqliteTable('employees', {
   dangerAllowance: integer('danger_allowance').notNull().default(0),
   salesAllowance: integer('sales_allowance').notNull().default(0),
   healthInsurance: integer('health_insurance').notNull().default(0),
+  /** true のとき給与作成は標準報酬から健保・介護を計算せず、healthInsurance（合算額）を使う */
+  healthInsuranceManual: integer('health_insurance_manual', { mode: 'boolean' }).notNull().default(false),
   welfarePension: integer('welfare_pension').notNull().default(0),
   residentTax: integer('resident_tax').notNull().default(0),
   savingsDeduction: integer('savings_deduction').notNull().default(0),

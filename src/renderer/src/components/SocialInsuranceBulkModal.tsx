@@ -220,14 +220,18 @@ export function SocialInsuranceBulkModal({
       if (hasElectronApi) {
         let ok = 0
         for (const { e, amount } of targets) {
-          const res = await window.api.employees.update({ id: e.id, healthInsurance: amount })
+          const res = await window.api.employees.update({
+            id: e.id,
+            healthInsurance: amount,
+            healthInsuranceManual: true,
+          })
           if (res.success) ok++
         }
         await reloadEmployeesFromDb()
         setMessage(ok === targets.length ? `${ok} 名の健康・介護保険を更新しました` : `${ok}/${targets.length} 名を更新しました（一部失敗）`)
       } else {
         for (const { e, amount } of targets) {
-          updateEmployee({ ...e, healthInsurance: amount })
+          updateEmployee({ ...e, healthInsurance: amount, healthInsuranceManual: true })
         }
         setMessage(`${targets.length} 名の健康・介護保険を更新しました`)
       }
