@@ -74,6 +74,8 @@ export function registerEmployeeHandlers(): void {
           earlyWorkEnd: params.earlyWorkEnd,
           bonusEligible: params.bonusEligible,
           employmentInsuranceOverage: params.employmentInsuranceOverage,
+          fixedOvertimePay: params.fixedOvertimePay,
+          incomeTaxExempt: params.incomeTaxExempt,
           paidLeaveBalance: params.paidLeaveBalance,
           isActive: params.isActive,
         }).run();

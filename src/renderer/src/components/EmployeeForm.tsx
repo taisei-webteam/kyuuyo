@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
-import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId } from '@/lib/mock-data'
+import { calculateInsurancePremiums, calcAge, INSURANCE_RATES, nextEmployeeId, isHealthInsuranceAge, isNursingCareAge, isWelfarePensionAge } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
@@ -55,6 +55,8 @@ const emptyEmployee: MockEmployee = {
   overtimeEnd: '22:00',
   bonusEligible: false,
   paidLeaveBalance: null,
+  fixedOvertimePay: 0,
+  incomeTaxExempt: false,
 }
 
 function yen(amount: number): string {
@@ -425,7 +427,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   </div>
                 </div>
                 <p className={styles.fieldNote}>
-                  開始より前の打刻は開始時刻に切り上げます。休日出勤も定時ではなく、この開始時刻から数えます（休日の早出割増は付けません）。
+                  開始より前の打刻は開始時刻に切り上げます。早出終了（通常は定時開始）までが早出＝時給1.25倍、それ以降は通常時給です。土曜・休日も同じで、午前の早出だけ割増、定時開始以降は基本給に入れます。
                 </p>
                 <div className={styles.field}>
                   <label className={styles.checkboxLabel}>
@@ -475,6 +477,16 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                       placeholder="未設定"
                     />
                   </div>
+                </div>
+                <div className={styles.field}>
+                  <label>固定時間外手当</label>
+                  <input
+                    type="number"
+                    value={form.fixedOvertimePay ?? 0}
+                    onChange={(e) => handleChange('fixedOvertimePay', Number(e.target.value))}
+                    min={0}
+                  />
+                  <p className={styles.fieldNote}>0 円のときは勤怠の残業時間から計算します。田中さんのように月額固定の場合は金額を入れます。</p>
                 </div>
                 <div className={styles.fieldWide}>
                   <label>休日設定</label>
@@ -543,6 +555,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   />
                   <p className={styles.fieldNote}>
                     付与時・年度始めの残日数をここで設定します。勤怠管理で有給を確定保存すると自動で減算され、この値が更新されます（予定は減算されません）。
+                    社員は午前休・午後休・全日休（半日=0.5日）、パートは全日休のみです。
                   </p>
                 </div>
               </div>
@@ -658,31 +671,47 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
               {autoInsurance ? (
                 <div className={styles.autoCalcGrid}>
                   <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>健康保険料</span>
+                    <span className={styles.autoCalcLabel}>
+                      健康保険料
+                      {age !== null && !isHealthInsuranceAge(age) && <span className={styles.notApplicable}>（75歳以上・対象外）</span>}
+                    </span>
                     <span className={styles.autoCalcValue}>{yen(autoInsurance.healthInsurance)}</span>
-                    <span className={styles.autoCalcRate}>料率 {(INSURANCE_RATES.healthRate * 100).toFixed(3)}%</span>
+                    <span className={styles.autoCalcRate}>
+                      {age !== null && isHealthInsuranceAge(age)
+                        ? `料率 ${(INSURANCE_RATES.healthRate * 100).toFixed(3)}%`
+                        : '75歳未満が対象'}
+                    </span>
                   </div>
                   <div className={styles.autoCalcItem}>
                     <span className={styles.autoCalcLabel}>
                       介護保険料
-                      {age !== null && age < 40 && <span className={styles.notApplicable}>（対象外）</span>}
+                      {age !== null && !isNursingCareAge(age) && <span className={styles.notApplicable}>（対象外）</span>}
                     </span>
                     <span className={styles.autoCalcValue}>{yen(autoInsurance.nursingInsurance)}</span>
                     <span className={styles.autoCalcRate}>
-                      {age !== null && age >= 40
+                      {age !== null && isNursingCareAge(age)
                         ? `料率 ${(INSURANCE_RATES.nursingRate * 100).toFixed(3)}%`
-                        : '40歳以上が対象'}
+                        : '40歳以上65歳未満が対象'}
                     </span>
                   </div>
                   <div className={styles.autoCalcItem}>
-                    <span className={styles.autoCalcLabel}>厚生年金保険料</span>
+                    <span className={styles.autoCalcLabel}>
+                      厚生年金保険料
+                      {age !== null && !isWelfarePensionAge(age) && <span className={styles.notApplicable}>（70歳以上・対象外）</span>}
+                    </span>
                     <span className={styles.autoCalcValue}>{yen(autoInsurance.welfarePension)}</span>
-                    <span className={styles.autoCalcRate}>料率 {(INSURANCE_RATES.pensionRate * 100).toFixed(2)}%</span>
+                    <span className={styles.autoCalcRate}>
+                      {age !== null && isWelfarePensionAge(age)
+                        ? `料率 ${(INSURANCE_RATES.pensionRate * 100).toFixed(2)}%`
+                        : '70歳未満が対象'}
+                    </span>
                   </div>
                   <div className={styles.autoCalcItem}>
                     <span className={styles.autoCalcLabel}>雇用保険料</span>
                     <span className={styles.autoCalcValue}>{yen(autoInsurance.employmentInsurance)}</span>
-                    <span className={styles.autoCalcRate}>料率 {(INSURANCE_RATES.employmentRate * 100).toFixed(1)}%（総支給額ベース）</span>
+                    <span className={styles.autoCalcRate}>
+                      料率 {(INSURANCE_RATES.employmentRate * 100).toFixed(1)}%（{INSURANCE_RATES.employmentRate}＝5/1000・総支給額ベース）
+                    </span>
                   </div>
                 </div>
               ) : (
@@ -730,6 +759,16 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     onChange={(e) => handleChange('dependents', Number(e.target.value))}
                     min={0}
                   />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={form.incomeTaxExempt ?? false}
+                      onChange={(e) => handleChange('incomeTaxExempt', e.target.checked)}
+                    />
+                    所得税免除
+                  </label>
                 </div>
               </div>
             </div>

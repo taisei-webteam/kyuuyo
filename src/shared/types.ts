@@ -60,6 +60,10 @@ export interface Employee {
   bonusEligible: boolean;
   /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
   employmentInsuranceOverage: number;
+  /** 固定の時間外手当（円）。0 のときは勤怠時間から計算する。 */
+  fixedOvertimePay: number;
+  /** 源泉所得税を徴収しない（社内表の「免除」） */
+  incomeTaxExempt: boolean;
   /** 有給残日数（手入力。0.5日単位可。自動計算は未実装） */
   paidLeaveBalance: number | null;
   /** メール到達確認の状態 */
@@ -119,10 +123,16 @@ export type PaidLeaveUsage = 'full' | 'am' | 'pm';
 /** 有給の確定状態（実績 or 予定） */
 export type PaidLeaveStatus = 'confirmed' | 'planned';
 
-/** 有給区分を消化日数に換算する（全日=1、半日=0.5） */
+/** 有給区分を消化日数に換算する（全日休=1、午前休・午後休=0.5） */
 export function paidLeaveUsageToDays(usage: PaidLeaveUsage | null | undefined): number {
   if (!usage) return 0;
   return usage === 'full' ? 1 : 0.5;
+}
+
+/** 社員・役員は午前休・午後休・全日休、パートは全日休のみ */
+export function paidLeaveUsagesForEmployeeType(employeeType: EmployeeType): PaidLeaveUsage[] {
+  if (employeeType === 'パート') return ['full'];
+  return ['full', 'am', 'pm'];
 }
 
 /** 確定済み有給のみ消化日数に換算する（予定は0） */
@@ -142,9 +152,9 @@ export function formatPaidLeaveDays(days: number): string {
 }
 
 export const PAID_LEAVE_USAGE_LABELS: Record<PaidLeaveUsage, string> = {
-  full: '全日',
-  am: '午前',
-  pm: '午後',
+  full: '全日休',
+  am: '午前休',
+  pm: '午後休',
 };
 
 export interface AttendanceRecord {
@@ -431,14 +441,16 @@ export interface InsuranceRate {
   year: number;
   /** 適用開始月（協会けんぽは通常3月分＝4月納付。既定4） */
   month: number;
-  /** 健康保険料率（被保険者負担分。都道府県ごとに異なる） */
+  /** 健康保険料率（被保険者負担分。都道府県ごとに異なる。75歳未満） */
   healthRate: number;
-  /** 介護保険料率（被保険者負担分。40歳以上に適用） */
+  /** 介護保険料率（被保険者負担分。40歳以上65歳未満に適用） */
   nursingRate: number;
-  /** 厚生年金保険料率（被保険者負担分。全国一律） */
+  /** 厚生年金保険料率（被保険者負担分。全国一律。70歳未満） */
   pensionRate: number;
   /** 雇用保険料率（被保険者負担分。総支給額ベース） */
   employmentRate: number;
+  /** 子ども・子育て支援金率（被保険者負担分。健康保険に上乗せ。75歳未満） */
+  childSupportRate: number;
   /** 都道府県（健康保険料率の根拠。既定 '全国'） */
   prefecture: string;
 }

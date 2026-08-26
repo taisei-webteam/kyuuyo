@@ -51,7 +51,7 @@ for (const c of cases) {
 console.log(allOk ? '✅ 全例一致' : '❌ 不一致あり')
 
 // --- 社会保険料・年齢（mock-data と同一） ---
-const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.006 }
+const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.005 }
 const roundIns = (a) => (a - Math.floor(a) <= 0.5 ? Math.floor(a) : Math.ceil(a))
 function calcAge(b, base = new Date()) {
   const d = new Date(b); let a = base.getFullYear() - d.getFullYear()

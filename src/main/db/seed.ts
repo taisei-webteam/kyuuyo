@@ -182,13 +182,13 @@ function buildSeedEmployees(): SeedEmployee[] {
       savingsDeduction: r.savings,
       loanDeduction: r.loan,
       dependents: 0,
-      scheduledStart: '09:00',
-      scheduledEnd: '18:00',
+      scheduledStart: isHourly ? '08:30' : '09:00',
+      scheduledEnd: isHourly ? '17:30' : '18:00',
       holidayMode: 'calendar',
       earlyWorkStart: '08:00',
-      earlyWorkEnd: '09:00',
+      earlyWorkEnd: isHourly ? '08:30' : '09:00',
       overtimeAllowed,
-      overtimeStart: overtimeAllowed ? '18:00' : null,
+      overtimeStart: overtimeAllowed ? (isHourly ? '17:30' : '18:00') : null,
       overtimeEnd: overtimeAllowed ? '22:00' : null,
     };
   });
@@ -252,9 +252,7 @@ export function seedEmployeesIfEmpty(raw: Database.Database): void {
  *   厚生年金（全国）  : 総額 18.30%  → 折半 9.15%
  *   雇用保険（一般の事業）: 労働者負担 5/1000 = 0.5%
  *
- * 注: 令和8年4月分からの「子ども・子育て支援金率」(全国一律 総額0.23%/折半0.115%)
- * は現行データモデルに専用項目が無いため未反映。厳密な手取り計算が必要な場合は
- * 健康保険料率へ 0.115% を上乗せするか、別途対応する。
+ *   子ども・子育て支援金: 総額 0.23% → 折半 0.115%（健康保険に上乗せ）
  *
  * 既に料率が 1 件でも存在する場合は何もしない (冪等)。
  */
@@ -264,8 +262,8 @@ export function seedInsuranceRatesIfEmpty(raw: Database.Database): void {
 
   raw
     .prepare(`
-      INSERT INTO insurance_rates (year, month, health_rate, nursing_rate, pension_rate, employment_rate, prefecture)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO insurance_rates (year, month, health_rate, nursing_rate, pension_rate, employment_rate, child_support_rate, prefecture)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
-    .run(2026, 3, 0.05055, 0.0081, 0.0915, 0.005, '福岡県');
+    .run(2026, 3, 0.05055, 0.0081, 0.0915, 0.005, 0.00115, '福岡県');
 }

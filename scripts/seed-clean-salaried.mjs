@@ -16,7 +16,7 @@ const MONTH = 5
 const HOLIDAYS = new Set([4, 5, 6])
 
 // --- 計算式（mock-data.ts と同一） ---
-const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.006 }
+const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.005 }
 const roundInsurance = (a) => (a - Math.floor(a) <= 0.5 ? Math.floor(a) : Math.ceil(a))
 const calcAge = (birth, base = new Date()) => {
   const b = new Date(birth)

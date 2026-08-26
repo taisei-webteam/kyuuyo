@@ -315,6 +315,7 @@
 .detail {
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
 }
 
 .detailCard {
@@ -480,11 +481,14 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+  min-width: 0;
 }
 
 .column {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sectionCard {
@@ -492,6 +496,7 @@
   border-radius: 10px;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .sectionHeader {
@@ -555,6 +560,19 @@
   font-size: 0.625rem;
 }
 
+.fixedTag {
+  font-size: 0.625rem;
+  font-weight: 600;
+  padding: 1px 6px;
+  background: #e0e7ff;
+  color: #3730a3;
+  border-radius: 4px;
+}
+
+.rowInputFixed {
+  background: #eef2ff;
+}
+
 .rowValue {
   font-size: 0.875rem;
   font-weight: 500;
@@ -564,6 +582,7 @@
 
 .rowInput {
   width: 110px;
+  flex-shrink: 0;
   padding: 4px 8px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -575,6 +594,9 @@
   text-align: right;
   outline: none;
   transition: border-color 0.15s;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2;
 }
 
 .rowInput:focus {

@@ -13,6 +13,9 @@ import {
   sumExtraLines,
   visibleExtraLines,
   type MockPayslip,
+  migrateRareDeductionsToFreeSlots,
+  FREE_DEDUCTION_SLOTS,
+  newExtraLine,
 } from '@/lib/mock-data'
 import { buildYearSelectOptions } from '@/lib/year-options'
 
@@ -52,22 +55,16 @@ const PAY_COLUMNS: Column[] = [
 ]
 
 const DEDUCT_COLUMNS: Column[] = [
-  { key: 'healthInsurance', label: '健康保険', editable: true },
-  { key: 'nursingInsurance', label: '介護保険', editable: true },
+  { key: 'incomeTax', label: '所得税', editable: true },
+  { key: 'healthInsurance', label: '健康・介護', editable: true },
   { key: 'welfarePension', label: '厚生年金', editable: true },
   { key: 'employmentInsurance', label: '雇用保険', editable: true },
-  { key: 'incomeTax', label: '所得税', editable: true },
   { key: 'residentTax', label: '住民税', editable: true },
-  { key: 'savingsDeduction', label: '積立', editable: true },
-  { key: 'loanDeduction', label: '貸付', editable: true },
-  { key: 'otherDeduction', label: '共済掛金', editable: true },
-  { key: 'totalDeduction', label: '控除合計', editable: false },
 ]
 
 const PAY_BASE_COLUMNS = PAY_COLUMNS.filter((c) => c.key !== 'totalPayment')
-const DEDUCT_BASE_COLUMNS = DEDUCT_COLUMNS.filter((c) => c.key !== 'totalDeduction')
+const DEDUCT_BASE_COLUMNS = DEDUCT_COLUMNS
 const EXTRA_PAY_LABEL_DEFAULT = '追加支給'
-const EXTRA_DEDUCT_LABEL_DEFAULT = '追加控除'
 
 function extraPaymentAmount(row: MockPayslip): number {
   return sumExtraLines(resolveSalaryPaymentExtras(row))
@@ -75,6 +72,33 @@ function extraPaymentAmount(row: MockPayslip): number {
 
 function extraDeductionAmount(row: MockPayslip): number {
   return sumExtraLines(visibleExtraLines(row.extraDeductionLines))
+}
+
+function recalcEditableRow(row: EditablePayslip): EditablePayslip {
+  const next = { ...row }
+  next.totalPayment =
+    next.basicSalary +
+    next.overtimePay +
+    next.transportAllowance +
+    next.positionAllowance +
+    next.familyAllowance +
+    next.specialAllowance +
+    next.dangerAllowance +
+    next.salesAllowance +
+    extraPaymentAmount(next)
+  next.totalDeduction =
+    next.healthInsurance +
+    next.nursingInsurance +
+    next.welfarePension +
+    next.employmentInsurance +
+    next.incomeTax +
+    next.residentTax +
+    next.savingsDeduction +
+    next.loanDeduction +
+    next.otherDeduction +
+    extraDeductionAmount(next)
+  next.netPayment = next.totalPayment - next.totalDeduction
+  return next
 }
 
 /** 予備列: 0円は空欄 */
@@ -119,8 +143,9 @@ export function PayslipHistory(): ReactElement {
     return basePayslips
       .map((ps) => {
         const emp = employees.find((e) => e.id === ps.employeeId)
+        const migrated = migrateRareDeductionsToFreeSlots(ps)
         return {
-          ...ps,
+          ...migrated,
           employeeName: emp?.name ?? '',
           employeeType: emp?.employeeType ?? '',
           displayOrder: emp?.displayOrder ?? 0,
@@ -142,33 +167,26 @@ export function PayslipHistory(): ReactElement {
       setEditData((prev) => {
         const updated = [...prev]
         const row = { ...updated[idx], [field]: value }
+        if (field === 'healthInsurance') {
+          row.nursingInsurance = 0
+        }
+        updated[idx] = recalcEditableRow(row)
+        return updated
+      })
+    },
+    [],
+  )
 
-        row.totalPayment =
-          row.basicSalary +
-          row.overtimePay +
-          row.transportAllowance +
-          row.positionAllowance +
-          row.familyAllowance +
-          row.specialAllowance +
-          row.dangerAllowance +
-          row.salesAllowance +
-          extraPaymentAmount(row)
-
-        row.totalDeduction =
-          row.healthInsurance +
-          row.nursingInsurance +
-          row.welfarePension +
-          row.employmentInsurance +
-          row.incomeTax +
-          row.residentTax +
-          row.savingsDeduction +
-          row.loanDeduction +
-          row.otherDeduction +
-          extraDeductionAmount(row)
-
-        row.netPayment = row.totalPayment - row.totalDeduction
-
-        updated[idx] = row
+  const handleFreeDeductChange = useCallback(
+    (idx: number, slotIdx: number, value: number): void => {
+      setEditData((prev) => {
+        const updated = [...prev]
+        const row = { ...updated[idx] }
+        const lines = [...(row.extraDeductionLines ?? [])]
+        while (lines.length < FREE_DEDUCTION_SLOTS) lines.push(newExtraLine())
+        lines[slotIdx] = { ...lines[slotIdx], amount: value }
+        row.extraDeductionLines = lines
+        updated[idx] = recalcEditableRow(row)
         return updated
       })
     },
@@ -216,22 +234,36 @@ export function PayslipHistory(): ReactElement {
       basicSalary: 0, overtimePay: 0, familyAllowance: 0, specialAllowance: 0,
       positionAllowance: 0, transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0,
       extraPayment: 0, totalPayment: 0,
-      healthInsurance: 0, nursingInsurance: 0, welfarePension: 0, employmentInsurance: 0,
-      incomeTax: 0, residentTax: 0, savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0,
+      healthNursing: 0, welfarePension: 0, employmentInsurance: 0,
+      incomeTax: 0, residentTax: 0,
       extraDeduction: 0, totalDeduction: 0,
     }
+    const freeDeduct = Array.from({ length: FREE_DEDUCTION_SLOTS }, () => 0)
     for (const r of editData) {
-      for (const k of Object.keys(t) as (keyof typeof t)[]) {
-        if (k === 'extraPayment') {
-          t.extraPayment += extraPaymentAmount(r)
-        } else if (k === 'extraDeduction') {
-          t.extraDeduction += extraDeductionAmount(r)
-        } else {
-          (t[k] as number) += r[k]
-        }
+      t.workDays += r.workDays
+      t.netPayment += r.netPayment
+      t.basicSalary += r.basicSalary
+      t.overtimePay += r.overtimePay
+      t.familyAllowance += r.familyAllowance
+      t.specialAllowance += r.specialAllowance
+      t.positionAllowance += r.positionAllowance
+      t.transportAllowance += r.transportAllowance
+      t.salesAllowance += r.salesAllowance
+      t.dangerAllowance += r.dangerAllowance
+      t.extraPayment += extraPaymentAmount(r)
+      t.totalPayment += r.totalPayment
+      t.healthNursing += r.healthInsurance + r.nursingInsurance
+      t.welfarePension += r.welfarePension
+      t.employmentInsurance += r.employmentInsurance
+      t.incomeTax += r.incomeTax
+      t.residentTax += r.residentTax
+      t.extraDeduction += extraDeductionAmount(r)
+      t.totalDeduction += r.totalDeduction
+      for (let i = 0; i < FREE_DEDUCTION_SLOTS; i++) {
+        freeDeduct[i] += r.extraDeductionLines?.[i]?.amount ?? 0
       }
     }
-    return t
+    return { ...t, freeDeduct }
   }, [editData])
 
   const paymentExtraLabel = useMemo(
@@ -239,10 +271,8 @@ export function PayslipHistory(): ReactElement {
     [editData],
   )
 
-  const deductionExtraLabel = useMemo(
-    () => firstExtraLineLabel(editData.map((r) => r.extraDeductionLines)) || EXTRA_DEDUCT_LABEL_DEFAULT,
-    [editData],
-  )
+  const deductStartCol = PAY_BASE_COLUMNS.length
+  const freeStartCol = deductStartCol + DEDUCT_BASE_COLUMNS.length
 
   return (
     <div className={styles.container}>
@@ -312,7 +342,7 @@ export function PayslipHistory(): ReactElement {
                 <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
                 <th rowSpan={2} className={styles.thNetPay}>振込額</th>
                 <th colSpan={PAY_BASE_COLUMNS.length + 2} className={styles.thGroupPay}>支　払</th>
-                <th colSpan={DEDUCT_BASE_COLUMNS.length + 2} className={styles.thGroupDeduct}>控　除</th>
+                <th colSpan={DEDUCT_BASE_COLUMNS.length + FREE_DEDUCTION_SLOTS + 1} className={styles.thGroupDeduct}>控　除</th>
               </tr>
               <tr>
                 {PAY_BASE_COLUMNS.map((col) => (
@@ -323,7 +353,9 @@ export function PayslipHistory(): ReactElement {
                 {DEDUCT_BASE_COLUMNS.map((col) => (
                   <th key={col.key} className={styles.th}>{col.label}</th>
                 ))}
-                <th className={`${styles.th} ${styles.thExtra}`}>{deductionExtraLabel}</th>
+                {Array.from({ length: FREE_DEDUCTION_SLOTS }, (_, i) => (
+                  <th key={`free-${i}`} className={`${styles.th} ${styles.thExtra}`} />
+                ))}
                 <th className={`${styles.th} ${styles.thTotal}`}>控除合計</th>
               </tr>
             </thead>
@@ -370,8 +402,10 @@ export function PayslipHistory(): ReactElement {
                   <td className={styles.tdReadonly}>{numOrBlank(extraPaymentAmount(row))}</td>
                   <td className={`${styles.tdReadonly} ${styles.tdTotal}`}>{num(row.totalPayment)}</td>
                   {DEDUCT_BASE_COLUMNS.map((col, colIdx) => {
-                    const val = row[col.key] as number
-                    const dataCol = PAY_BASE_COLUMNS.length + 1 + colIdx
+                    const val = col.key === 'healthInsurance'
+                      ? row.healthInsurance + row.nursingInsurance
+                      : (row[col.key] as number)
+                    const dataCol = deductStartCol + colIdx
                     return (
                       <td key={col.key} className={styles.tdEditable}>
                         <input
@@ -389,7 +423,30 @@ export function PayslipHistory(): ReactElement {
                       </td>
                     )
                   })}
-                  <td className={styles.tdReadonly}>{numOrBlank(extraDeductionAmount(row))}</td>
+                  {Array.from({ length: FREE_DEDUCTION_SLOTS }, (_, slotIdx) => {
+                    const amount = row.extraDeductionLines?.[slotIdx]?.amount ?? 0
+                    const dataCol = freeStartCol + slotIdx
+                    return (
+                      <td key={`free-${slotIdx}`} className={styles.tdEditable}>
+                        <input
+                          type="number"
+                          className={styles.cellInput}
+                          value={amount === 0 ? '' : amount}
+                          data-row={rowIdx}
+                          data-col={dataCol}
+                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                            handleFreeDeductChange(
+                              rowIdx,
+                              slotIdx,
+                              e.target.value === '' ? 0 : Number(e.target.value),
+                            )
+                          }
+                          onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
+                          min={0}
+                        />
+                      </td>
+                    )
+                  })}
                   <td className={`${styles.tdReadonly} ${styles.tdTotal}`}>{num(row.totalDeduction)}</td>
                 </tr>
               ))}
@@ -406,12 +463,19 @@ export function PayslipHistory(): ReactElement {
                 ))}
                 <td className={styles.tdFoot}>{numOrBlank(totals.extraPayment)}</td>
                 <td className={`${styles.tdFoot} ${styles.tdFootTotal}`}>{num(Math.round(totals.totalPayment))}</td>
-                {DEDUCT_BASE_COLUMNS.map((col) => (
-                  <td key={col.key} className={styles.tdFoot}>
-                    {num(Math.round(totals[col.key as keyof typeof totals] as number))}
-                  </td>
+                {DEDUCT_BASE_COLUMNS.map((col) => {
+                  const amount = col.key === 'healthInsurance'
+                    ? totals.healthNursing
+                    : (totals[col.key as keyof typeof totals] as number)
+                  return (
+                    <td key={col.key} className={styles.tdFoot}>
+                      {num(Math.round(amount))}
+                    </td>
+                  )
+                })}
+                {totals.freeDeduct.map((amount, i) => (
+                  <td key={`free-foot-${i}`} className={styles.tdFoot}>{numOrBlank(amount)}</td>
                 ))}
-                <td className={styles.tdFoot}>{numOrBlank(totals.extraDeduction)}</td>
                 <td className={`${styles.tdFoot} ${styles.tdFootTotal}`}>{num(Math.round(totals.totalDeduction))}</td>
               </tr>
             </tfoot>

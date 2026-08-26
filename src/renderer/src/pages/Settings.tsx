@@ -539,7 +539,7 @@ export default function Settings(): ReactElement {
                     step={0.1}
                     onChange={(e) => handleChange('monthlyWorkHours', Number(e.target.value))}
                   />
-                  <span className={styles.ruleUnit}>時間（月給者の残業単価 = 基本給 ÷ この値）</span>
+                  <span className={styles.ruleUnit}>時間（月給者の残業単価 = 基本給 ÷ この値。社内表は 173.5）</span>
                 </div>
               </div>
             </div>
@@ -554,6 +554,7 @@ export default function Settings(): ReactElement {
             <div className={styles.sectionBodySingle}>
               <p className={styles.fieldHint}>
                 有給の付与・消化の自動計算は未実装です。残日数は従業員マスタで手入力し、ここでは会社共通の運用ルールを記録します。
+                勤怠の有給区分は、社員（役員含む）が午前休・午後休・全日休、パートは全日休のみです。午前休・午後休は 0.5 日として消化します。
               </p>
               <div className={styles.ruleRow}>
                 <span className={styles.ruleLabel}>有給リセット月</span>
@@ -584,7 +585,7 @@ export default function Settings(): ReactElement {
                   value={form.paidLeavePolicy}
                   onChange={(e) => handleChange('paidLeavePolicy', e.target.value)}
                   rows={6}
-                  placeholder={'例:\n・入社6か月経過後に10日付与\n・年度始め（4月）に残日数をリセット\n・半休は0.5日として消化'}
+                  placeholder={'例:\n・入社6か月経過後に10日付与\n・年度始め（4月）に残日数をリセット\n・社員は午前休・午後休・全日休、パートは全日休のみ'}
                 />
               </div>
             </div>
@@ -1009,6 +1010,7 @@ interface RateDraft {
   nursingPct: string
   pensionPct: string
   employmentPct: string
+  childSupportPct: string
 }
 
 /** 小数の率(0.04985)を百分率の文字列("4.985")へ。浮動小数の誤差を除去する。 */
@@ -1033,6 +1035,7 @@ function toDraft(r: InsuranceRate): RateDraft {
     nursingPct: rateToPct(r.nursingRate),
     pensionPct: rateToPct(r.pensionRate),
     employmentPct: rateToPct(r.employmentRate),
+    childSupportPct: rateToPct(r.childSupportRate ?? 0),
   }
 }
 
@@ -1045,6 +1048,7 @@ function emptyDraft(): RateDraft {
     nursingPct: '',
     pensionPct: '',
     employmentPct: '',
+    childSupportPct: '0.115',
   }
 }
 
@@ -1083,12 +1087,13 @@ function InsuranceRatesSettings(): ReactElement {
       const nursing = pctToRate(d.nursingPct)
       const pension = pctToRate(d.pensionPct)
       const employment = pctToRate(d.employmentPct)
+      const childSupport = pctToRate(d.childSupportPct)
 
       if (!Number.isInteger(year) || year < 2000 || year > 2100) {
         setMessage({ text: '適用年を正しく入力してください', ok: false })
         return
       }
-      if ([health, nursing, pension, employment].some((v) => Number.isNaN(v) || v < 0 || v > 1)) {
+      if ([health, nursing, pension, employment, childSupport].some((v) => Number.isNaN(v) || v < 0 || v > 1)) {
         setMessage({ text: '料率は数値（％）で入力してください', ok: false })
         return
       }
@@ -1108,6 +1113,7 @@ function InsuranceRatesSettings(): ReactElement {
           nursingRate: nursing,
           pensionRate: pension,
           employmentRate: employment,
+          childSupportRate: childSupport,
           prefecture: d.prefecture.trim(),
         })
         if (res.success) {
@@ -1153,9 +1159,10 @@ function InsuranceRatesSettings(): ReactElement {
 
   const rateFields: { key: keyof RateDraft; label: string }[] = [
     { key: 'healthPct', label: '健康保険 (%)' },
+    { key: 'childSupportPct', label: '支援金 (%) ※0.115' },
     { key: 'nursingPct', label: '介護保険 (%)' },
     { key: 'pensionPct', label: '厚生年金 (%)' },
-    { key: 'employmentPct', label: '雇用保険 (%)' },
+    { key: 'employmentPct', label: '雇用保険 (%) ※0.5' },
   ]
 
   return (
@@ -1171,8 +1178,11 @@ function InsuranceRatesSettings(): ReactElement {
               <p className={styles.fieldHint}>
                 給与計算で使用する社会保険料率を年度別に管理します。入力する率はすべて
                 <b>被保険者負担分（折半後）</b>です。健康保険・介護保険料率は都道府県（協会けんぽ）や
-                健保組合により異なります。厚生年金は全国一律、雇用保険は総支給額ベースで計算します。
-                料率は毎年度改定されるため、改定時にこの画面で新しい年度の行を追加してください。
+                健保組合により異なります。厚生年金は全国一律です。雇用保険は総支給額×0.005（労働者負担
+                5/1000＝0.5%）です。この欄は百分率なので「0.5」と入力してください。「0.005」と入れると
+                0.005% になり、紙の明細と合いません。子ども・子育て支援金は被保険者負担 0.115%（総額0.23%の折半）で、
+                健康保険に上乗せします。料率が変わったらこの画面で直すと、翌月の「給与作成」から反映されます。
+                介護は40〜64歳、厚生年金は70歳未満、健康保険は75歳未満です。料率は毎年度改定されるため、改定時にこの画面で新しい年度の行を追加してください。
               </p>
 
               <div className={styles.mailActions}>

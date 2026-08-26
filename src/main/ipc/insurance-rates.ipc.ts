@@ -10,7 +10,7 @@ import { getSqlite } from '../db/connection.js';
 import type { IpcResult, InsuranceRate, InsuranceRateInput } from '../../shared/types.js';
 
 const SELECT_COLUMNS =
-  'id, year, month, health_rate AS healthRate, nursing_rate AS nursingRate, pension_rate AS pensionRate, employment_rate AS employmentRate, prefecture';
+  'id, year, month, health_rate AS healthRate, nursing_rate AS nursingRate, pension_rate AS pensionRate, employment_rate AS employmentRate, child_support_rate AS childSupportRate, prefecture';
 
 /** 料率入力を検証する。不正な場合はエラーメッセージ、正常なら null を返す。 */
 function validateRateInput(p: Partial<InsuranceRateInput>): string | null {
@@ -25,6 +25,7 @@ function validateRateInput(p: Partial<InsuranceRateInput>): string | null {
     'nursingRate',
     'pensionRate',
     'employmentRate',
+    'childSupportRate',
   ];
   for (const key of rateKeys) {
     const v = p[key];
@@ -70,7 +71,7 @@ export function registerInsuranceRateHandlers(): void {
           raw
             .prepare(`
               UPDATE insurance_rates
-              SET year = ?, month = ?, health_rate = ?, nursing_rate = ?, pension_rate = ?, employment_rate = ?, prefecture = ?
+              SET year = ?, month = ?, health_rate = ?, nursing_rate = ?, pension_rate = ?, employment_rate = ?, child_support_rate = ?, prefecture = ?
               WHERE id = ?
             `)
             .run(
@@ -80,20 +81,22 @@ export function registerInsuranceRateHandlers(): void {
               params.nursingRate,
               params.pensionRate,
               params.employmentRate,
+              params.childSupportRate,
               prefecture,
               params.id,
             );
         } else {
           raw
             .prepare(`
-              INSERT INTO insurance_rates (year, month, health_rate, nursing_rate, pension_rate, employment_rate, prefecture)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
+              INSERT INTO insurance_rates (year, month, health_rate, nursing_rate, pension_rate, employment_rate, child_support_rate, prefecture)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
               ON CONFLICT(year, prefecture) DO UPDATE SET
                 month = excluded.month,
                 health_rate = excluded.health_rate,
                 nursing_rate = excluded.nursing_rate,
                 pension_rate = excluded.pension_rate,
-                employment_rate = excluded.employment_rate
+                employment_rate = excluded.employment_rate,
+                child_support_rate = excluded.child_support_rate
             `)
             .run(
               params.year,
@@ -102,6 +105,7 @@ export function registerInsuranceRateHandlers(): void {
               params.nursingRate,
               params.pensionRate,
               params.employmentRate,
+              params.childSupportRate,
               prefecture,
             );
         }

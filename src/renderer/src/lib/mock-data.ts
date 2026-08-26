@@ -4,16 +4,18 @@ export interface InsuranceRateValues {
   nursingRate: number
   pensionRate: number
   employmentRate: number
+  childSupportRate: number
 }
 
 // 既定の保険料率（令和6年度＝2024年度の参考値）。
 // Electron 環境では起動時に hydrateInsuranceRatesFromDb() が
 // insurance_rates テーブルの値でこのオブジェクトを上書きする。
 const DEFAULT_INSURANCE_RATES: InsuranceRateValues = {
-  healthRate: 0.04985,
-  nursingRate: 0.008,
+  healthRate: 0.05055,
+  nursingRate: 0.0081,
   pensionRate: 0.0915,
   employmentRate: 0.005,
+  childSupportRate: 0.00115,
 }
 
 // 現在有効な保険料率。給与計算・料率表示はこの値を参照する（DB からの読み込みで更新）。
@@ -42,11 +44,52 @@ export function calcAge(birthDate: string, baseDate: string = new Date().toISOSt
   return age
 }
 
+/** 指定年月の末日（YYYY-MM-DD）。社会保険の年齢判定に使う。 */
+export function monthEndDate(year: number, month: number): string {
+  const lastDay = new Date(year, month, 0).getDate()
+  return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+}
+
+/** 健康保険: 75歳未満 */
+export function isHealthInsuranceAge(age: number): boolean {
+  return age < 75
+}
+
+/** 介護保険第2号: 40歳以上65歳未満 */
+export function isNursingCareAge(age: number): boolean {
+  return age >= 40 && age < 65
+}
+
+/** 厚生年金: 70歳未満 */
+export function isWelfarePensionAge(age: number): boolean {
+  return age < 70
+}
+
 export interface InsurancePremiums {
   healthInsurance: number
   nursingInsurance: number
   welfarePension: number
   employmentInsurance: number
+}
+
+/**
+ * 標準報酬（または標準賞与額）と年齢から、健保・介護・厚生年金を算出する。
+ */
+export function calcAgeBasedSocialInsurance(
+  standardAmount: number,
+  age: number,
+): Pick<InsurancePremiums, 'healthInsurance' | 'nursingInsurance' | 'welfarePension'> {
+  const healthInsurance = isHealthInsuranceAge(age)
+    ? roundInsurance(standardAmount * INSURANCE_RATES.healthRate) +
+      roundInsurance(standardAmount * INSURANCE_RATES.childSupportRate)
+    : 0
+  const nursingInsurance = isNursingCareAge(age)
+    ? roundInsurance(standardAmount * INSURANCE_RATES.nursingRate)
+    : 0
+  const welfarePension = isWelfarePensionAge(age)
+    ? roundInsurance(standardAmount * INSURANCE_RATES.pensionRate)
+    : 0
+  return { healthInsurance, nursingInsurance, welfarePension }
 }
 
 /**
@@ -56,15 +99,12 @@ export function calculateInsurancePremiums(
   standardMonthlyRemuneration: number,
   birthDate: string,
   totalPayment: number,
+  baseDate?: string,
 ): InsurancePremiums {
-  const age = calcAge(birthDate)
-  const healthInsurance = roundInsurance(standardMonthlyRemuneration * INSURANCE_RATES.healthRate)
-  const nursingInsurance = age >= 40
-    ? roundInsurance(standardMonthlyRemuneration * INSURANCE_RATES.nursingRate)
-    : 0
-  const welfarePension = roundInsurance(standardMonthlyRemuneration * INSURANCE_RATES.pensionRate)
+  const age = calcAge(birthDate, baseDate)
+  const social = calcAgeBasedSocialInsurance(standardMonthlyRemuneration, age)
   const employmentInsurance = Math.floor(totalPayment * INSURANCE_RATES.employmentRate)
-  return { healthInsurance, nursingInsurance, welfarePension, employmentInsurance }
+  return { ...social, employmentInsurance }
 }
 
 /** 厚生年金保険の標準賞与額の上限（1回の支払につき150万円） */
@@ -86,17 +126,22 @@ const PENSION_BONUS_CAP = 1_500_000
 export function calculateBonusInsurancePremiums(
   totalPayment: number,
   birthDate: string,
+  baseDate?: string,
 ): InsurancePremiums {
-  const age = birthDate ? calcAge(birthDate) : 0
+  const age = birthDate ? calcAge(birthDate, baseDate) : 0
   // 標準賞与額（1,000円未満切捨て）
   const standardBonus = Math.floor(totalPayment / 1000) * 1000
   const pensionBase = Math.min(standardBonus, PENSION_BONUS_CAP)
 
-  const healthInsurance = roundInsurance(standardBonus * INSURANCE_RATES.healthRate)
-  const nursingInsurance = age >= 40 ? roundInsurance(standardBonus * INSURANCE_RATES.nursingRate) : 0
-  const welfarePension = roundInsurance(pensionBase * INSURANCE_RATES.pensionRate)
+  const healthAndNursing = calcAgeBasedSocialInsurance(standardBonus, age)
+  const pension = calcAgeBasedSocialInsurance(pensionBase, age)
   const employmentInsurance = Math.floor(totalPayment * INSURANCE_RATES.employmentRate)
-  return { healthInsurance, nursingInsurance, welfarePension, employmentInsurance }
+  return {
+    healthInsurance: healthAndNursing.healthInsurance,
+    nursingInsurance: healthAndNursing.nursingInsurance,
+    welfarePension: pension.welfarePension,
+    employmentInsurance,
+  }
 }
 
 export type HolidayMode = 'calendar' | 'individual'
@@ -145,6 +190,10 @@ export interface MockEmployee {
   bonusEligible?: boolean
   /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
   employmentInsuranceOverage?: number
+  /** 固定の時間外手当（円）。0 のときは勤怠時間から計算する。 */
+  fixedOvertimePay?: number
+  /** 源泉所得税を徴収しない */
+  incomeTaxExempt?: boolean
   /** 有給残日数（手入力。0.5日単位可） */
   paidLeaveBalance?: number | null
   /** メール到達確認の状態（DB 管理。画面からは編集しない） */
@@ -275,6 +324,46 @@ export function newExtraLine(label = '', amount = 0): PayslipExtraLine {
       : `extra-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     label,
     amount,
+  }
+}
+
+/** 給与作成の自由枠（積立・貸付・共済など）として常に残す空行数 */
+export const FREE_DEDUCTION_SLOTS = 3
+
+export function padExtraLines(
+  lines: PayslipExtraLine[] | undefined,
+  min: number,
+): PayslipExtraLine[] {
+  const next = Array.isArray(lines) ? lines.map((line) => ({ ...line })) : []
+  while (next.length < min) next.push(newExtraLine())
+  return next
+}
+
+/**
+ * 積立金・貸付返済・共済掛金を自由枠（追加控除行）へ移す。
+ * 専用カラムは 0 にし、給与作成では空白セルとして扱う。
+ */
+export function migrateRareDeductionsToFreeSlots(ps: MockPayslip): MockPayslip {
+  const extras = padExtraLines(ps.extraDeductionLines, FREE_DEDUCTION_SLOTS)
+  const put = (amount: number, label: string): void => {
+    if (amount <= 0) return
+    if (extras.some((line) => line.label === label && line.amount === amount)) return
+    const emptyIdx = extras.findIndex((line) => line.label.trim() === '' && line.amount === 0)
+    if (emptyIdx >= 0) {
+      extras[emptyIdx] = { ...extras[emptyIdx], label, amount }
+    } else {
+      extras.push(newExtraLine(label, amount))
+    }
+  }
+  put(ps.savingsDeduction, '積立金')
+  put(ps.loanDeduction, '貸付返済')
+  put(ps.otherDeduction, '共済掛金')
+  return {
+    ...ps,
+    savingsDeduction: 0,
+    loanDeduction: 0,
+    otherDeduction: 0,
+    extraDeductionLines: extras,
   }
 }
 
@@ -594,7 +683,7 @@ const employees: MockEmployee[] = [
 // ========================================
 
 import { getHolidaysForYear } from './holidays-jp'
-import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes } from './time-rounding'
+import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes, unpaidGoOutMinutes, toMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
@@ -623,11 +712,11 @@ export function initCalendarYear(year: number): void {
     const key = formatDateKey(d)
     const dow = d.getDay()
     const nationalHolidayName = holidayMap.get(key) ?? null
-    const isSunday = dow === 0
+    const isWeekend = dow === 0 || dow === 6
 
     if (!calendarStore.has(key)) {
       calendarStore.set(key, {
-        isHoliday: isSunday || nationalHolidayName !== null,
+        isHoliday: isWeekend || nationalHolidayName !== null,
         holidayName: nationalHolidayName,
         isNationalHoliday: nationalHolidayName !== null,
       })
@@ -699,7 +788,7 @@ export function resetCalendarYear(year: number): void {
 
 /**
  * Electron 環境では DB(company_calendar) から会社カレンダーを読み込み、
- * インメモリの calendarStore へ反映する。日曜・祝日は holidays-jp から
+ * インメモリの calendarStore へ反映する。土日・祝日は holidays-jp から
  * 既定値を再計算し、DB に保存された会社休日設定で上書きする。
  * Vite 単体では何もしない。
  */
@@ -938,7 +1027,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const clockOut = roundClockOut(rawClockOut, settings.roundingUnit)
 
     const earlyOvertimeMinutes = calcEarlyOvertime(
-      rawClockIn,
+      clockIn,
       emp?.earlyWorkStart ?? null,
       emp?.earlyWorkEnd ?? null,
       settings.earlyRoundingUnit,
@@ -956,7 +1045,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
       const returnMinRemainder = returnMin % 60
       goOut = `${String(goOutHour).padStart(2, '0')}:${String(goOutMin).padStart(2, '0')}`
       goReturn = `${String(returnHour).padStart(2, '0')}:${String(returnMinRemainder).padStart(2, '0')}`
-      goOutMinutes = (returnHour * 60 + returnMinRemainder) - (goOutHour * 60 + goOutMin)
+      goOutMinutes = unpaidGoOutMinutes(goOut, goReturn)
     }
 
     const workStartMin = timeToMinutes(clockIn)
@@ -979,7 +1068,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
 
     const spanMinutes = Math.max(0, workEndMin - workStartMin - goOutMinutes)
     const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
-    const totalWork = Math.max(0, spanMinutes - breakMinutes)
+    const totalWork = Math.max(0, spanMinutes - breakMinutes - earlyOvertimeMinutes)
     const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - settings.defaultBreakMinutes
 
     let overtime = 0
@@ -1030,6 +1119,19 @@ export interface AttendanceAggregate {
 }
 
 /**
+ * 給与集計用の労働時間。勤怠画面と同じ規則（12時台の外出は昼休憩で引かない）。
+ */
+function workMinutesForPayslip(r: AttendanceRecord): number {
+  if (!r.clockIn || !r.clockOut) return r.workMinutes
+  const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
+  const inMin = toMinutes(r.clockIn)
+  const outMin = toMinutes(r.clockOut)
+  const spanMinutes = Math.max(0, outMin - inMin - goOutMinutes)
+  const breakMinutes = calcBreakMinutes(spanMinutes, getSettings().defaultBreakMinutes)
+  return Math.max(0, spanMinutes - breakMinutes - (r.earlyOvertimeMinutes ?? 0))
+}
+
+/**
  * SQLite (attendance_records) から取得した実勤怠レコードを従業員ごとに集計する。
  * Supabase 同期 → 丸め済みの勤怠を給与計算に反映するための入口。
  */
@@ -1039,12 +1141,14 @@ export function aggregateAttendanceRecords(
   const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number; paidLeaveDays: number }>()
   for (const r of records) {
     const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0, paidLeaveDays: 0 }
-    if (!r.isHoliday && r.workMinutes > 0) cur.workDays++
+    const workMinutes = workMinutesForPayslip(r)
+    if (workMinutes > 0) cur.workDays++
     cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
-    cur.totalWork += r.workMinutes
-    // 残業時間 = 通常残業 + 早出 + 休日出勤(全労働時間)。いずれも割増(1.25倍)の対象。
+    cur.totalWork += workMinutes
+    // 時間外手当 = 早出 + 平日の終業後残業。
+    // 休日出勤の実働は総労働時間（基本給）に含め、ここには足さない（紙の「通常」と同じ）。
     if (r.isHolidayWork) {
-      cur.totalOvertime += r.workMinutes
+      cur.totalOvertime += r.earlyOvertimeMinutes
       cur.holidayWorkDays++
     } else {
       cur.totalOvertime += r.overtimeMinutes + r.earlyOvertimeMinutes
@@ -1161,16 +1265,16 @@ function generatePayslips(
     }
 
     const isPartTime = emp.employeeType === 'パート'
-    const regularHours = Math.max(0, workHours - overtimeHours)
 
     let basicSalary: number
     let hourlyRate: number
     if (isPartTime) {
       hourlyRate = emp.hourlyRate
-      basicSalary = Math.round(hourlyRate * regularHours)
+      // チクホーの明細: 基本給 = 時給 × 総労働時間（残業時間を含む）
+      basicSalary = Math.round(hourlyRate * workHours)
     } else {
       // 月給者の時間外単価 = 基本給 ÷ 1か月平均所定労働時間数（会社設定・労基則19条）
-      const monthlyHours = getSettings().monthlyWorkHours || 173.6
+      const monthlyHours = getSettings().monthlyWorkHours || 173.5
       hourlyRate = Math.round(emp.basicSalary / monthlyHours)
       basicSalary = emp.basicSalary
     }
@@ -1180,7 +1284,9 @@ function generatePayslips(
       basicSalary = Math.round(basicSalary * employment.prorationFactor)
     }
 
-    const overtimePay = Math.round(hourlyRate * 1.25 * overtimeHours)
+    const overtimePay = (emp.fixedOvertimePay ?? 0) > 0
+      ? emp.fixedOvertimePay!
+      : Math.round(hourlyRate * 1.25 * overtimeHours)
 
     // 超過分を除く支給合計（雇用保険控除の算定基数）
     const subtotalPayment =
@@ -1199,16 +1305,13 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    const age = calcAge(emp.birthDate)
-    const healthInsurance = employment.socialInsuranceApplies
-      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.healthRate)
-      : 0
-    const nursingInsurance = employment.socialInsuranceApplies && age >= 40
-      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.nursingRate)
-      : 0
-    const welfarePension = employment.socialInsuranceApplies
-      ? roundInsurance(emp.standardMonthlyRemuneration * INSURANCE_RATES.pensionRate)
-      : 0
+    const age = emp.birthDate ? calcAge(emp.birthDate, monthEndDate(year, month)) : 0
+    const social = employment.socialInsuranceApplies
+      ? calcAgeBasedSocialInsurance(emp.standardMonthlyRemuneration, age)
+      : { healthInsurance: 0, nursingInsurance: 0, welfarePension: 0 }
+    const healthInsurance = social.healthInsurance
+    const nursingInsurance = social.nursingInsurance
+    const welfarePension = social.welfarePension
     // 雇用保険: 超過分を除く支給合計 × 料率（円未満切捨て）
     const employmentInsurance = Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
 
@@ -1219,7 +1322,15 @@ function generatePayslips(
     const nonTaxableTransport = emp.transportAllowance - (emp.taxableTransport ?? 0)
     const taxableBase = totalPayment - nonTaxableTransport - socialInsuranceTotal
     // 源泉徴収税額（令和8年分 月額表・甲欄の実額）。扶養親族等の数で税額が変わる。
-    const incomeTax = calcWithholdingTaxByTable(taxableBase, emp.dependents)
+    // 所得税は作成時に一度入れて以降は固定（支給・社保を後から直しても再計算しない）
+    const incomeTax = emp.incomeTaxExempt
+      ? 0
+      : calcWithholdingTaxByTable(taxableBase, emp.dependents)
+
+    const extraDeductionLines = padExtraLines([
+      ...(emp.savingsDeduction > 0 ? [newExtraLine('積立金', emp.savingsDeduction)] : []),
+      ...(emp.loanDeduction > 0 ? [newExtraLine('貸付返済', emp.loanDeduction)] : []),
+    ], FREE_DEDUCTION_SLOTS)
 
     const totalDeduction =
       healthInsurance +
@@ -1228,8 +1339,7 @@ function generatePayslips(
       employmentInsurance +
       incomeTax +
       emp.residentTax +
-      emp.savingsDeduction +
-      emp.loanDeduction
+      sumExtraLines(extraDeductionLines)
 
     const netPayment = totalPayment - totalDeduction
 
@@ -1253,7 +1363,7 @@ function generatePayslips(
       salesAllowance: emp.salesAllowance,
       otherAllowance: employmentInsuranceOverage,
       extraPaymentLines,
-      extraDeductionLines: [],
+      extraDeductionLines,
       totalPayment,
       healthInsurance,
       nursingInsurance,
@@ -1261,8 +1371,8 @@ function generatePayslips(
       employmentInsurance,
       incomeTax,
       residentTax: emp.residentTax,
-      savingsDeduction: emp.savingsDeduction,
-      loanDeduction: emp.loanDeduction,
+      savingsDeduction: 0,
+      loanDeduction: 0,
       otherDeduction: 0,
       totalDeduction,
       netPayment,
@@ -1327,6 +1437,7 @@ export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean
   INSURANCE_RATES.nursingRate = applicable.nursingRate
   INSURANCE_RATES.pensionRate = applicable.pensionRate
   INSURANCE_RATES.employmentRate = applicable.employmentRate
+  INSURANCE_RATES.childSupportRate = applicable.childSupportRate ?? 0
   payslipCache.clear()
   return true
 }
@@ -1448,6 +1559,8 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     overtimeEnd: m.overtimeEnd,
     bonusEligible: m.bonusEligible ?? false,
     employmentInsuranceOverage: m.employmentInsuranceOverage ?? 0,
+    fixedOvertimePay: m.fixedOvertimePay ?? 0,
+    incomeTaxExempt: m.incomeTaxExempt ?? false,
     paidLeaveBalance: m.paidLeaveBalance ?? null,
     isActive: m.isActive,
   }
@@ -1498,6 +1611,8 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     overtimeEnd: e.overtimeEnd,
     bonusEligible: e.bonusEligible,
     employmentInsuranceOverage: e.employmentInsuranceOverage,
+    fixedOvertimePay: e.fixedOvertimePay,
+    incomeTaxExempt: e.incomeTaxExempt,
     paidLeaveBalance: e.paidLeaveBalance,
     emailVerifyStatus: e.emailVerifyStatus,
     emailVerifySentAt: e.emailVerifySentAt,

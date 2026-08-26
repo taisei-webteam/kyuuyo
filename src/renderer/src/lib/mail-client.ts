@@ -57,7 +57,7 @@ async function renderPdfBase64(doc: PayslipPrintDocumentProps, fileName: string)
   const root = createRoot(container)
   try {
     await new Promise<void>((resolve) => {
-      // メール添付は控え・切り取り線を省いた1枚構成で描画する
+      // メール添付は控えを省いた1枚構成（切り取り線は印刷でも出さない）
       root.render(createElement(PayslipPrintDocument, { ...doc, layout: 'mail' }))
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
     })

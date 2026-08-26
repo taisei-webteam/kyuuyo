@@ -52,6 +52,21 @@ import { IPC } from '../shared/ipc-channels.js';
 
 let mainWindow: BrowserWindow | null = null;
 
+/** 開発時: Vite が立つまで待ってから画面を読む（未起動だと真っ白になる） */
+async function waitForRenderer(url: string, timeoutMs = 30000): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok || res.status === 404) return true;
+    } catch {
+      // Vite 未起動
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  return false;
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -69,7 +84,16 @@ function createWindow(): void {
   });
 
   if (!app.isPackaged) {
-    mainWindow.loadURL('http://localhost:5173');
+    const rendererUrl = 'http://localhost:5173';
+    void waitForRenderer(rendererUrl).then((ok) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (!ok) {
+        console.error(
+          '[main] Vite (http://localhost:5173) に接続できません。別ターミナルで npm run dev:renderer を先に起動してください。',
+        );
+      }
+      void mainWindow.loadURL(rendererUrl);
+    });
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));

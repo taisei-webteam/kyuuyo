@@ -78,7 +78,7 @@ function initTables(): void {
       clock_out_rounding TEXT NOT NULL DEFAULT 'down',
       early_rounding_unit INTEGER NOT NULL DEFAULT 15,
       overtime_rounding_unit INTEGER NOT NULL DEFAULT 15,
-      monthly_work_hours REAL NOT NULL DEFAULT 173.6,
+      monthly_work_hours REAL NOT NULL DEFAULT 173.5,
       paid_leave_reset_month INTEGER,
       paid_leave_policy TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now','localtime')),
@@ -123,6 +123,8 @@ function initTables(): void {
       overtime_end TEXT,
       bonus_eligible INTEGER NOT NULL DEFAULT 0,
       employment_insurance_overage INTEGER NOT NULL DEFAULT 0,
+      fixed_overtime_pay INTEGER NOT NULL DEFAULT 0,
+      income_tax_exempt INTEGER NOT NULL DEFAULT 0,
       paid_leave_balance REAL,
       email_verify_status TEXT NOT NULL DEFAULT 'unverified',
       email_verify_token TEXT,
@@ -228,6 +230,7 @@ function initTables(): void {
       nursing_rate REAL NOT NULL,
       pension_rate REAL NOT NULL,
       employment_rate REAL NOT NULL,
+      child_support_rate REAL NOT NULL DEFAULT 0,
       prefecture TEXT NOT NULL DEFAULT '全国'
     );
 
@@ -309,6 +312,8 @@ function runMigrations(raw: Database.Database): void {
 
   // employees: 雇用保険料超過分（支給項目・月額固定）
   addColumn('employees', 'employment_insurance_overage', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('employees', 'fixed_overtime_pay', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('employees', 'income_tax_exempt', 'INTEGER NOT NULL DEFAULT 0');
 
   // payslips: 追加支給・控除行（JSON 配列）
   addColumn('payslips', 'extra_payment_lines', "TEXT NOT NULL DEFAULT '[]'");
@@ -327,9 +332,12 @@ function runMigrations(raw: Database.Database): void {
   addColumn('companies', 'clock_out_rounding', "TEXT NOT NULL DEFAULT 'down'");
   addColumn('companies', 'early_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
   addColumn('companies', 'overtime_rounding_unit', 'INTEGER NOT NULL DEFAULT 15');
-  addColumn('companies', 'monthly_work_hours', 'REAL NOT NULL DEFAULT 173.6');
+  addColumn('companies', 'monthly_work_hours', 'REAL NOT NULL DEFAULT 173.5');
   addColumn('companies', 'paid_leave_reset_month', 'INTEGER');
   addColumn('companies', 'paid_leave_policy', 'TEXT');
+
+  // 子ども・子育て支援金率（被保険者負担分。未設定は 0）
+  addColumn('insurance_rates', 'child_support_rate', 'REAL NOT NULL DEFAULT 0');
 
   // employees: 有給残日数（手入力）
   addColumn('employees', 'paid_leave_balance', 'REAL');
@@ -360,6 +368,16 @@ function runMigrations(raw: Database.Database): void {
   // 既存 DB の表示順を master.csv の並び(上からの順=絶対)へ一度だけ補正する
   fixDisplayOrderFromMasterOnce(raw);
 
+  // 雇用保険料率を被保険者負担 5/1000（0.005）へ一度だけ揃える
+  setEmploymentRateTo0005Once(raw);
+
+  // 所定労働時間 173.5 を一度だけ揃える
+  setMonthlyHoursTo1735Once(raw);
+
+  // 子育て支援金: いったん 0 にしたあと、7月明細どおり 0.115% を入れる
+  clearChildSupportRateOnce(raw);
+  applyChildSupportRateOnce(raw);
+
   raw.exec(`
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
@@ -378,6 +396,65 @@ function runMigrations(raw: Database.Database): void {
         updated_at = datetime('now', 'localtime')
     WHERE early_work_start IS NULL OR early_work_start = ''
   `).run();
+}
+
+/**
+ * 既存 DB の雇用保険料率を被保険者負担 5/1000（0.005）へ一度だけ更新する。
+ * 新規インストールは seedInsuranceRatesIfEmpty() が 0.005 を投入するため本処理は 0 行更新になる。
+ * PRAGMA user_version=4 で一度きり実行する。
+ */
+function setEmploymentRateTo0005Once(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 4) return;
+
+  raw.prepare('UPDATE insurance_rates SET employment_rate = 0.005').run();
+  raw.pragma('user_version = 4');
+}
+
+/**
+ * 旧既定の所定労働時間 173.6 を社内表どおり 173.5 へ一度だけ更新する。
+ * PRAGMA user_version=5 で一度きり実行する。
+ */
+function setMonthlyHoursTo1735Once(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 5) return;
+
+  raw.prepare(
+    'UPDATE companies SET monthly_work_hours = 173.5 WHERE monthly_work_hours = 173.6',
+  ).run();
+  raw.pragma('user_version = 5');
+}
+
+/**
+ * 子ども・子育て支援金の本人負担は 0（労務士通知）。計算からも外したため、
+ * 誤投入した 0.00115 を 0 に戻す。PRAGMA user_version=6 で一度きり。
+ */
+function clearChildSupportRateOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 6) return;
+
+  try {
+    raw.prepare('UPDATE insurance_rates SET child_support_rate = 0').run();
+  } catch {
+    // カラムが無い環境では何もしない
+  }
+  raw.pragma('user_version = 6');
+}
+
+/**
+ * 7月紙明細の健保（支援金込み）に合わせ、被保険者負担 0.115% を一度だけ入れる。
+ * 設定画面から以後は変更できる。PRAGMA user_version=7。
+ */
+function applyChildSupportRateOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 7) return;
+
+  try {
+    raw.prepare('UPDATE insurance_rates SET child_support_rate = 0.00115').run();
+  } catch {
+    // カラムが無い環境では何もしない
+  }
+  raw.pragma('user_version = 7');
 }
 
 /**

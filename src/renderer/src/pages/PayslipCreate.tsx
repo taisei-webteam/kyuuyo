@@ -15,10 +15,12 @@ import {
   setPayslips,
   loadEmailHistory,
   isPayrollTargetInMonth,
+  hydrateInsuranceRatesFromDb,
   type MockEmployee,
   type MockPayslip,
   type PayslipExtraLine,
   sumExtraLines,
+  migrateRareDeductionsToFreeSlots,
 } from '@/lib/mock-data'
 import { buildYearSelectOptions } from '@/lib/year-options'
 import { BulkEmailModal } from '@/components/BulkEmailModal'
@@ -271,10 +273,15 @@ export function PayslipCreate(): ReactElement {
     setCreating(true)
     setCreateMessage(null)
     try {
-      // Electron 環境では Supabase 同期 → 丸め済みの実勤怠 (attendance_records) を取り込み、
-      // 給与の出勤日数・労働時間・残業・休出に反映する。データが無い場合はモック勤怠にフォールバック。
+      await hydrateInsuranceRatesFromDb(selectedYear)
+      // 最新の丸め規則で実打刻を勤怠へ反映してから集計する（手入力なしで明細を完成させる）
       let realAttendance: ReturnType<typeof aggregateAttendanceRecords> | undefined
       if (hasElectronApi) {
+        const syncRes = await window.api.attendance.sync(selectedYear, selectedMonth)
+        if (!syncRes.success) {
+          // 打刻連携が使えないときは、すでに入っている実打刻で作成する
+        }
+        await window.api.attendance.roundAll(selectedYear, selectedMonth)
         const result = await window.api.attendance.list(selectedYear, selectedMonth)
         if (result.success && result.data.length > 0) {
           realAttendance = aggregateAttendanceRecords(result.data)
@@ -331,7 +338,11 @@ export function PayslipCreate(): ReactElement {
       setEditPayslips((prev) =>
         prev.map((ps) => {
           if (ps.employeeId !== employeeId) return ps
-          return recalcTotals({ ...ps, [field]: value })
+          const next =
+            field === 'healthInsurance'
+              ? { ...ps, healthInsurance: value, nursingInsurance: 0 }
+              : { ...ps, [field]: value }
+          return recalcTotals(next)
         }),
       )
     },
@@ -735,7 +746,6 @@ function PayslipDetail({
   ) => void
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
-  const regularHours = Math.max(0, payslip.workHours - payslip.overtimeHours)
   const settings = getSettings()
   const emailPreview = buildPayslipEmail({
     employeeName: employee.name,
@@ -803,7 +813,7 @@ function PayslipDetail({
         <AttendanceInput label="労働時間" value={payslip.workHours} unit="h" onChange={handleChange('workHours')} step={0.5} />
         <AttendanceInput label="残業時間" value={payslip.overtimeHours} unit="h" onChange={handleChange('overtimeHours')} step={0.5} />
         <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onChange={handleChange('holidayWorkDays')} />
-        <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onChange={handleChange('paidLeaveDays')} step={0.5} />
+        <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onChange={handleChange('paidLeaveDays')} step={isPartTime ? 1 : 0.5} />
       </div>
 
       <div className={styles.columns}>
@@ -816,7 +826,7 @@ function PayslipDetail({
             <div className={styles.sectionBody}>
               {isPartTime && (
                 <div className={styles.hourlyBreakdown}>
-                  時給 ¥{employee.hourlyRate.toLocaleString('ja-JP')} × {regularHours}h
+                  時給 ¥{employee.hourlyRate.toLocaleString('ja-JP')} × {payslip.workHours}h
                 </div>
               )}
               <EditableRow label={isPartTime ? '基本給（時給計算）' : '基本給'} value={payslip.basicSalary} onChange={handleChange('basicSalary')} />
@@ -844,18 +854,17 @@ function PayslipDetail({
           <div className={styles.sectionCard}>
             <div className={styles.sectionHeader}>
               控除
-              <span className={styles.autoTag}>社保自動計算</span>
             </div>
             <div className={styles.sectionBody}>
-              <EditableRow label="健康保険" value={payslip.healthInsurance} onChange={handleChange('healthInsurance')} auto />
-              <EditableRow label="介護保険" value={payslip.nursingInsurance} onChange={handleChange('nursingInsurance')} auto />
+              <EditableRow label="所得税" value={payslip.incomeTax} onChange={handleChange('incomeTax')} fixed />
+              <EditableRow
+                label="健康・介護保険"
+                value={payslip.healthInsurance + payslip.nursingInsurance}
+                onChange={handleChange('healthInsurance')}
+              />
               <EditableRow label="厚生年金" value={payslip.welfarePension} onChange={handleChange('welfarePension')} auto />
               <EditableRow label="雇用保険" value={payslip.employmentInsurance} onChange={handleChange('employmentInsurance')} auto />
-              <EditableRow label="所得税" value={payslip.incomeTax} onChange={handleChange('incomeTax')} />
               <EditableRow label="住民税" value={payslip.residentTax} onChange={handleChange('residentTax')} />
-              <EditableRow label="積立金" value={payslip.savingsDeduction} onChange={handleChange('savingsDeduction')} />
-              <EditableRow label="貸付返済" value={payslip.loanDeduction} onChange={handleChange('loanDeduction')} />
-              <EditableRow label="共済掛金" value={payslip.otherDeduction} onChange={handleChange('otherDeduction')} />
             </div>
             <ExtraLinesSection
               lines={payslip.extraDeductionLines ?? []}
@@ -914,23 +923,27 @@ function EditableRow({
   value,
   onChange,
   auto,
+  fixed,
 }: {
   label: string
   value: number
   onChange: (e: ChangeEvent<HTMLInputElement>) => void
   auto?: boolean
+  fixed?: boolean
 }): ReactElement {
   return (
     <div className={styles.row}>
       <span className={styles.rowLabel}>
         {label}
         {auto && <span className={styles.rowAutoIcon}>*</span>}
+        {fixed && <span className={styles.fixedTag}>固定</span>}
       </span>
       <input
         type="number"
-        className={styles.rowInput}
+        className={`${styles.rowInput} ${fixed ? styles.rowInputFixed : ''}`}
         value={value}
         onChange={onChange}
+        onMouseDown={(e) => e.stopPropagation()}
         min={0}
       />
     </div>
@@ -938,10 +951,11 @@ function EditableRow({
 }
 
 function normalizePayslipForEdit(ps: MockPayslip): MockPayslip {
+  const migrated = migrateRareDeductionsToFreeSlots(ps)
   return {
-    ...ps,
-    extraPaymentLines: cloneExtraLines(ps.extraPaymentLines),
-    extraDeductionLines: cloneExtraLines(ps.extraDeductionLines),
+    ...migrated,
+    extraPaymentLines: cloneExtraLines(migrated.extraPaymentLines),
+    extraDeductionLines: cloneExtraLines(migrated.extraDeductionLines),
   }
 }
 

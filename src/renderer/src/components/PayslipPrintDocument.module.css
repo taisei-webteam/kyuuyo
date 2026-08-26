@@ -125,7 +125,6 @@
 .page {
   background: #fff;
   width: 210mm;
-  /* A4縦(297mm)と一致させ、切り取り線が用紙のちょうど中央に来るようにする */
   height: 297mm;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
   padding: 6mm 7mm;
@@ -146,6 +145,11 @@
 
 .pageMail .block {
   flex: none;
+}
+
+/* 控えは A4 半分（148.5mm）より下から始める。線は出さない */
+.stubGap {
+  flex: 0 0 16mm;
 }
 
 .block {
@@ -437,26 +441,6 @@
   font-weight: 800;
   padding: 5px 10px;
   font-variant-numeric: tabular-nums;
-}
-
-.cutLine {
-  flex: 0 0 6mm;
-  align-self: stretch;
-  border-top: 1px dashed #94a3b8;
-  position: relative;
-  margin: 0;
-}
-
-.cutLineLabel {
-  position: absolute;
-  left: 50%;
-  top: -9px;
-  transform: translateX(-50%);
-  background: #fff;
-  padding: 0 10px;
-  font-size: 10px;
-  color: #94a3b8;
-  white-space: nowrap;
 }
 
 /* 印刷(PDF)はベーススタイル（A4寸法・フォント）をそのまま使い、

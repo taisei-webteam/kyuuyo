@@ -44,7 +44,6 @@ function PayslipHalf({
   title: string
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
-  const regularHours = Math.max(0, payslip.workHours - payslip.overtimeHours)
 
   return (
     <div className={styles.half}>
@@ -101,7 +100,7 @@ function PayslipHalf({
           <table className={styles.payTable}>
             <tbody>
               <tr>
-                <th>{isPartTime ? `基本給(¥${employee.hourlyRate.toLocaleString()}×${regularHours}h)` : '基本給'}</th>
+                <th>{isPartTime ? `基本給(¥${employee.hourlyRate.toLocaleString()}×${payslip.workHours}h)` : '基本給'}</th>
                 <td>{yen(payslip.basicSalary)}</td>
               </tr>
               <tr><th>時間外手当</th><td>{yen(payslip.overtimePay)}</td></tr>

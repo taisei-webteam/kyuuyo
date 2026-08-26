@@ -110,7 +110,7 @@ for (const c of cases) {
 console.log(caseOk ? '✅ 全ケース一致' : '❌ 不一致あり')
 
 // --- 3) DB 従業員で旧/新比較（夏季・×2.0） ---
-const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.006 }
+const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.005 }
 const roundIns = (a) => (a - Math.floor(a) <= 0.5 ? Math.floor(a) : Math.ceil(a))
 function calcAge(b, base = new Date()) {
   const d = new Date(b)

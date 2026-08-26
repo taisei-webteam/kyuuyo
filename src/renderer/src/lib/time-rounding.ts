@@ -8,6 +8,7 @@ export {
   roundHolidayClockIn,
   calcEarlyOvertime,
   calcBreakMinutes,
+  unpaidGoOutMinutes,
   roundOvertimeMinutes,
   floorToUnit,
   toMinutes,

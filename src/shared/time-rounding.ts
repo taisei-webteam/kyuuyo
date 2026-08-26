@@ -133,13 +133,26 @@ export function calcBreakMinutes(spanMinutes: number, defaultBreakMinutes: numbe
 }
 
 /**
+ * 労働時間から引く外出時間（分）。
+ * 12時台（12:00〜12:59）の外出は昼休憩とみなし、所定休憩と二重に引かない。
+ */
+export function unpaidGoOutMinutes(goOut: string | null, goReturn: string | null): number {
+  if (!goOut || !goReturn) return 0
+  const start = toMinutes(goOut.slice(0, 5))
+  const lunchStart = 12 * 60
+  const lunchEnd = 13 * 60
+  if (start >= lunchStart && start < lunchEnd) return 0
+  return Math.max(0, toMinutes(goReturn.slice(0, 5)) - start)
+}
+
+/**
  * 早出時間を計算（分）
  *
- * 「実打刻」を基準に、早出終了までの時間を早出丸め単位で切り捨てて返す。
+ * 出勤丸めと同じく、早出開始より前の打刻は開始時刻に切上げてから数える。
+ * （例: 07:40 打刻 → 08:00 開始。08:00〜早出終了が早出）
  *
- * - 実打刻 < 早出開始        → 0（早出開始前の打刻は早出として数えない）
- * - 早出開始 ≤ 実打刻 < 早出終了 → (早出終了 − 実打刻) を earlyRoundingUnit で切り捨て
  * - 実打刻 ≥ 早出終了        → 0（早出時間帯を過ぎた出社）
+ * - それ以外                 → (早出終了 − max(実打刻, 早出開始)) を earlyRoundingUnit で切り捨て
  *
  * 早出設定（開始・終了）が無い場合は 0。
  */
@@ -153,9 +166,9 @@ export function calcEarlyOvertime(
   const raw = toMinutes(rawClockIn)
   const earlyStart = toMinutes(earlyWorkStart)
   const earlyEnd = toMinutes(earlyWorkEnd)
-  if (raw < earlyStart) return 0
   if (raw >= earlyEnd) return 0
-  return floorToUnit(earlyEnd - raw, earlyRoundingUnit)
+  const start = Math.max(raw, earlyStart)
+  return floorToUnit(earlyEnd - start, earlyRoundingUnit)
 }
 
 /**

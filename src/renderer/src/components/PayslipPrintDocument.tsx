@@ -34,8 +34,19 @@ export interface PayslipPrintDocumentProps {
   periodLabel?: string
   /** 給与 or 賞与。賞与は共済掛金欄を省略する */
   variant?: 'salary' | 'bonus'
-  /** print: 原本＋控え＋切り取り線（既定）。mail: 控え・切り取り線を省いた1枚構成 */
+  /** print: 原本＋控えを1枚に（切り取り線なし）。mail: 控えを省いた1枚構成 */
   layout?: 'print' | 'mail'
+}
+
+/** 労務士合算: 介護保険は 0、合算額は健康保険へ寄せて表示する */
+function forPrintPayslip(payslip: MockPayslip): MockPayslip {
+  const combinedHealth = payslip.healthInsurance + payslip.nursingInsurance
+  if (payslip.nursingInsurance === 0) return payslip
+  return {
+    ...payslip,
+    healthInsurance: combinedHealth,
+    nursingInsurance: 0,
+  }
 }
 
 interface BlockProps {
@@ -64,13 +75,14 @@ function formatPaymentDate(dateStr: string | undefined): string {
 
 function PayslipBlock({
   employee,
-  payslip,
+  payslip: rawPayslip,
   title,
   period,
   companyName,
   variant,
   paymentDate,
 }: BlockProps): ReactElement {
+  const payslip = forPrintPayslip(rawPayslip)
   const visiblePaymentExtras = visibleExtraLines(resolvePaymentExtras(payslip, variant))
   const visibleDeductionExtras = visibleExtraLines(payslip.extraDeductionLines)
   const firstPaymentExtra = visiblePaymentExtras[0]
@@ -311,9 +323,7 @@ export function PayslipPrintDocument({
       <PayslipBlock {...blockProps} title={title} period={period} />
       {layout === 'print' && (
         <>
-          <div className={styles.cutLine}>
-            <span className={styles.cutLineLabel}>切り取り線</span>
-          </div>
+          <div className={styles.stubGap} aria-hidden="true" />
           <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
         </>
       )}

@@ -49,7 +49,7 @@ function calcEarly(raw, ews, ewe) {
   if (r < es || r >= ee) return 0
   return floorU(ee - r, ERU)
 }
-const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.006 }
+const RATES = { health: 0.04985, nursing: 0.008, pension: 0.0915, employment: 0.005 }
 const roundIns = (a) => (a - Math.floor(a) <= 0.5 ? Math.floor(a) : Math.ceil(a))
 const calcAge = (b, base = new Date()) => { const d = new Date(b); let a = base.getFullYear() - d.getFullYear(); const md = base.getMonth() - d.getMonth(); if (md < 0 || (md === 0 && base.getDate() < d.getDate())) a--; return a }
 

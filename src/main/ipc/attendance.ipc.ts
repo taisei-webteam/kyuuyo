@@ -27,6 +27,7 @@ import {
   roundHolidayClockIn,
   calcEarlyOvertime,
   calcBreakMinutes,
+  unpaidGoOutMinutes,
   toMinutes,
   type ClockInConfig,
 } from '../../shared/time-rounding.js';
@@ -187,6 +188,14 @@ function roundAndUpsertOne(
   rawGoOut: string | null = null,
   rawGoReturn: string | null = null,
 ): void {
+  const db = getSqlite();
+  const existing = db.prepare(
+    `SELECT clock_out AS clockOut, data_source AS dataSource
+     FROM attendance_records WHERE employee_id = ? AND date = ?`,
+  ).get(empId, date) as { clockOut: string | null; dataSource: string } | undefined;
+
+  // 手入力の勤怠は同期・一括丸めで消さない（退勤漏れの補完など）
+  if (existing?.dataSource === 'manual') return;
   if (!rawIn) return;
 
   const clockInConfig: ClockInConfig = {
@@ -202,20 +211,25 @@ function roundAndUpsertOne(
   const clockIn = isHoliday
     ? roundHolidayClockIn(rawInHHMM, company.rounding_unit, company.grace_period, emp.early_work_start)
     : roundClockIn(rawInHHMM, clockInConfig).time;
-  const clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
+  // 実打刻に退勤が無い日は、手入力した退勤を消さない
+  let clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
+  let dataSource: 'ipad' | 'manual' = 'ipad';
+  if (!clockOut && existing?.clockOut) {
+    clockOut = existing.clockOut.slice(0, 5);
+    dataSource = 'manual';
+  }
 
   // 外出・戻りは丸めず実打刻の HH:MM をそのまま採用する
   const goOut = rawGoOut ? rawGoOut.slice(0, 5) : null;
   const goReturn = rawGoReturn ? rawGoReturn.slice(0, 5) : null;
-  const goOutMinutes =
-    goOut && goReturn ? Math.max(0, toMinutes(goReturn) - toMinutes(goOut)) : 0;
+  const goOutMinutes = unpaidGoOutMinutes(goOut, goReturn);
 
   let workMinutes = 0;
   let overtimeMinutes = 0;
   let breakMinutes = 0;
-  // 早出は「実打刻」を基準に算出（早出開始前は0、早出終了までを早出単位で切り捨て）
+  // 早出は丸め後の出勤時刻から数える（07:40→08:00 なら 08:00〜早出終了）。実打刻は変更しない。
   let earlyOvertimeMinutes = calcEarlyOvertime(
-    rawInHHMM,
+    clockIn,
     emp.early_work_start,
     emp.early_work_end,
     company.early_rounding_unit,
@@ -223,15 +237,14 @@ function roundAndUpsertOne(
   let isHolidayWork = false;
 
   if (isHoliday) {
-    // 休日出勤: 定時の概念を適用せず、実働時間の全体を残業（割増対象）とする。
-    // 早出は休日には適用しない（二重計上を避ける）。
+    // 休日出勤: 定時は適用しない。タイムカードどおり早出は早出欄、残りは労働時間（基本給）。
     if (clockOut) {
       const spanMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - goOutMinutes);
       breakMinutes = calcBreakMinutes(spanMinutes, company.default_break_minutes);
       workMinutes = Math.max(0, spanMinutes - breakMinutes);
+      workMinutes = Math.max(0, workMinutes - earlyOvertimeMinutes);
     }
-    overtimeMinutes = workMinutes;
-    earlyOvertimeMinutes = 0;
+    overtimeMinutes = 0;
     isHolidayWork = workMinutes > 0;
   } else if (clockOut) {
     const workStartMin = toMinutes(clockIn);
@@ -249,8 +262,10 @@ function roundAndUpsertOne(
       scheduledEndMin - toMinutes(emp.scheduled_start) - company.default_break_minutes;
     const spanMinutes = Math.max(0, workEndMin - workStartMin - goOutMinutes);
     breakMinutes = calcBreakMinutes(spanMinutes, company.default_break_minutes);
-    // 外出〜戻りの時間は無給休憩として労働時間から控除する
+    // 12時台以外の外出〜戻りは無給として労働時間から控除する
     workMinutes = Math.max(0, spanMinutes - breakMinutes);
+    // 早出は労働時間欄と分けて持つ（08:00〜08:30 を労働時間に混ぜない）
+    workMinutes = Math.max(0, workMinutes - earlyOvertimeMinutes);
 
     if (!overtimeAllowed) {
       overtimeMinutes = 0;
@@ -270,7 +285,7 @@ function roundAndUpsertOne(
     INSERT INTO attendance_records
       (employee_id, date, clock_in, clock_out, go_out, go_return, work_minutes, overtime_minutes,
        early_overtime_minutes, break_minutes, is_holiday, is_holiday_work, data_source)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ipad')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(employee_id, date) DO UPDATE SET
       clock_in = excluded.clock_in,
       clock_out = excluded.clock_out,
@@ -282,12 +297,12 @@ function roundAndUpsertOne(
       break_minutes = excluded.break_minutes,
       is_holiday = excluded.is_holiday,
       is_holiday_work = excluded.is_holiday_work,
-      data_source = 'ipad',
+      data_source = excluded.data_source,
       updated_at = datetime('now','localtime')
   `).run(
     empId, date, clockIn, clockOut, goOut, goReturn,
     workMinutes, overtimeMinutes, earlyOvertimeMinutes,
-    breakMinutes, isHoliday ? 1 : 0, isHolidayWork ? 1 : 0,
+    breakMinutes, isHoliday ? 1 : 0, isHolidayWork ? 1 : 0, dataSource,
   );
 }
 
@@ -452,6 +467,16 @@ export function registerAttendanceHandlers(): void {
         let processed = 0;
         const tx = raw.transaction(() => {
           processed = roundPunchList(punches);
+          raw.prepare(`
+            DELETE FROM attendance_records
+            WHERE date LIKE ? || '%'
+              AND data_source = 'ipad'
+              AND NOT EXISTS (
+                SELECT 1 FROM raw_punches rp
+                WHERE rp.employee_id = attendance_records.employee_id
+                  AND rp.date = attendance_records.date
+              )
+          `).run(monthStr);
         });
         tx();
 

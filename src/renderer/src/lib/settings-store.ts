@@ -48,7 +48,7 @@ const defaultSettings: AppSettings = {
   clockOutRounding: 'down',
   earlyRoundingUnit: 15,
   overtimeRoundingUnit: 15,
-  monthlyWorkHours: 173.6,
+  monthlyWorkHours: 173.5,
 
   paidLeaveResetMonth: null,
   paidLeavePolicy: '',

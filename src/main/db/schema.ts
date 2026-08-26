@@ -76,6 +76,10 @@ export const employees = sqliteTable('employees', {
   bonusEligible: integer('bonus_eligible', { mode: 'boolean' }).notNull().default(false),
   /** 雇用保険料超過分（支給項目）。雇用保険控除の算定基数には含めない。 */
   employmentInsuranceOverage: integer('employment_insurance_overage').notNull().default(0),
+  /** 固定の時間外手当（円）。0 のときは勤怠時間から計算する。 */
+  fixedOvertimePay: integer('fixed_overtime_pay').notNull().default(0),
+  /** 源泉所得税を徴収しない */
+  incomeTaxExempt: integer('income_tax_exempt', { mode: 'boolean' }).notNull().default(false),
   paidLeaveBalance: real('paid_leave_balance'),
   /** メール到達確認の状態: 'unverified' | 'pending' | 'verified' */
   emailVerifyStatus: text('email_verify_status').notNull().default('unverified'),
@@ -198,6 +202,7 @@ export const insuranceRates = sqliteTable('insurance_rates', {
   nursingRate: real('nursing_rate').notNull(),
   pensionRate: real('pension_rate').notNull(),
   employmentRate: real('employment_rate').notNull(),
+  childSupportRate: real('child_support_rate').notNull().default(0),
   prefecture: text('prefecture').notNull().default('全国'),
 });
 
