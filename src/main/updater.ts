@@ -1,9 +1,8 @@
 /**
  * 自動更新 (electron-updater + GitHub Releases)
  *
- * アプリ起動時に最新バージョンを確認し、あればバックグラウンドでダウンロード。
- * ダウンロード完了後、次回終了時に自動インストールされる。
- * 進捗は IPC で Renderer に通知し、画面上に表示する（裏の処理を可視化）。
+ * 起動中も一定間隔で確認し、あれば裏でダウンロードする。作業は止めない。
+ * 完了後は画面から再起動でき、終了時にも自動で適用する。
  * electron-updater は CommonJS のため default import 経由で named を取り出す。
  */
 import { ipcMain, type BrowserWindow } from 'electron';
@@ -13,8 +12,14 @@ import type { UpdaterEvent } from '../shared/types.js';
 
 const { autoUpdater } = electronUpdater;
 
+/** 使用中でも新しいリリースを拾う間隔 */
+const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+
+type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready';
+
 // 購読前に発生したイベントの取りこぼし対策として直近の状態を保持する。
 let lastEvent: UpdaterEvent | null = null;
+let phase: UpdatePhase = 'idle';
 
 export function setupAutoUpdater(win: BrowserWindow): void {
   autoUpdater.autoDownload = true;
@@ -30,14 +35,15 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   // Renderer が購読直後に現在状態を同期取得できるようにする
   ipcMain.handle(IPC.UPDATER.GET_STATE, () => lastEvent);
 
-  // 今すぐ更新を適用して再起動
+  // ダウンロード済みのときだけ、サイレントインストールして再起動する
   ipcMain.handle(IPC.UPDATER.QUIT_AND_INSTALL, () => {
-    // isSilent=false（インストーラ表示）, isForceRunAfter=true（更新後に再起動）
-    autoUpdater.quitAndInstall(false, true);
+    if (phase !== 'ready') return;
+    autoUpdater.quitAndInstall(true, true);
   });
 
   autoUpdater.on('error', (err) => {
     console.error('[updater] error:', err);
+    if (phase !== 'ready') phase = 'idle';
     notify({ status: 'error', message: err instanceof Error ? err.message : String(err) });
   });
   autoUpdater.on('checking-for-update', () => {
@@ -46,10 +52,12 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   });
   autoUpdater.on('update-available', (info) => {
     console.log('[updater] update available:', info.version);
+    phase = 'downloading';
     notify({ status: 'available', version: info.version });
   });
   autoUpdater.on('update-not-available', () => {
     console.log('[updater] no update available');
+    phase = 'idle';
     notify({ status: 'not-available' });
   });
   autoUpdater.on('download-progress', (p) => {
@@ -57,10 +65,21 @@ export function setupAutoUpdater(win: BrowserWindow): void {
     notify({ status: 'progress', percent: Math.round(p.percent) });
   });
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('[updater] downloaded:', info.version, '(次回起動時に適用)');
+    console.log('[updater] downloaded:', info.version);
+    phase = 'ready';
     notify({ status: 'downloaded', version: info.version });
   });
 
-  // 更新確認 + ダウンロード完了時にOS通知。失敗してもアプリ動作には影響させない。
-  void autoUpdater.checkForUpdatesAndNotify();
+  const check = (): void => {
+    if (phase !== 'idle') return;
+    phase = 'checking';
+    void autoUpdater.checkForUpdates().catch((err: unknown) => {
+      console.error('[updater] check failed:', err);
+      if (phase === 'checking') phase = 'idle';
+    });
+  };
+
+  check();
+  const timer = setInterval(check, CHECK_INTERVAL_MS);
+  win.on('closed', () => clearInterval(timer));
 }

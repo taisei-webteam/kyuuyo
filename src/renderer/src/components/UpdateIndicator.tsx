@@ -58,8 +58,9 @@ export function UpdateIndicator(): ReactElement | null {
       {status === 'available' && (
         <>
           <div className={styles.title}>
-            新しいバージョン{event.version ? ` v${event.version}` : ''}を準備中…
+            新しいバージョン{event.version ? ` v${event.version}` : ''}を裏で準備しています
           </div>
+          <div className={styles.desc}>作業はそのまま続けられます。</div>
           <div className={styles.bar}>
             <div className={styles.barIndeterminate} />
           </div>
@@ -69,6 +70,7 @@ export function UpdateIndicator(): ReactElement | null {
       {status === 'progress' && (
         <>
           <div className={styles.title}>更新をダウンロード中… {event.percent ?? 0}%</div>
+          <div className={styles.desc}>作業はそのまま続けられます。</div>
           <div className={styles.bar}>
             <div className={styles.barFill} style={{ width: `${event.percent ?? 0}%` }} />
           </div>
@@ -80,7 +82,9 @@ export function UpdateIndicator(): ReactElement | null {
           <div className={styles.title}>
             更新の準備ができました{event.version ? `（v${event.version}）` : ''}
           </div>
-          <div className={styles.desc}>今すぐ再起動して更新を適用できます。</div>
+          <div className={styles.desc}>
+            入力中の内容を保存してから再起動できます。後回しにした場合は、アプリを終了したときにも適用されます。
+          </div>
           <div className={styles.actions}>
             <button
               type="button"

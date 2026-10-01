@@ -685,7 +685,7 @@ const employees: MockEmployee[] = [
 // ========================================
 
 import { getHolidaysForYear } from './holidays-jp'
-import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes, unpaidGoOutMinutes, toMinutes } from './time-rounding'
+import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes, unpaidGoOutMinutes, toMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
@@ -1121,16 +1121,33 @@ export interface AttendanceAggregate {
 }
 
 /**
- * 給与集計用の労働時間。勤怠画面と同じ規則（12時台の外出は昼休憩で引かない）。
+ * 給与集計用の労働時間。
+ * タイムカード実働に、確定有給の不足分（所定 − タイムカード）を足す。
+ * 半休は打刻との差分、打刻のない全日休は所定労働時間まるごと。予定は含めない。
  */
-function workMinutesForPayslip(r: AttendanceRecord): number {
-  if (!r.clockIn || !r.clockOut) return r.workMinutes
-  const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
-  const inMin = toMinutes(r.clockIn)
-  const outMin = toMinutes(r.clockOut)
-  const spanMinutes = Math.max(0, outMin - inMin - goOutMinutes)
-  const breakMinutes = calcBreakMinutes(spanMinutes, getSettings().defaultBreakMinutes)
-  return Math.max(0, spanMinutes - breakMinutes - (r.earlyOvertimeMinutes ?? 0))
+function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefined): number {
+  const settings = getSettings()
+  let timecard = r.workMinutes
+  if (r.clockIn && r.clockOut) {
+    const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
+    const inMin = toMinutes(r.clockIn)
+    const outMin = toMinutes(r.clockOut)
+    const spanMinutes = Math.max(0, outMin - inMin - goOutMinutes)
+    const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
+    timecard = Math.max(0, spanMinutes - breakMinutes - (r.earlyOvertimeMinutes ?? 0))
+  }
+  const scheduled = scheduledWorkMinutes(
+    emp?.scheduledStart ?? '09:00',
+    emp?.scheduledEnd ?? '17:30',
+    settings.defaultBreakMinutes,
+  )
+  return timecard + paidLeaveSupplementMinutes(
+    r.paidLeaveUsage,
+    r.paidLeaveStatus,
+    timecard,
+    scheduled,
+    r.isHoliday,
+  )
 }
 
 /**
@@ -1140,10 +1157,11 @@ function workMinutesForPayslip(r: AttendanceRecord): number {
 export function aggregateAttendanceRecords(
   records: AttendanceRecord[],
 ): Map<number, AttendanceAggregate> {
+  const empById = new Map(getEmployees().map((e) => [e.id, e]))
   const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number; paidLeaveDays: number }>()
   for (const r of records) {
     const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0, paidLeaveDays: 0 }
-    const workMinutes = workMinutesForPayslip(r)
+    const workMinutes = workMinutesForPayslip(r, empById.get(r.employeeId))
     if (workMinutes > 0) cur.workDays++
     cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
     cur.totalWork += workMinutes

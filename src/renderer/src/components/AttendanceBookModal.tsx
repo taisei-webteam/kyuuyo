@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { AttendanceRecord } from '../../../shared/types'
 import { getEmployees, mapDbEmployeeToMock, isEmployedInMonth, type MockEmployee } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
+import { scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './AttendanceBookModal.module.css'
@@ -41,6 +42,24 @@ function hm(time: string | null | undefined): string {
 /** 実働時間（残業を除く）。workMinutes には残業分が含まれるため差し引く。 */
 function regularWorkMinutes(workMinutes: number, overtimeMinutes: number): number {
   return Math.max(0, workMinutes - overtimeMinutes)
+}
+
+/** タイムカード実働に確定有給の不足分を足した労働時間（分）。残業は含めない。 */
+function laborMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined): number {
+  const settings = getSettings()
+  const scheduled = scheduledWorkMinutes(
+    emp?.scheduledStart ?? '09:00',
+    emp?.scheduledEnd ?? '17:30',
+    settings.defaultBreakMinutes,
+  )
+  const withLeave = r.workMinutes + paidLeaveSupplementMinutes(
+    r.paidLeaveUsage,
+    r.paidLeaveStatus,
+    r.workMinutes,
+    scheduled,
+    r.isHoliday,
+  )
+  return regularWorkMinutes(withLeave, r.overtimeMinutes)
 }
 
 export function AttendanceBookModal({ year, month, employeeId, onClose }: Props): ReactElement {
@@ -204,7 +223,7 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
             let totalOvertime = 0
             let totalBreak = 0
             for (const r of byDate.values()) {
-              totalWork += regularWorkMinutes(r.workMinutes, r.overtimeMinutes)
+              totalWork += laborMinutesForBook(r, emp)
               totalOvertime += r.overtimeMinutes
               totalBreak += r.breakMinutes
             }
@@ -248,7 +267,7 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
                           <td>{hm(r?.clockIn)}</td>
                           <td>{hm(r?.clockOut)}</td>
                           <td className={styles.num}>
-                            {fmtHours(regularWorkMinutes(r?.workMinutes ?? 0, r?.overtimeMinutes ?? 0))}
+                            {fmtHours(r ? laborMinutesForBook(r, emp) : 0)}
                           </td>
                           <td className={styles.num}>{fmtHours(r?.overtimeMinutes ?? 0)}</td>
                           <td className={styles.num}>{fmtHours(r?.breakMinutes ?? 0)}</td>

@@ -15,7 +15,7 @@ import {
 import { buildYearSelectOptions } from '@/lib/year-options'
 import { AttendanceBookModal } from '@/components/AttendanceBookModal'
 import { getSettings } from '@/lib/settings-store'
-import { floorToUnit, calcBreakMinutes, calcEarlyOvertime, unpaidGoOutMinutes } from '@/lib/time-rounding'
+import { floorToUnit, calcBreakMinutes, calcEarlyOvertime, unpaidGoOutMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
 import {
   paidLeaveUsageToDays,
   confirmedPaidLeaveDays,
@@ -120,6 +120,23 @@ function recalcFromTimes(
   }
 
   return { workMinutes, overtimeMinutes, earlyOvertimeMinutes, breakMinutes }
+}
+
+/** タイムカード労働時間に、確定有給の不足分を足した労働時間（分） */
+function laborMinutesForDay(day: MockAttendanceDay, employee: MockEmployee | undefined): number {
+  const settings = getSettings()
+  const scheduled = scheduledWorkMinutes(
+    employee?.scheduledStart ?? '09:00',
+    employee?.scheduledEnd ?? '17:30',
+    settings.defaultBreakMinutes,
+  )
+  return day.workMinutes + paidLeaveSupplementMinutes(
+    day.paidLeaveUsage,
+    day.paidLeaveStatus,
+    day.workMinutes,
+    scheduled,
+    day.isHoliday,
+  )
 }
 
 function stampInClass(stamp: StampInType | null): string {
@@ -516,8 +533,9 @@ export function Attendance(): ReactElement {
   }, [selectedEmployee])
 
   const summary = useMemo(() => {
-    const workDays = editData.filter((d) => !d.isHoliday && d.workMinutes > 0).length
-    const totalWork = editData.reduce((s, d) => s + d.workMinutes, 0)
+    const laborMinutes = editData.map((d) => laborMinutesForDay(d, selectedEmployee))
+    const workDays = editData.filter((d, i) => !d.isHoliday && (laborMinutes[i] ?? 0) > 0).length
+    const totalWork = laborMinutes.reduce((s, m) => s + m, 0)
     const totalOvertimeRaw = editData.reduce((s, d) => s + d.overtimeMinutes, 0)
     const overtimeUnit = getSettings().overtimeRoundingUnit
     const totalOvertime = floorToUnit(totalOvertimeRaw, overtimeUnit)
@@ -537,7 +555,7 @@ export function Attendance(): ReactElement {
       workDays, totalWork, totalOvertime, totalEarlyOvertime, earlyCount, lateCount,
       leaveEarlyCount, outsideCount, holidayWorkCount, paidLeaveDaysConfirmed, paidLeaveDaysPlanned,
     }
-  }, [editData])
+  }, [editData, selectedEmployee])
 
   return (
     <div className={styles.page}>
@@ -754,7 +772,7 @@ export function Attendance(): ReactElement {
               <div className={styles.legend}>
                 出勤・退勤欄は<span className={styles.legendRaw}>上段=実打刻（編集不可）</span>／
                 <span className={styles.legendRounded}>下段=丸め時間</span>。
-                有給は常に入力できます（保存で残日数を更新）。社員は午前休・午後休・全日休、パートは全日休のみ。丸め時間は「丸め時間を編集」で修正できます。
+                有給は常に入力できます（保存で残日数を更新）。社員は午前休・午後休・全日休、パートは全日休のみ。確定した有給は所定に足りない分を労働時間に足します（半休は定時とタイムカードの差分。予定は足しません）。丸め時間は「丸め時間を編集」で修正できます。
               </div>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>
@@ -789,6 +807,7 @@ export function Attendance(): ReactElement {
                       const isWorkday = !day.isHoliday || day.isHolidayWork
                       const missingClockOut = isWorkday && !!day.clockIn && !day.clockOut
                       const missingClockIn = isWorkday && !day.clockIn && !!day.clockOut
+                      const laborMinutes = laborMinutesForDay(day, selectedEmployee)
 
                       return (
                         <tr
@@ -959,8 +978,8 @@ export function Attendance(): ReactElement {
                             </div>
                           </td>
                           <td>
-                            {day.workMinutes > 0
-                              ? formatMinutes(day.workMinutes)
+                            {laborMinutes > 0
+                              ? formatMinutes(laborMinutes)
                               : <span className={styles.cellMuted}>-</span>}
                           </td>
                           <td>

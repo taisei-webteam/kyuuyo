@@ -13,6 +13,8 @@ export {
   floorToUnit,
   toMinutes,
   fromMinutes,
+  scheduledWorkMinutes,
+  paidLeaveSupplementMinutes,
   LEGAL_BREAK_THRESHOLD_MINUTES,
 } from '../../../shared/time-rounding'
 
