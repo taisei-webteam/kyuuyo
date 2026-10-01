@@ -79,7 +79,7 @@ export const IPC = {
     EVENT: 'updater:event',
     // Renderer → Main: 現在の状態を取得（購読前に発生したイベントの取りこぼし対策）
     GET_STATE: 'updater:get-state',
-    // Renderer → Main: 今すぐ更新を適用して再起動
+    // Renderer → Main: 今すぐ更新を適用して再起動（未完了なら完了次第）
     QUIT_AND_INSTALL: 'updater:quit-and-install',
   },
 } as const;

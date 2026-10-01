@@ -12,14 +12,19 @@ import type { UpdaterEvent } from '../shared/types.js';
 
 const { autoUpdater } = electronUpdater;
 
-/** 使用中でも新しいリリースを拾う間隔 */
-const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+/** 起動したまま新しいリリースを拾う間隔 */
+const CHECK_INTERVAL_MS = 2 * 60 * 1000;
+/** 連続確認を避ける最短間隔 */
+const MIN_CHECK_GAP_MS = 60 * 1000;
 
 type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready';
 
 // 購読前に発生したイベントの取りこぼし対策として直近の状態を保持する。
 let lastEvent: UpdaterEvent | null = null;
 let phase: UpdatePhase = 'idle';
+let lastCheckAt = 0;
+/** 「今すぐ」を押したあと、ダウンロード完了で再起動する */
+let installWhenReady = false;
 
 export function setupAutoUpdater(win: BrowserWindow): void {
   autoUpdater.autoDownload = true;
@@ -35,10 +40,16 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   // Renderer が購読直後に現在状態を同期取得できるようにする
   ipcMain.handle(IPC.UPDATER.GET_STATE, () => lastEvent);
 
-  // ダウンロード済みのときだけ、サイレントインストールして再起動する
+  const installNow = (): void => {
+    installWhenReady = true;
+    if (phase === 'ready') {
+      autoUpdater.quitAndInstall(true, true);
+    }
+  };
+
+  // ダウンロード済みならすぐ再起動。未完了なら完了次第再起動する。
   ipcMain.handle(IPC.UPDATER.QUIT_AND_INSTALL, () => {
-    if (phase !== 'ready') return;
-    autoUpdater.quitAndInstall(true, true);
+    installNow();
   });
 
   autoUpdater.on('error', (err) => {
@@ -68,10 +79,16 @@ export function setupAutoUpdater(win: BrowserWindow): void {
     console.log('[updater] downloaded:', info.version);
     phase = 'ready';
     notify({ status: 'downloaded', version: info.version });
+    if (installWhenReady) {
+      autoUpdater.quitAndInstall(true, true);
+    }
   });
 
   const check = (): void => {
     if (phase !== 'idle') return;
+    const now = Date.now();
+    if (now - lastCheckAt < MIN_CHECK_GAP_MS) return;
+    lastCheckAt = now;
     phase = 'checking';
     void autoUpdater.checkForUpdates().catch((err: unknown) => {
       console.error('[updater] check failed:', err);
@@ -81,5 +98,6 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 
   check();
   const timer = setInterval(check, CHECK_INTERVAL_MS);
+  win.on('focus', check);
   win.on('closed', () => clearInterval(timer));
 }

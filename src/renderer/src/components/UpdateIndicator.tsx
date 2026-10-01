@@ -6,8 +6,7 @@ import styles from './UpdateIndicator.module.css'
 const hasApi = typeof window !== 'undefined' && 'api' in window
 
 /**
- * 自動更新の進捗を画面右下に表示する（裏で走るダウンロードを可視化）。
- * ダウンロード完了後は「今すぐ再起動して更新」ボタンを提供する。
+ * 更新が見つかると右下に案内を出す。再起動はせず、今すぐ適用するかあとでにするかを選ぶ。
  * 配布版のみ更新イベントが発火するため、開発版では何も表示されない。
  */
 export function UpdateIndicator(): ReactElement | null {
@@ -23,7 +22,6 @@ export function UpdateIndicator(): ReactElement | null {
     })
     const unsubscribe = window.api.updater.onEvent((e) => {
       setEvent(e)
-      setDismissed(false) // 新しい状態が来たら再表示する
     })
     return unsubscribe
   }, [])
@@ -55,36 +53,28 @@ export function UpdateIndicator(): ReactElement | null {
         ×
       </button>
 
-      {status === 'available' && (
+      {(status === 'available' || status === 'progress' || status === 'downloaded') && (
         <>
           <div className={styles.title}>
-            新しいバージョン{event.version ? ` v${event.version}` : ''}を裏で準備しています
-          </div>
-          <div className={styles.desc}>作業はそのまま続けられます。</div>
-          <div className={styles.bar}>
-            <div className={styles.barIndeterminate} />
-          </div>
-        </>
-      )}
-
-      {status === 'progress' && (
-        <>
-          <div className={styles.title}>更新をダウンロード中… {event.percent ?? 0}%</div>
-          <div className={styles.desc}>作業はそのまま続けられます。</div>
-          <div className={styles.bar}>
-            <div className={styles.barFill} style={{ width: `${event.percent ?? 0}%` }} />
-          </div>
-        </>
-      )}
-
-      {status === 'downloaded' && (
-        <>
-          <div className={styles.title}>
-            更新の準備ができました{event.version ? `（v${event.version}）` : ''}
+            新しいバージョン{event.version ? ` v${event.version}` : ''}があります
           </div>
           <div className={styles.desc}>
-            入力中の内容を保存してから再起動できます。後回しにした場合は、アプリを終了したときにも適用されます。
+            {status === 'downloaded'
+              ? '作業はそのまま続けられます。今すぐ適用するか、あとでアプリを終了したときに適用するかを選べます。'
+              : status === 'progress'
+                ? `裏でダウンロードしています（${event.percent ?? 0}%）。今すぐ適用を選ぶと、完了後に再起動します。`
+                : '裏で準備しています。今すぐ適用を選ぶと、完了後に再起動します。'}
           </div>
+          {status === 'progress' && (
+            <div className={styles.bar}>
+              <div className={styles.barFill} style={{ width: `${event.percent ?? 0}%` }} />
+            </div>
+          )}
+          {status === 'available' && (
+            <div className={styles.bar}>
+              <div className={styles.barIndeterminate} />
+            </div>
+          )}
           <div className={styles.actions}>
             <button
               type="button"
@@ -92,10 +82,10 @@ export function UpdateIndicator(): ReactElement | null {
               onClick={handleRestart}
               disabled={restarting}
             >
-              {restarting ? '再起動中…' : '今すぐ再起動して更新'}
+              {restarting ? '更新を適用しています…' : '今すぐ更新'}
             </button>
             <button type="button" className={styles.secondary} onClick={() => setDismissed(true)}>
-              後で
+              あとで
             </button>
           </div>
         </>
