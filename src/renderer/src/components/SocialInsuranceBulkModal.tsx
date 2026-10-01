@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import type { ReactElement, ChangeEvent } from 'react'
 import { updateEmployee, reloadEmployeesFromDb, type MockEmployee } from '@/lib/mock-data'
 import styles from './ResidentTaxBulkModal.module.css'
@@ -243,9 +244,9 @@ export function SocialInsuranceBulkModal({
     }
   }, [drafts, employees, onSaved])
 
-  return (
+  return createPortal(
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h2 className={styles.title}>健康・介護保険の一括入力</h2>
           <button className={styles.closeBtn} onClick={onClose} aria-label="閉じる">
@@ -348,6 +349,7 @@ export function SocialInsuranceBulkModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

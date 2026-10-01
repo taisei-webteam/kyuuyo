@@ -5,7 +5,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 1200;
   padding: 24px;
 }
 
@@ -136,6 +136,9 @@
   font-size: 13px;
   background: var(--color-bg, #fff);
   color: var(--color-text, #111);
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .input.changed {

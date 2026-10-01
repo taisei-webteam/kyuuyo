@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calcAge, nextEmployeeId, calculateInsurancePremiums } from '@/lib/mock-data'
@@ -231,7 +232,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
 
   const overlay = useOverlayDismiss(onClose)
 
-  return (
+  return createPortal(
     <div className={styles.overlay} {...overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
@@ -765,6 +766,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -7,6 +7,9 @@ import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
 import { app, BrowserWindow, ipcMain } from 'electron';
 
+// AnyDesk などでウィンドウが隠れたと判定されると、入力欄に文字が入らなくなる。
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -79,6 +82,7 @@ function createWindow(): void {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      backgroundThrottling: false,
       preload: path.join(__dirname, '../../preload.cjs'),
     },
   });
