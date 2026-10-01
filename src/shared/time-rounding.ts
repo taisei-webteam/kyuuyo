@@ -192,17 +192,15 @@ export function scheduledWorkMinutes(
 /**
  * 確定有給として労働時間に足す分（分）。
  * 全日休・半休とも、所定労働時間に対してタイムカードが足りない分（差分）を足す。
- * 打刻が無い全日休は所定まるごと。打刻が所定以上なら 0（残業は別）。
- * 予定・休日は足さない。
+ * 打刻が無い全日休は所定まるごと（土曜など休日でも同じ）。打刻が所定以上なら 0。
+ * 予定は足さない。
  */
 export function paidLeaveSupplementMinutes(
   usage: PaidLeaveUsage | null | undefined,
   status: PaidLeaveStatus | null | undefined,
   timecardWorkMinutes: number,
   scheduledMinutes: number,
-  isHoliday: boolean,
 ): number {
-  if (isHoliday) return 0
   if (!usage || status === 'planned') return 0
   return Math.max(0, scheduledMinutes - Math.max(0, timecardWorkMinutes))
 }

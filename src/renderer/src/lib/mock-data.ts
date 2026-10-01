@@ -1146,7 +1146,6 @@ function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefine
     r.paidLeaveStatus,
     timecard,
     scheduled,
-    r.isHoliday,
   )
 }
 

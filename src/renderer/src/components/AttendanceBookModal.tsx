@@ -57,7 +57,6 @@ function laborMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined)
     r.paidLeaveStatus,
     r.workMinutes,
     scheduled,
-    r.isHoliday,
   )
   return regularWorkMinutes(withLeave, r.overtimeMinutes)
 }

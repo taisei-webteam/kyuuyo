@@ -135,7 +135,6 @@ function laborMinutesForDay(day: MockAttendanceDay, employee: MockEmployee | und
     day.paidLeaveStatus,
     day.workMinutes,
     scheduled,
-    day.isHoliday,
   )
 }
 
