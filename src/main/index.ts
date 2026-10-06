@@ -9,6 +9,7 @@ import { app, BrowserWindow, ipcMain } from 'electron';
 
 // AnyDesk などでウィンドウが隠れたと判定されると、入力欄に文字が入らなくなる。
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,6 +103,14 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));
   }
+
+  const focusPage = (): void => {
+    const win = mainWindow;
+    if (!win || win.isDestroyed()) return;
+    win.webContents.focus();
+  };
+  mainWindow.on('focus', focusPage);
+  mainWindow.on('show', focusPage);
 
   mainWindow.on('closed', () => {
     mainWindow = null;

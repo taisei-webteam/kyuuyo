@@ -119,18 +119,18 @@ export function roundHolidayClockIn(
   return fromMinutes(floorToUnit(toMinutes(rawTime), roundingUnit))
 }
 
-/** 労働基準法34条: 6時間を超える場合に休憩を与える */
-export const LEGAL_BREAK_THRESHOLD_MINUTES = 6 * 60
+/** 会社規則: 拘束時間がこの時間を超えた日は昼休憩を入れる。5時間ちょうどは入れない。 */
+export const BREAK_REQUIRED_AFTER_MINUTES = 5 * 60
 
 /**
  * その日の休憩時間（分）を決める。
  *
- * 拘束時間（出勤〜退勤 − 外出）が 6 時間以下なら 0。
- * 6 時間を超える日は会社設定の昼休憩（通常 60 分）を適用する。
- * 8 時間超の法定 60 分は、会社既定 60 分で満たす。
+ * 拘束時間（出勤〜退勤 − 外出）が 5 時間以下なら 0。
+ * 5 時間を超える日は会社設定の昼休憩（通常 60 分）を入れる。
+ * 例: 8:30〜14:00（5時間30分）は休憩 1 時間で労働 4 時間半。
  */
 export function calcBreakMinutes(spanMinutes: number, defaultBreakMinutes: number): number {
-  if (spanMinutes <= LEGAL_BREAK_THRESHOLD_MINUTES) return 0
+  if (spanMinutes <= BREAK_REQUIRED_AFTER_MINUTES) return 0
   return Math.max(0, defaultBreakMinutes)
 }
 
@@ -178,6 +178,78 @@ export function calcEarlyOvertime(
  */
 export function roundOvertimeMinutes(totalOvertimeMinutes: number, overtimeRoundingUnit: number): number {
   return floorToUnit(Math.max(0, totalOvertimeMinutes), overtimeRoundingUnit)
+}
+
+export interface OutsideScheduleMinutes {
+  /** 定時開始より前。早出開始より前の打刻は開始時刻に切り上げてから数える。 */
+  before: number
+  /** 定時終了より後。 */
+  after: number
+}
+
+/**
+ * 定時（開始〜終了）の外に出た勤務（分）。
+ * パートの時間外。打刻が定時の中だけならどちらも 0。
+ */
+export function minutesOutsideSchedule(
+  clockIn: string,
+  clockOut: string,
+  scheduledStart: string,
+  scheduledEnd: string,
+  earlyWorkStart: string | null,
+  earlyRoundingUnit: number,
+): OutsideScheduleMinutes {
+  const schedStart = toMinutes(scheduledStart)
+  const schedEnd = toMinutes(scheduledEnd)
+  const inMin = toMinutes(clockIn)
+  const outMin = toMinutes(clockOut)
+  const floor = earlyWorkStart ? toMinutes(earlyWorkStart) : inMin
+  const countedFrom = Math.max(inMin, floor)
+  const workedBefore = Math.max(0, Math.min(outMin, schedStart) - countedFrom)
+  const before = floorToUnit(workedBefore, earlyRoundingUnit)
+  const workedAfter = Math.max(0, outMin - Math.max(inMin, schedEnd))
+  return { before, after: workedAfter }
+}
+
+export interface PartTimeLaborMinutes {
+  workMinutes: number
+  overtimeMinutes: number
+  earlyOvertimeMinutes: number
+  breakMinutes: number
+}
+
+/**
+ * パートの1日。定時の外（前・後）は時間外で、労働時間には入れない。
+ * 早出欄とは重ねない（時間外は overtimeMinutes にまとめる）。
+ */
+export function partTimeLaborMinutes(
+  clockIn: string,
+  clockOut: string,
+  scheduledStart: string,
+  scheduledEnd: string,
+  earlyWorkStart: string | null,
+  earlyRoundingUnit: number,
+  goOutMinutes: number,
+  defaultBreakMinutes: number,
+): PartTimeLaborMinutes {
+  const outside = minutesOutsideSchedule(
+    clockIn,
+    clockOut,
+    scheduledStart,
+    scheduledEnd,
+    earlyWorkStart,
+    earlyRoundingUnit,
+  )
+  const overtimeMinutes = outside.before + outside.after
+  const spanMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - goOutMinutes)
+  const breakMinutes = calcBreakMinutes(spanMinutes, defaultBreakMinutes)
+  const workMinutes = Math.max(0, spanMinutes - breakMinutes - overtimeMinutes)
+  return {
+    workMinutes,
+    overtimeMinutes,
+    earlyOvertimeMinutes: 0,
+    breakMinutes,
+  }
 }
 
 /** 所定労働時間（分）。定時終了 − 定時開始 − 所定休憩。 */

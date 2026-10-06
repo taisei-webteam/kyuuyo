@@ -144,11 +144,6 @@ export function BonusReportModal({
     [bonuses],
   )
 
-  const deductionExtraLabel = useMemo(
-    () => firstExtraLineLabel(bonuses.map((b) => b.extraDeductionLines)) || '追加控除',
-    [bonuses],
-  )
-
   const totals = useMemo(() => {
     const keys = [
       'netPayment', 'basicBonus', 'overtimePay', 'familyAllowance', 'specialBonus',
@@ -253,8 +248,8 @@ export function BonusReportModal({
                   <th className={styles.thAmount}>住民税</th>
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
-                  <th className={styles.thExtra}>{deductionExtraLabel}</th>
-                  <th className={styles.thAmountTotal}>控除合計</th>
+                  <th className={styles.thAmount}></th>
+                  <th className={styles.thAmountTotal}>控除額<br />合計</th>
                 </tr>
               </thead>
               <tbody>
@@ -281,7 +276,7 @@ export function BonusReportModal({
                     <td className={styles.tdAmount}>{num(r.residentTax)}</td>
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
-                    <td className={styles.tdAmount}>{numOrBlank(r.extraDeduction)}</td>
+                    <td className={styles.tdAmount}></td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -309,7 +304,7 @@ export function BonusReportModal({
                   <td className={styles.tdAmount}>{num(totals['residentTax'])}</td>
                   <td className={styles.tdAmount}>{num(totals['savingsDeduction'])}</td>
                   <td className={styles.tdAmount}>{num(totals['loanDeduction'])}</td>
-                  <td className={styles.tdAmount}>{numOrBlank(totals['extraDeduction'])}</td>
+                  <td className={styles.tdAmount}></td>
                   <td className={styles.tdAmountTotal}>{num(totals['totalDeduction'])}</td>
                 </tr>
               </tfoot>

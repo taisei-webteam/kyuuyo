@@ -184,6 +184,47 @@
   text-align: right !important;
 }
 
+.thGrip {
+  width: 36px;
+  text-align: center;
+}
+
+.tdGrip {
+  width: 36px;
+  text-align: center;
+  cursor: grab;
+}
+
+.grip {
+  display: inline-block;
+  color: #94a3b8;
+  font-weight: 700;
+  letter-spacing: -2px;
+  user-select: none;
+  cursor: grab;
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
+.gripDisabled {
+  display: inline-block;
+  color: #e2e8f0;
+  font-weight: 700;
+  letter-spacing: -2px;
+  user-select: none;
+}
+
+.rowDragging {
+  opacity: 0.45;
+}
+
+.rowDrop {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 .thFixed {
   position: sticky;
   left: 0;
@@ -376,11 +417,14 @@
 
 .footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
   padding: 4px 0;
 }
 
-.footerCount {
+.footerCount,
+.footerHint {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
 }

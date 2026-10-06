@@ -15,7 +15,7 @@ import {
 import { buildYearSelectOptions } from '@/lib/year-options'
 import { AttendanceBookModal } from '@/components/AttendanceBookModal'
 import { getSettings } from '@/lib/settings-store'
-import { floorToUnit, calcBreakMinutes, calcEarlyOvertime, unpaidGoOutMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
+import { floorToUnit, calcBreakMinutes, calcEarlyOvertime, unpaidGoOutMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes, partTimeLaborMinutes } from '@/lib/time-rounding'
 import {
   paidLeaveUsageToDays,
   confirmedPaidLeaveDays,
@@ -86,9 +86,22 @@ function recalcFromTimes(
   breakMinutes: number
 } {
   const settings = getSettings()
+  const goOutMinutes = unpaidGoOutMinutes(goOut, goReturn)
+  // パートは残業不可でも、定時の前と後を時間外にする（休日も同じ）
+  if (employee?.employeeType === 'パート') {
+    return partTimeLaborMinutes(
+      clockIn,
+      clockOut,
+      employee.scheduledStart,
+      employee.scheduledEnd,
+      employee.earlyWorkStart,
+      settings.earlyRoundingUnit,
+      goOutMinutes,
+      settings.defaultBreakMinutes,
+    )
+  }
   const inMin = parseTimeToMinutes(clockIn)
   const outMin = parseTimeToMinutes(clockOut)
-  const goOutMinutes = unpaidGoOutMinutes(goOut, goReturn)
   const span = Math.max(0, outMin - inMin - goOutMinutes)
   const breakMinutes = calcBreakMinutes(span, settings.defaultBreakMinutes)
   const earlyOvertimeMinutes = calcEarlyOvertime(
@@ -254,9 +267,52 @@ export function Attendance(): ReactElement {
 
   // 勤怠データの読み込み:
   // Electron では SQLite の実データ (raw_punches + attendance_records) を表示する。
-  // Vite 単体プレビュー時は従来どおりモック勤怠を表示する。
+  // ブラウザ開発時は本番 DB の同じ表を読み取り専用で表示する。
   const loadAttendance = useCallback(async (): Promise<void> => {
     if (!hasElectronApi) {
+      if (import.meta.env.DEV) {
+        const { loadDevSnapshot } = await import('@/lib/dev-db-snapshot')
+        const snap = await loadDevSnapshot()
+        if (snap) {
+          const prefix = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-`
+          const records = snap.attendanceRecords.filter(
+            (r) => r.employeeId === selectedEmployeeId && r.date.startsWith(prefix),
+          )
+          const raws = snap.rawPunches.filter(
+            (r) => r.employeeId === selectedEmployeeId && r.date.startsWith(prefix),
+          )
+          setLoadedRecords(records)
+          setSavedRecordDates(new Set(records.map((r) => r.date)))
+          const emp = employeesRef.current.find((e) => e.id === selectedEmployeeId)
+          const days = buildAttendanceDaysFromRecords(
+            selectedEmployeeId,
+            selectedYear,
+            selectedMonth,
+            records,
+            raws,
+          ).map((day) => {
+            if (!day.clockIn || !day.clockOut) return day
+            const calc = recalcFromTimes(
+              day.clockIn,
+              day.clockOut,
+              day.isHoliday,
+              emp,
+              day.goOut,
+              day.goReturn,
+            )
+            return {
+              ...day,
+              workMinutes: calc.workMinutes,
+              overtimeMinutes: calc.overtimeMinutes,
+              earlyOvertimeMinutes: calc.earlyOvertimeMinutes,
+              isHolidayWork: day.isHoliday ? calc.workMinutes > 0 : day.isHolidayWork,
+            }
+          })
+          setEditData(days)
+          setDirty(false)
+          return
+        }
+      }
       setEditData(getAttendance(selectedEmployeeId, selectedYear, selectedMonth).map((d) => ({ ...d })))
       setLoadedRecords([])
       setSavedRecordDates(new Set())
@@ -652,13 +708,13 @@ export function Attendance(): ReactElement {
             className={styles.rawPunchButton}
             onClick={() => setBookTarget('all')}
           >
-            出勤簿（全員）
+            PDF出力（全員）
           </button>
           <button
             className={styles.rawPunchButton}
             onClick={() => setBookTarget('single')}
           >
-            出勤簿（選択者）
+            PDF出力（選択者）
           </button>
           <button
             className={editing ? styles.editButtonActive : styles.editButton}
@@ -771,7 +827,7 @@ export function Attendance(): ReactElement {
               <div className={styles.legend}>
                 出勤・退勤欄は<span className={styles.legendRaw}>上段=実打刻（編集不可）</span>／
                 <span className={styles.legendRounded}>下段=丸め時間</span>。
-                有給は常に入力できます（保存で残日数を更新）。社員は午前休・午後休・全日休、パートは全日休のみ。確定した有給は所定に足りない分を労働時間に足します（半休は定時とタイムカードの差分。予定は足しません）。丸め時間は「丸め時間を編集」で修正できます。
+                有給は常に入力できます（保存で残日数を更新）。社員は午前休・午後休・全日休、パートは全日休のみ。確定した有給は所定に足りない分を労働時間に足します（半休は定時とタイムカードの差分。予定は足しません）。パートは定時より前と定時より後を残業時間にします。丸め時間は「丸め時間を編集」で修正できます。
               </div>
               <div className={styles.tableWrapper}>
                 <table className={styles.table}>

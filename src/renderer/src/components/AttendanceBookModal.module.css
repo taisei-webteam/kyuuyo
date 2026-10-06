@@ -11,8 +11,8 @@
 .modal {
   background: var(--color-surface);
   border-radius: 12px;
-  width: 90vw;
-  max-width: 760px;
+  width: 92vw;
+  max-width: 920px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
@@ -36,22 +36,7 @@
 
 .headerRight {
   display: flex;
-  gap: 16px;
   align-items: center;
-}
-
-.headerCompany {
-  font-size: 0.9375rem;
-  font-weight: 700;
-  color: var(--color-text);
-  white-space: nowrap;
-}
-
-.headerLogo {
-  height: 22px;
-  width: auto;
-  object-fit: contain;
-  display: block;
 }
 
 .headerActions {
@@ -95,6 +80,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 16px 20px;
+  background: #e8eaee;
 }
 
 .status {
@@ -105,91 +91,190 @@
 }
 
 .employeeSection {
-  margin-bottom: 24px;
+  --sheet-h: 296mm;
+  box-sizing: border-box;
+  width: 210mm;
+  max-width: 100%;
+  height: var(--sheet-h);
+  max-height: var(--sheet-h);
+  margin: 0 auto 16px;
+  padding: 4mm 8mm 3mm;
+  background: #fff;
+  color: #111;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
 }
 
 .sheetHead {
-  position: relative;
-  margin: 0 0 6px 0;
+  flex: 0 0 auto;
+  margin: 0 0 2mm;
+  padding-bottom: 1mm;
+  border-bottom: 3px double #111;
 }
 
 .sheetTitle {
-  font-size: 0.9375rem;
+  font-size: 14pt;
   font-weight: 700;
   margin: 0;
   text-align: center;
-  color: var(--color-text);
-}
-
-/* 会社ロゴ/会社名はシート見出しの右上に印刷時のみ表示する（画面ではモーダルヘッダーに表示）。 */
-.sheetLogo,
-.sheetCompany {
-  display: none;
+  letter-spacing: 0.08em;
+  color: #111;
 }
 
 .employeeInfo {
+  flex: 0 0 auto;
   display: flex;
-  gap: 32px;
-  align-items: baseline;
-  margin: 0 0 8px 0;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--color-border);
+  align-items: flex-end;
+  gap: 4mm;
+  margin: 0 0 2mm;
+  padding: 0 2mm 1mm;
+  border-bottom: 1px solid #111;
+  font-size: 11pt;
 }
 
-.employeeName {
-  font-size: 0.875rem;
+.infoLabel {
   font-weight: 700;
-  color: var(--color-text);
 }
 
-.employeeRate {
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
+.infoValue {
+  min-width: 28mm;
+  padding: 0 3mm 0.4mm;
+  border-bottom: 1px solid #111;
+  font-weight: 600;
+}
+
+.tableWrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .table {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.75rem;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid #222;
+  border-left: 1px solid #222;
+  font-size: 9pt;
+  font-variant-numeric: tabular-nums;
+}
+
+.table thead,
+.table tbody {
+  display: flex;
+  flex-direction: column;
+}
+
+.table thead {
+  flex: 0 0 auto;
+}
+
+.table tbody {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.table thead tr,
+.table tbody tr {
+  display: flex;
+  min-height: 0;
+}
+
+.table thead tr {
+  flex: 0 0 6.5mm;
+  height: 6.5mm;
+}
+
+.table tbody tr {
+  /* 30日でも31日でも、この1枚の高さの中で行を等分する。 */
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .table th,
 .table td {
-  padding: 5px 10px;
-  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 0 1mm;
+  border-right: 1px solid #222;
+  border-bottom: 1px solid #222;
   text-align: center;
+  color: #111;
+  line-height: 1.1;
+  min-width: 0;
 }
 
 .table th {
-  background: var(--color-surface);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.6875rem;
+  font-weight: 700;
+  background: #fff;
 }
 
-.table tbody tr:hover {
-  background: var(--color-hover);
+.colDate {
+  flex: 3.4 1 0;
+  justify-content: flex-start;
+  padding-left: 1.5mm;
+}
+
+.colTime {
+  flex: 1.35 1 0;
+}
+
+.colHours {
+  flex: 1.25 1 0;
+}
+
+.colBreak {
+  flex: 0.9 1 0;
+}
+
+.dateCell {
+  white-space: nowrap;
+}
+
+.leaveMark {
+  display: inline-block;
+  width: 12mm;
+  font-size: 8pt;
+  flex: 0 0 auto;
 }
 
 .num {
-  text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
-.totalRow td {
+.summary {
+  flex: 0 0 auto;
+  width: 78%;
+  margin: 2mm 0 0 auto;
+  border-collapse: collapse;
+  font-size: 10pt;
+}
+
+.summary th,
+.summary td {
+  border: 1px solid #111;
+  text-align: center;
+  padding: 1.2mm 2mm;
+  color: #111;
+  font-weight: 600;
+}
+
+.summaryTotal {
+  width: 22%;
+  font-size: 12pt;
   font-weight: 700;
-  background: var(--color-hover);
 }
 
-.daySun {
-  color: #dc2626;
-}
-
-.daySat {
-  color: #2563eb;
-}
-
-/* ── 印刷用 ── */
+/* ── 印刷 / PDF（A4縦・1人1ページ・控えなし） ── */
 
 @media print {
   .overlay {
@@ -205,74 +290,77 @@
     box-shadow: none;
     border-radius: 0;
     overflow: visible;
+    background: #fff;
+  }
+
+  .header {
+    display: none;
   }
 
   .body {
     overflow: visible;
     max-height: none;
-    padding: 0 12mm;
+    padding: 0;
+    background: #fff;
+  }
+
+  .status {
+    display: none;
   }
 
   .employeeSection {
+    width: 210mm;
+    height: var(--sheet-h);
+    max-height: var(--sheet-h);
+    margin: 0;
+    box-shadow: none;
     break-inside: avoid;
+    page-break-inside: avoid;
     break-after: page;
-    margin-bottom: 0;
-    /* 各シート（1人1ページ）の上部に余白を確保する。 */
-    padding-top: 8mm;
+    page-break-after: always;
   }
 
   .employeeSection:last-child {
     break-after: auto;
+    page-break-after: auto;
   }
+}
 
-  .table th,
-  .table td {
-    padding: 1.2mm 10px;
-  }
+/* printToPDF 中は画面クラスでも同じ1ページ構成にする */
+:global(body.is-printing-modal) .header {
+  display: none;
+}
 
-  /* 画面用モーダルヘッダー（氏名タイトル・操作ボタン）は印刷しない。
-     見出しはシート内の .sheetHead に集約し、重複と余白による2ページ化を防ぐ。 */
-  .header {
-    display: none;
-  }
+:global(body.is-printing-modal) .overlay {
+  position: static;
+  background: none;
+}
 
-  /* 会社ロゴ/会社名はシート見出しの右上に1回だけ表示する。 */
-  .sheetLogo {
-    display: block;
-    position: absolute;
-    top: 0;
-    right: 0;
-    height: 6mm;
-    width: auto;
-    object-fit: contain;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
+:global(body.is-printing-modal) .modal {
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  box-shadow: none;
+  border-radius: 0;
+  overflow: visible;
+  background: #fff;
+}
 
-  .sheetCompany {
-    display: block;
-    position: absolute;
-    top: 0;
-    right: 0;
-    font-size: 0.8125rem;
-    font-weight: 700;
-    color: #000;
-  }
+:global(body.is-printing-modal) .body {
+  overflow: visible;
+  max-height: none;
+  padding: 0;
+  background: #fff;
+}
 
-  .table th,
-  .table td {
-    border-color: #999;
-  }
+:global(body.is-printing-modal) .employeeSection {
+  box-shadow: none;
+  margin: 0;
+  break-after: page;
+  page-break-after: always;
+}
 
-  .table th {
-    background: #f5f5f5 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  .totalRow td {
-    background: #f5f5f5 !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
+:global(body.is-printing-modal) .employeeSection:last-child {
+  break-after: auto;
+  page-break-after: auto;
 }

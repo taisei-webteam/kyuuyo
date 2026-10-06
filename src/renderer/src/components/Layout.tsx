@@ -1,5 +1,5 @@
-import { NavLink, useLocation } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
 import type { ReactNode, ReactElement } from 'react'
 import styles from './Layout.module.css'
 import { getSettings, subscribe } from '../lib/settings-store'
@@ -44,9 +44,16 @@ const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 export function Layout({ children }: LayoutProps): ReactElement {
   const location = useLocation()
+  const navigate = useNavigate()
   const pageTitle = pageTitles[location.pathname] ?? ''
   const [companyName, setCompanyName] = useState(getSettings().companyName)
   const [appVersion, setAppVersion] = useState('')
+  const historyRef = useRef<{ keys: string[]; index: number }>({
+    keys: [location.key],
+    index: 0,
+  })
+  const [canBack, setCanBack] = useState(false)
+  const [canForward, setCanForward] = useState(false)
 
   useEffect(() => {
     return subscribe(() => setCompanyName(getSettings().companyName))
@@ -56,6 +63,20 @@ export function Layout({ children }: LayoutProps): ReactElement {
     if (!hasElectronApi) return
     void window.api.app.getVersion().then(setAppVersion)
   }, [])
+
+  useEffect(() => {
+    const hist = historyRef.current
+    const existing = hist.keys.indexOf(location.key)
+    if (existing >= 0) {
+      hist.index = existing
+    } else {
+      hist.keys = hist.keys.slice(0, hist.index + 1)
+      hist.keys.push(location.key)
+      hist.index = hist.keys.length - 1
+    }
+    setCanBack(hist.index > 0)
+    setCanForward(hist.index < hist.keys.length - 1)
+  }, [location])
 
   return (
     <div className={styles.container}>
@@ -86,7 +107,31 @@ export function Layout({ children }: LayoutProps): ReactElement {
       </aside>
       <div className={styles.main}>
         <header className={styles.header}>
-          <h1 className={styles.headerTitle}>{pageTitle}</h1>
+          <div className={styles.headerLead}>
+            <button
+              type="button"
+              className={styles.historyButton}
+              aria-label="戻る"
+              disabled={!canBack}
+              onClick={() => {
+                if (canBack) navigate(-1)
+              }}
+            >
+              ＜
+            </button>
+            <button
+              type="button"
+              className={styles.historyButton}
+              aria-label="次へ"
+              disabled={!canForward}
+              onClick={() => {
+                if (canForward) navigate(1)
+              }}
+            >
+              ＞
+            </button>
+            <h1 className={styles.headerTitle}>{pageTitle}</h1>
+          </div>
           {companyLogoSrc ? (
             <img src={companyLogoSrc} alt={companyName} className={styles.headerLogo} />
           ) : (

@@ -1,10 +1,12 @@
+import type { Payslip } from '../../../shared/types'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import type { ReactElement, ChangeEvent } from 'react'
+import type { ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getEmployees,
   getPayslips,
   createPayslips,
+  preserveSavedPayslipFigures,
   deletePayslips,
   aggregateAttendanceRecords,
   isPayslipsCreated,
@@ -161,6 +163,7 @@ export function PayslipCreate(): ReactElement {
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteArmed, setDeleteArmed] = useState(false)
   const [createMessage, setCreateMessage] = useState<string | null>(null)
   const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
   // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
@@ -179,12 +182,13 @@ export function PayslipCreate(): ReactElement {
 
   // 年月の切替時に SQLite から保存済み明細を読み込み、メモリキャッシュへ反映する。
   useEffect(() => {
-    if (!hasElectronApi) {
+    if (!hasElectronApi && !import.meta.env.DEV) {
       setLoadingMonth(false)
       return
     }
     let cancelled = false
     dirtyRef.current = false
+    setDeleteArmed(false)
     setLoadingMonth(true)
     void (async () => {
       try {
@@ -287,12 +291,27 @@ export function PayslipCreate(): ReactElement {
           realAttendance = aggregateAttendanceRecords(result.data)
         }
       }
-      const data = createPayslips(selectedYear, selectedMonth, realAttendance)
+      let savedRows: Payslip[] = []
+      if (hasElectronApi) {
+        const existing = await window.api.payslips.list(selectedYear, selectedMonth, 'salary')
+        if (existing.success) savedRows = existing.data
+      }
+      const generated = createPayslips(selectedYear, selectedMonth, realAttendance)
+      const data = preserveSavedPayslipFigures(generated, savedRows)
+      setPayslips(selectedYear, selectedMonth, data)
       // 生成した明細を SQLite に永続化する（再起動後も保持される）
       const saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
       dirtyRef.current = false
       setRefreshKey((k) => k + 1)
-      if (realAttendance && realAttendance.size > 0) {
+      const keptCount = data.filter((row) => savedRows.some((savedRow) => savedRow.employeeId === row.employeeId)).length
+      if (keptCount > 0) {
+        const addedCount = data.length - keptCount
+        setCreateMessage(
+          addedCount > 0
+            ? `保存済み${keptCount}人の金額は維持し、新しい${addedCount}人を作成しました`
+            : '作成済みの金額を維持しました',
+        )
+      } else if (realAttendance && realAttendance.size > 0) {
         setCreateMessage(`同期済みの勤怠データ（${realAttendance.size}名分）を反映して作成しました`)
       } else if (hasElectronApi && !saved) {
         setCreateMessage('同期済み勤怠が無いため、仮の勤怠で作成しました（勤怠管理で同期・丸めを実行してください）')
@@ -307,12 +326,7 @@ export function PayslipCreate(): ReactElement {
   }, [selectedYear, selectedMonth])
 
   const handleDelete = useCallback(async (): Promise<void> => {
-    const ok = window.confirm(
-      `${selectedYear}年${selectedMonth}月分の給与データを削除して「未作成」に戻します。\n` +
-        'この月に入力・編集した内容は失われます。よろしいですか？\n\n' +
-        '（月末に勤怠を同期してから作り直す場合などにご利用ください）',
-    )
-    if (!ok) return
+    setDeleteArmed(false)
     setDeleting(true)
     setCreateMessage(null)
     try {
@@ -419,7 +433,7 @@ export function PayslipCreate(): ReactElement {
 
   const handleEmailSend = useCallback(async (): Promise<void> => {
     if (!selectedEmployee?.email) {
-      alert('メールアドレスが登録されていません。従業員管理画面で登録してください。')
+      setCreateMessage('メールアドレスが登録されていません。従業員管理画面で登録してください。')
       return
     }
     if (!isMailSendAvailable()) {
@@ -430,7 +444,7 @@ export function PayslipCreate(): ReactElement {
     }
     const item = buildMailItem(selectedEmployee)
     if (!item) {
-      alert('明細データが見つかりません。先に給与データを作成してください。')
+      setCreateMessage('明細データが見つかりません。先に給与データを作成してください。')
       return
     }
     setCreateMessage(`${selectedEmployee.name} さんへ送信中...`)
@@ -442,12 +456,10 @@ export function PayslipCreate(): ReactElement {
         setEmailRefresh((k) => k + 1)
         setCreateMessage(`${selectedEmployee.name} さんへ送信しました`)
       } else {
-        setCreateMessage(null)
-        alert(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
+        setCreateMessage(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
       }
     } catch (err) {
-      setCreateMessage(null)
-      alert(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+      setCreateMessage(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     }
   }, [selectedEmployee, selectedYear, selectedMonth, buildMailItem])
 
@@ -476,7 +488,7 @@ export function PayslipCreate(): ReactElement {
 
   const handleBulkPrint = useCallback((): void => {
     if (bulkPrintItems.length === 0) {
-      alert('印刷対象の明細がありません。先に給与データを作成してください。')
+      setCreateMessage('印刷対象の明細がありません。先に給与データを作成してください。')
       return
     }
     setBulkPrinting(true)
@@ -488,7 +500,7 @@ export function PayslipCreate(): ReactElement {
 
   const handleExportCsv = useCallback(async (): Promise<void> => {
     if (bulkPrintItems.length === 0) {
-      alert('出力対象の明細がありません。先に給与データを作成してください。')
+      setCreateMessage('出力対象の明細がありません。先に給与データを作成してください。')
       return
     }
     const content = buildPayslipCsv(bulkPrintItems)
@@ -578,14 +590,24 @@ export function PayslipCreate(): ReactElement {
               </button>
             </div>
             <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={() => { void handleCreate() }}
+              disabled={creating}
+              title="この月に保存してある金額はそのまま残します"
+            >
+              {creating ? '作成中...' : `${selectedMonth}月分を作成`}
+            </button>
+            <button
               className={styles.btnSecondary}
               onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
             >
               一括編集
             </button>
             <button
+              type="button"
               className={styles.btnDanger}
-              onClick={handleDelete}
+              onClick={() => setDeleteArmed(true)}
               disabled={deleting}
               title="この月の給与データを削除して未作成に戻します"
             >
@@ -614,6 +636,22 @@ export function PayslipCreate(): ReactElement {
         )}
       </div>
 
+      {created && deleteArmed && (
+        <div className={styles.confirmBar}>
+          <p>
+            {selectedYear}年{selectedMonth}月分を削除して未作成に戻します。この月に入力した内容は失われ、次の作成は従業員詳細と勤怠から計算し直します。
+          </p>
+          <div className={styles.confirmActions}>
+            <button type="button" className={styles.btnDanger} onClick={() => { void handleDelete() }} disabled={deleting}>
+              {deleting ? '削除中...' : '削除する'}
+            </button>
+            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteArmed(false)} disabled={deleting}>
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
       {created && createMessage && (
         <p className={styles.notCreatedDesc} style={{ margin: '0 0 12px' }}>{createMessage}</p>
       )}
@@ -628,6 +666,8 @@ export function PayslipCreate(): ReactElement {
                 className={styles.searchInput}
                 placeholder="従業員検索..."
                 value={searchQuery}
+                autoComplete="off"
+                spellCheck={false}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
@@ -643,6 +683,7 @@ export function PayslipCreate(): ReactElement {
           <main className={styles.detail}>
             {selectedEmployee && selectedPayslip ? (
               <PayslipDetail
+                key={`${selectedYear}-${selectedMonth}-${refreshKey}-${selectedEmployee.id}`}
                 employee={selectedEmployee}
                 payslip={selectedPayslip}
                 year={selectedYear}
@@ -754,10 +795,10 @@ function PayslipDetail({
     companyName: settings.companyName,
   })
 
-  const handleChange = useCallback(
+  const setField = useCallback(
     (field: keyof MockPayslip) =>
-      (e: ChangeEvent<HTMLInputElement>): void => {
-        onChange(employee.id, field, Number(e.target.value))
+      (value: number): void => {
+        onChange(employee.id, field, value)
       },
     [onChange, employee.id],
   )
@@ -809,11 +850,11 @@ function PayslipDetail({
       )}
 
       <div className={styles.attendanceRow}>
-        <AttendanceInput label="出勤日数" value={payslip.workDays} unit="日" onChange={handleChange('workDays')} />
-        <AttendanceInput label="労働時間" value={payslip.workHours} unit="h" onChange={handleChange('workHours')} step={0.5} />
-        <AttendanceInput label="残業時間" value={payslip.overtimeHours} unit="h" onChange={handleChange('overtimeHours')} step={0.5} />
-        <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onChange={handleChange('holidayWorkDays')} />
-        <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onChange={handleChange('paidLeaveDays')} step={isPartTime ? 1 : 0.5} />
+        <AttendanceInput label="出勤日数" value={payslip.workDays} unit="日" onValue={setField('workDays')} />
+        <AttendanceInput label="労働時間" value={payslip.workHours} unit="h" onValue={setField('workHours')} allowDecimal />
+        <AttendanceInput label="残業時間" value={payslip.overtimeHours} unit="h" onValue={setField('overtimeHours')} allowDecimal />
+        <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onValue={setField('holidayWorkDays')} />
+        <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onValue={setField('paidLeaveDays')} allowDecimal />
       </div>
 
       <div className={styles.columns}>
@@ -829,14 +870,14 @@ function PayslipDetail({
                   時給 ¥{employee.hourlyRate.toLocaleString('ja-JP')} × {payslip.workHours}h
                 </div>
               )}
-              <EditableRow label={isPartTime ? '基本給（時給計算）' : '基本給'} value={payslip.basicSalary} onChange={handleChange('basicSalary')} />
-              <EditableRow label="残業手当" value={payslip.overtimePay} onChange={handleChange('overtimePay')} />
-              <EditableRow label="通勤手当" value={payslip.transportAllowance} onChange={handleChange('transportAllowance')} />
-              <EditableRow label="役職手当" value={payslip.positionAllowance} onChange={handleChange('positionAllowance')} />
-              <EditableRow label="家族手当" value={payslip.familyAllowance} onChange={handleChange('familyAllowance')} />
-              <EditableRow label="特別手当" value={payslip.specialAllowance} onChange={handleChange('specialAllowance')} />
-              <EditableRow label="危険手当" value={payslip.dangerAllowance} onChange={handleChange('dangerAllowance')} />
-              <EditableRow label="営業手当" value={payslip.salesAllowance} onChange={handleChange('salesAllowance')} />
+              <EditableRow label={isPartTime ? '基本給（時給計算）' : '基本給'} value={payslip.basicSalary} onValue={setField('basicSalary')} />
+              <EditableRow label="残業手当" value={payslip.overtimePay} onValue={setField('overtimePay')} />
+              <EditableRow label="通勤手当" value={payslip.transportAllowance} onValue={setField('transportAllowance')} />
+              <EditableRow label="役職手当" value={payslip.positionAllowance} onValue={setField('positionAllowance')} />
+              <EditableRow label="家族手当" value={payslip.familyAllowance} onValue={setField('familyAllowance')} />
+              <EditableRow label="特別手当" value={payslip.specialAllowance} onValue={setField('specialAllowance')} />
+              <EditableRow label="危険手当" value={payslip.dangerAllowance} onValue={setField('dangerAllowance')} />
+              <EditableRow label="営業手当" value={payslip.salesAllowance} onValue={setField('salesAllowance')} />
             </div>
             <ExtraLinesSection
               lines={payslip.extraPaymentLines ?? []}
@@ -856,15 +897,15 @@ function PayslipDetail({
               控除
             </div>
             <div className={styles.sectionBody}>
-              <EditableRow label="所得税" value={payslip.incomeTax} onChange={handleChange('incomeTax')} fixed />
+              <EditableRow label="所得税" value={payslip.incomeTax} onValue={setField('incomeTax')} fixed />
               <EditableRow
-                label="健康・介護保険"
+                label="健康保険料"
                 value={payslip.healthInsurance + payslip.nursingInsurance}
-                onChange={handleChange('healthInsurance')}
+                onValue={setField('healthInsurance')}
               />
-              <EditableRow label="厚生年金" value={payslip.welfarePension} onChange={handleChange('welfarePension')} auto />
-              <EditableRow label="雇用保険" value={payslip.employmentInsurance} onChange={handleChange('employmentInsurance')} auto />
-              <EditableRow label="住民税" value={payslip.residentTax} onChange={handleChange('residentTax')} />
+              <EditableRow label="厚生年金" value={payslip.welfarePension} onValue={setField('welfarePension')} auto />
+              <EditableRow label="雇用保険" value={payslip.employmentInsurance} onValue={setField('employmentInsurance')} auto />
+              <EditableRow label="住民税" value={payslip.residentTax} onValue={setField('residentTax')} />
             </div>
             <ExtraLinesSection
               lines={payslip.extraDeductionLines ?? []}
@@ -887,30 +928,107 @@ function PayslipDetail({
   )
 }
 
+function toHalfWidthNumeric(raw: string): string {
+  return raw
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/[．。]/g, '.')
+}
+
+function sanitizeNumericInput(raw: string, allowDecimal: boolean): string {
+  const half = toHalfWidthNumeric(raw)
+  if (!allowDecimal) return half.replace(/\D/g, '')
+  const cleaned = half.replace(/[^\d.]/g, '')
+  const dot = cleaned.indexOf('.')
+  if (dot < 0) return cleaned
+  const head = cleaned.slice(0, dot)
+  const tail = cleaned.slice(dot + 1).replace(/\./g, '').slice(0, 2)
+  return `${head}.${tail}`
+}
+
+function parseNumericInput(text: string, allowDecimal: boolean): number {
+  if (text === '' || text === '.') return 0
+  const n = Number(text)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return allowDecimal ? Math.round(n * 100) / 100 : Math.round(n)
+}
+
+function formatNumericInput(value: number): string {
+  if (!Number.isFinite(value)) return '0'
+  return String(value)
+}
+
+function NumericField({
+  value,
+  onValue,
+  className,
+  allowDecimal = false,
+}: {
+  value: number
+  onValue: (value: number) => void
+  className: string
+  allowDecimal?: boolean
+}): ReactElement {
+  const [text, setText] = useState(() => formatNumericInput(value))
+  const focusedRef = useRef(false)
+
+  useEffect(() => {
+    if (!focusedRef.current) setText(formatNumericInput(value))
+  }, [value])
+
+  return (
+    <input
+      type="text"
+      inputMode={allowDecimal ? 'decimal' : 'numeric'}
+      autoComplete="off"
+      spellCheck={false}
+      className={className}
+      value={text}
+      onFocus={(e) => {
+        focusedRef.current = true
+        const el = e.currentTarget
+        requestAnimationFrame(() => el.select())
+      }}
+      onBlur={() => {
+        focusedRef.current = false
+        const next = parseNumericInput(text, allowDecimal)
+        setText(formatNumericInput(next))
+        if (next !== value) onValue(next)
+      }}
+      onChange={(e) => {
+        const next = sanitizeNumericInput(e.target.value, allowDecimal)
+        setText(next)
+        if (next === '' || next === '.') {
+          onValue(0)
+          return
+        }
+        onValue(parseNumericInput(next, allowDecimal))
+      }}
+    />
+  )
+}
+
 function AttendanceInput({
   label,
   value,
   unit,
-  onChange,
-  step,
+  onValue,
+  allowDecimal,
 }: {
   label: string
   value: number
   unit: string
-  onChange: (e: ChangeEvent<HTMLInputElement>) => void
-  step?: number
+  onValue: (value: number) => void
+  allowDecimal?: boolean
 }): ReactElement {
   return (
     <div className={styles.attendanceItem}>
       <span className={styles.attendanceLabel}>{label}</span>
       <div className={styles.attendanceInputWrap}>
-        <input
-          type="number"
-          className={styles.attendanceInput}
+        <NumericField
           value={value}
-          onChange={onChange}
-          min={0}
-          step={step}
+          onValue={onValue}
+          allowDecimal={allowDecimal}
+          className={styles.attendanceInput}
         />
         <span className={styles.attendanceUnit}>{unit}</span>
       </div>
@@ -921,13 +1039,13 @@ function AttendanceInput({
 function EditableRow({
   label,
   value,
-  onChange,
+  onValue,
   auto,
   fixed,
 }: {
   label: string
   value: number
-  onChange: (e: ChangeEvent<HTMLInputElement>) => void
+  onValue: (value: number) => void
   auto?: boolean
   fixed?: boolean
 }): ReactElement {
@@ -938,13 +1056,10 @@ function EditableRow({
         {auto && <span className={styles.rowAutoIcon}>*</span>}
         {fixed && <span className={styles.fixedTag}>固定</span>}
       </span>
-      <input
-        type="number"
-        className={`${styles.rowInput} ${fixed ? styles.rowInputFixed : ''}`}
+      <NumericField
         value={value}
-        onChange={onChange}
-        onMouseDown={(e) => e.stopPropagation()}
-        min={0}
+        onValue={onValue}
+        className={`${styles.rowInput} ${fixed ? styles.rowInputFixed : ''}`}
       />
     </div>
   )

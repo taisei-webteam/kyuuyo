@@ -15,11 +15,15 @@ export {
   fromMinutes,
   scheduledWorkMinutes,
   paidLeaveSupplementMinutes,
-  LEGAL_BREAK_THRESHOLD_MINUTES,
+  minutesOutsideSchedule,
+  partTimeLaborMinutes,
+  BREAK_REQUIRED_AFTER_MINUTES,
 } from '../../../shared/time-rounding'
 
 export type {
   ClockInConfig,
   ClockInType,
   ClockInResult,
+  OutsideScheduleMinutes,
+  PartTimeLaborMinutes,
 } from '../../../shared/time-rounding'

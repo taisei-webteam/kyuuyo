@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import type { AttendanceRecord } from '../../../shared/types'
 import { getEmployees, mapDbEmployeeToMock, isEmployedInMonth, type MockEmployee } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
-import { scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
+import { scheduledWorkMinutes, paidLeaveSupplementMinutes, partTimeLaborMinutes, unpaidGoOutMinutes } from '@/lib/time-rounding'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './AttendanceBookModal.module.css'
@@ -12,13 +12,6 @@ import styles from './AttendanceBookModal.module.css'
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
-
-// 会社ロゴ。src/assets/logo-dark.(png|jpg|jpeg|svg|webp) を置くと自動で読み込まれる。
-const logoModules = import.meta.glob<{ default: string }>(
-  '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
-  { eager: true },
-)
-const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
 
 interface Props {
   year: number
@@ -39,9 +32,33 @@ function hm(time: string | null | undefined): string {
   return time ? time.slice(0, 5) : ''
 }
 
+function isPaidLeaveDay(r: AttendanceRecord | undefined): boolean {
+  return !!r?.paidLeaveUsage
+}
+
 /** 実働時間（残業を除く）。workMinutes には残業分が含まれるため差し引く。 */
 function regularWorkMinutes(workMinutes: number, overtimeMinutes: number): number {
   return Math.max(0, workMinutes - overtimeMinutes)
+}
+
+/** パートは打刻から定時外を時間外として引き直す。保存値が古くても出勤簿と給与を揃える。 */
+function partTimeSplit(
+  r: AttendanceRecord,
+  emp: MockEmployee,
+): { workMinutes: number; overtimeMinutes: number } | null {
+  if (!r.clockIn || !r.clockOut) return null
+  const settings = getSettings()
+  const labor = partTimeLaborMinutes(
+    r.clockIn,
+    r.clockOut,
+    emp.scheduledStart,
+    emp.scheduledEnd,
+    emp.earlyWorkStart,
+    settings.earlyRoundingUnit,
+    unpaidGoOutMinutes(r.goOut, r.goReturn),
+    settings.defaultBreakMinutes,
+  )
+  return { workMinutes: labor.workMinutes, overtimeMinutes: labor.overtimeMinutes }
 }
 
 /** タイムカード実働に確定有給の不足分を足した労働時間（分）。残業は含めない。 */
@@ -52,13 +69,23 @@ function laborMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined)
     emp?.scheduledEnd ?? '17:30',
     settings.defaultBreakMinutes,
   )
-  const withLeave = r.workMinutes + paidLeaveSupplementMinutes(
+  const part = emp?.employeeType === 'パート' ? partTimeSplit(r, emp) : null
+  const timecard = part?.workMinutes ?? r.workMinutes
+  const withLeave = timecard + paidLeaveSupplementMinutes(
     r.paidLeaveUsage,
     r.paidLeaveStatus,
-    r.workMinutes,
+    timecard,
     scheduled,
   )
+  if (part) return withLeave
   return regularWorkMinutes(withLeave, r.overtimeMinutes)
+}
+
+function overtimeMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined): number {
+  if (emp?.employeeType === 'パート') {
+    return partTimeSplit(r, emp)?.overtimeMinutes ?? r.overtimeMinutes
+  }
+  return r.overtimeMinutes
 }
 
 export function AttendanceBookModal({ year, month, employeeId, onClose }: Props): ReactElement {
@@ -67,8 +94,6 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-
-  const companyName = useMemo(() => getSettings().companyName, [])
 
   useEffect(() => {
     if (!hasElectronApi) {
@@ -116,7 +141,11 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
     for (let d = 1; d <= count; d++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`
       const dow = new Date(year, month - 1, d).getDay()
-      days.push({ dateStr, label: `${month}/${d}（${WEEKDAY_LABELS[dow]}）`, dow })
+      days.push({
+        dateStr,
+        label: `${month}月${String(d).padStart(2, '0')}日(${WEEKDAY_LABELS[dow]})`,
+        dow,
+      })
     }
     return days
   }, [year, month])
@@ -196,14 +225,9 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
         <div className={styles.header}>
           <h2 className={styles.title}>出勤簿 — {titleLabel}</h2>
           <div className={styles.headerRight}>
-            {companyLogoSrc ? (
-              <img src={companyLogoSrc} alt={companyName} className={styles.headerLogo} />
-            ) : companyName ? (
-              <span className={styles.headerCompany}>{companyName}</span>
-            ) : null}
             <div className={styles.headerActions}>
-              <button className={styles.printButton} onClick={handlePrint} disabled={busy}>
-                {busy ? 'PDF生成中...' : 'PDF出力'}
+              <button className={styles.printButton} onClick={handlePrint} disabled={busy || sections.length === 0}>
+                {busy ? 'PDF生成中...' : `PDF出力（${sections.length}名）`}
               </button>
               <button className={styles.closeButton} onClick={onClose}>✕</button>
             </div>
@@ -223,69 +247,72 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
             let totalBreak = 0
             for (const r of byDate.values()) {
               totalWork += laborMinutesForBook(r, emp)
-              totalOvertime += r.overtimeMinutes
+              totalOvertime += overtimeMinutesForBook(r, emp)
               totalBreak += r.breakMinutes
             }
             return (
-              <div key={emp.id} className={styles.employeeSection}>
+              <section key={emp.id} className={styles.employeeSection}>
                 <div className={styles.sheetHead}>
                   <h3 className={styles.sheetTitle}>{sheetTitle}</h3>
-                  {companyLogoSrc ? (
-                    <img src={companyLogoSrc} alt={companyName} className={styles.sheetLogo} />
-                  ) : companyName ? (
-                    <span className={styles.sheetCompany}>{companyName}</span>
-                  ) : null}
                 </div>
                 <div className={styles.employeeInfo}>
-                  <span className={styles.employeeName}>氏名　{emp.name}</span>
+                  <span className={styles.infoLabel}>氏名</span>
+                  <span className={styles.infoValue}>{emp.name}</span>
                   {emp.employeeType === 'パート' && (
-                    <span className={styles.employeeRate}>
-                      時給　¥{emp.hourlyRate.toLocaleString('ja-JP')}
-                    </span>
+                    <>
+                      <span className={styles.infoLabel}>時給</span>
+                      <span className={styles.infoValue}>{emp.hourlyRate}</span>
+                    </>
                   )}
                 </div>
+                <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
                     <tr>
-                      <th>日付</th>
-                      <th>出勤</th>
-                      <th>退勤</th>
-                      <th>実働時間</th>
-                      <th>残業時間</th>
-                      <th>差引</th>
+                      <th className={styles.colDate}>日付</th>
+                      <th className={styles.colTime}>出勤</th>
+                      <th className={styles.colTime}>退勤</th>
+                      <th className={styles.colHours}>実働時間</th>
+                      <th className={styles.colHours}>残業時間</th>
+                      <th className={styles.colBreak}>差引</th>
                     </tr>
                   </thead>
                   <tbody>
                     {monthDays.map((day) => {
                       const r = byDate.get(day.dateStr)
-                      const dateClass =
-                        day.dow === 0 ? styles.daySun : day.dow === 6 ? styles.daySat : undefined
                       return (
                         <tr key={day.dateStr}>
-                          <td className={dateClass}>{day.label}</td>
-                          <td>{hm(r?.clockIn)}</td>
-                          <td>{hm(r?.clockOut)}</td>
-                          <td className={styles.num}>
-                            {fmtHours(r ? laborMinutesForBook(r, emp) : 0)}
+                          <td className={`${styles.dateCell} ${styles.colDate}`}>
+                            <span className={styles.leaveMark}>{isPaidLeaveDay(r) ? '(有給)' : ''}</span>
+                            <span>{day.label}</span>
                           </td>
-                          <td className={styles.num}>{fmtHours(r?.overtimeMinutes ?? 0)}</td>
-                          <td className={styles.num}>{fmtHours(r?.breakMinutes ?? 0)}</td>
+                          <td className={styles.colTime}>{hm(r?.clockIn)}</td>
+                          <td className={styles.colTime}>{hm(r?.clockOut)}</td>
+                          <td className={`${styles.num} ${styles.colHours}`}>{fmtHours(r ? laborMinutesForBook(r, emp) : 0)}</td>
+                          <td className={`${styles.num} ${styles.colHours}`}>{fmtHours(r ? overtimeMinutesForBook(r, emp) : 0)}</td>
+                          <td className={`${styles.num} ${styles.colBreak}`}>{fmtHours(r?.breakMinutes ?? 0)}</td>
                         </tr>
                       )
                     })}
                   </tbody>
-                  <tfoot>
-                    <tr className={styles.totalRow}>
-                      <td>合計</td>
-                      <td></td>
-                      <td></td>
+                </table>
+                </div>
+                <table className={styles.summary}>
+                  <tbody>
+                    <tr>
+                      <th rowSpan={2} className={styles.summaryTotal}>合計</th>
+                      <th>実働時間</th>
+                      <th>残業時間</th>
+                      <th>差引</th>
+                    </tr>
+                    <tr>
                       <td className={styles.num}>{fmtHours(totalWork)}</td>
                       <td className={styles.num}>{fmtHours(totalOvertime)}</td>
                       <td className={styles.num}>{fmtHours(totalBreak)}</td>
                     </tr>
-                  </tfoot>
+                  </tbody>
                 </table>
-              </div>
+              </section>
             )
           })}
         </div>

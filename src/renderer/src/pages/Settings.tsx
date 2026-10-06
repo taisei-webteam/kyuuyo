@@ -488,7 +488,7 @@ export default function Settings(): ReactElement {
                 </div>
               </div>
               <p className={styles.ruleHint}>
-                拘束時間が6時間を超える日に適用します（労働基準法34条）。6時間以下の日は0分です。
+                拘束時間が5時間を超える日に1時間の休憩として適用します。5時間以下の日は0分です。
               </p>
 
               <div className={styles.ruleRow}>

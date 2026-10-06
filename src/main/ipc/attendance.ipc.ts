@@ -28,6 +28,7 @@ import {
   calcEarlyOvertime,
   calcBreakMinutes,
   unpaidGoOutMinutes,
+  partTimeLaborMinutes,
   toMinutes,
   type ClockInConfig,
 } from '../../shared/time-rounding.js';
@@ -54,6 +55,7 @@ function getNeonConfig(): NeonConfig {
 
 interface EmployeeRow {
   id: number;
+  employee_type: string;
   scheduled_start: string;
   scheduled_end: string;
   early_work_start: string | null;
@@ -91,6 +93,7 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
   // 既存行の is_active はローカル(従業員管理の削除)が所有する。
   // 打刻同期の is_active(退職者=false 等)でローカルの在籍状態を上書きしない。
   // (退職者は打刻アプリからは外すが、Windows の従業員一覧には網掛けで残すため)
+  // display_order と区分は従業員管理が正。打刻側の値で戻さない。
   //
   // 生年月日・入社日は打刻同期経由で配布する（住所録＝Neon が正）。
   // Neon 側に値があれば上書きし、仮入力データを正しい値へ更新する。
@@ -101,8 +104,6 @@ function upsertLocalEmployees(employees: EmployeeSyncRow[]): void {
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       name_kana = excluded.name_kana,
-      employee_type = excluded.employee_type,
-      display_order = excluded.display_order,
       birth_date = COALESCE(excluded.birth_date, employees.birth_date),
       hire_date = COALESCE(excluded.hire_date, employees.hire_date),
       updated_at = datetime('now','localtime')
@@ -137,7 +138,7 @@ function getCompanySettings(): CompanyRow {
 function getEmployeeMap(): Map<number, EmployeeRow> {
   const raw = getSqlite();
   const rows = raw.prepare(
-    `SELECT id, scheduled_start, scheduled_end, early_work_start, early_work_end,
+    `SELECT id, employee_type, scheduled_start, scheduled_end, early_work_start, early_work_end,
             overtime_allowed, overtime_start, overtime_end
      FROM employees WHERE is_active = 1`
   ).all() as EmployeeRow[];
@@ -236,7 +237,24 @@ function roundAndUpsertOne(
   );
   let isHolidayWork = false;
 
-  if (isHoliday) {
+  if (clockOut && emp.employee_type === 'パート') {
+    // パートは定時の外を時間外にする。残業不可でも休日でも同じ。
+    const labor = partTimeLaborMinutes(
+      clockIn,
+      clockOut,
+      emp.scheduled_start,
+      emp.scheduled_end,
+      emp.early_work_start,
+      company.early_rounding_unit,
+      goOutMinutes,
+      company.default_break_minutes,
+    );
+    workMinutes = labor.workMinutes;
+    overtimeMinutes = labor.overtimeMinutes;
+    earlyOvertimeMinutes = labor.earlyOvertimeMinutes;
+    breakMinutes = labor.breakMinutes;
+    isHolidayWork = isHoliday && workMinutes > 0;
+  } else if (isHoliday) {
     // 休日出勤: 定時は適用しない。タイムカードどおり早出は早出欄、残りは労働時間（基本給）。
     if (clockOut) {
       const spanMinutes = Math.max(0, toMinutes(clockOut) - toMinutes(clockIn) - goOutMinutes);
@@ -530,15 +548,24 @@ export function registerAttendanceHandlers(): void {
    */
   ipcMain.handle(
     IPC.ATTENDANCE.SYNC_EMPLOYEES,
-    async (_event, params: { employees: Array<{ id: number; name: string; name_kana: string; employee_type: string; display_order: number; is_active: boolean; birth_date?: string | null; hire_date?: string | null }> }): Promise<IpcResult<{ synced: number }>> => {
+    async (_event, params: { employees: Array<{ id: number; name: string; name_kana: string; employee_type: string; display_order: number; is_active: boolean; retain?: boolean; birth_date?: string | null; hire_date?: string | null }>; pruneMissing?: boolean }): Promise<IpcResult<{ synced: number }>> => {
       try {
         // まずローカル SQLite の employees にも反映する。
         // (raw_punches / attendance_records は employees(id) を外部キー参照するため、
         //  ここで従業員が存在しないと打刻同期が外部キー制約で失敗する)
-        upsertLocalEmployees(params.employees);
+        upsertLocalEmployees(params.employees.map((e) => ({
+          id: e.id,
+          name: e.name,
+          name_kana: e.name_kana,
+          employee_type: e.employee_type,
+          display_order: e.display_order,
+          is_active: e.is_active,
+          birth_date: e.birth_date,
+          hire_date: e.hire_date,
+        })));
 
         const config = getNeonConfig();
-        await syncEmployeesToNeon(config, params.employees);
+        await syncEmployeesToNeon(config, params.employees, { pruneMissing: params.pruneMissing === true });
         return { success: true, data: { synced: params.employees.length } };
       } catch (err) {
         return {

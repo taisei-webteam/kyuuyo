@@ -63,6 +63,27 @@
   background: var(--color-primary-hover);
 }
 
+.confirmBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .createdBadge {
   display: inline-flex;
   align-items: center;
@@ -227,6 +248,10 @@
   color: var(--color-text);
   outline: none;
   transition: border-color 0.15s;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: var(--color-text);
 }
 
 .searchInput:focus {
@@ -446,7 +471,7 @@
 }
 
 .attendanceInput {
-  width: 64px;
+  width: 72px;
   padding: 4px 6px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -458,6 +483,10 @@
   text-align: center;
   outline: none;
   transition: border-color 0.15s;
+  pointer-events: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: var(--color-text);
 }
 
 .attendanceInput:focus {
@@ -488,7 +517,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .sectionCard {
@@ -581,7 +610,7 @@
 }
 
 .rowInput {
-  width: 110px;
+  width: 120px;
   flex-shrink: 0;
   padding: 4px 8px;
   border: 1px solid var(--color-border);
@@ -597,6 +626,9 @@
   pointer-events: auto;
   position: relative;
   z-index: 2;
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: var(--color-text);
 }
 
 .rowInput:focus {

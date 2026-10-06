@@ -46,6 +46,12 @@ export default defineConfig({
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
+            // 出退勤の一覧をキャッシュすると、通信が切れた復帰時に
+            // 保存済みの出勤が無い古い応答を出して「未出勤」になる。
+            urlPattern: /\/api\/(employees|punches)(\/|\?|$)/i,
+            handler: 'NetworkOnly',
+          },
+          {
             urlPattern: /\/api\/.*/i,
             handler: 'NetworkFirst',
             options: {

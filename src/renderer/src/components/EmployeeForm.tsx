@@ -9,6 +9,13 @@ import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
 import styles from './EmployeeForm.module.css'
 
+function parseYenInput(raw: string): number {
+  const half = raw.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+  const digits = half.replace(/[^\d]/g, '')
+  if (digits === '') return 0
+  return Number(digits)
+}
+
 interface EmployeeFormProps {
   employee: MockEmployee | null
   onSave: (data: MockEmployee) => void
@@ -429,7 +436,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   </div>
                 </div>
                 <p className={styles.fieldNote}>
-                  開始より前の打刻は開始時刻に切り上げます。早出終了（通常は定時開始）までが早出＝時給1.25倍、それ以降は通常時給です。土曜・休日も同じで、午前の早出だけ割増、定時開始以降は基本給に入れます。
+                  開始より前の打刻は開始時刻に切り上げます。社員の早出は時給の1.25倍で、定時開始以降は通常の時給です。休日の社員も、定時開始より前だけ割増です。パートは定時より前も定時より後も時間外（時給の1.25倍）で、残業不可にしていても同じです。
                 </p>
                 <div className={styles.field}>
                   <label className={styles.checkboxLabel}>
@@ -668,8 +675,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             <div className={styles.section}>
               <div className={styles.sectionTitle}>社会保険料</div>
               <p className={styles.fieldNote}>
-                給与作成は標準報酬月額と生年月日から健保・介護・厚生年金を計算します。
-                労務士の合算額を使うときは手入力に切り替えてください。雇用保険は総支給額から自動計算します。
+                通知の金額を使うときは、健康保険料と厚生年金を手入力します。給与を作成すると、この2つを控除にそのまま入れます。
+                介護保険と子育て支援金も本人から引くときは、健康保険料に通知の「健康保険計」を入れてください。
+                雇用保険は総支給額から自動計算します。
               </p>
               <div className={styles.field}>
                 <label className={styles.checkboxLabel}>
@@ -678,19 +686,29 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     checked={form.healthInsuranceManual ?? false}
                     onChange={(e) => handleChange('healthInsuranceManual', e.target.checked)}
                   />
-                  健康・介護保険は労務士の合算額を手入力する
+                  健康保険料と厚生年金は通知の金額を手入力する
                 </label>
               </div>
               {form.healthInsuranceManual ? (
                 <div className={styles.fieldGrid}>
                   <div className={styles.field}>
-                    <label>健康・介護保険（合算・月額）</label>
+                    <label>健康保険料（月額）</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       value={form.healthInsurance}
-                      onChange={(e) => handleChange('healthInsurance', Number(e.target.value))}
-                      min={0}
-                      placeholder="例: 10340"
+                      onChange={(e) => handleChange('healthInsurance', parseYenInput(e.target.value))}
+                      placeholder="例: 22724"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <label>厚生年金（月額）</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={form.welfarePension}
+                      onChange={(e) => handleChange('welfarePension', parseYenInput(e.target.value))}
+                      placeholder="例: 34770"
                     />
                   </div>
                 </div>

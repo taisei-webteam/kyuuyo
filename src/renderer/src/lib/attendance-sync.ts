@@ -6,7 +6,7 @@
 
 import { supabase, isSupabaseConfigured } from './supabase'
 import type { MockAttendanceDay, MockEmployee, StampInType, StampOutType } from './mock-data'
-import { roundClockIn, roundClockOut, roundHolidayClockIn, calcEarlyOvertime, calcBreakMinutes } from './time-rounding'
+import { roundClockIn, roundClockOut, roundHolidayClockIn, calcEarlyOvertime, calcBreakMinutes, partTimeLaborMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 
@@ -230,7 +230,23 @@ function pairToAttendanceDay(
       toMinutes(employee.scheduledEnd) - toMinutes(employee.scheduledStart) - settings.defaultBreakMinutes
     workMinutes = Math.max(0, spanMinutes - breakMinutes)
     workMinutes = Math.max(0, workMinutes - earlyOvertimeMinutes)
-    overtimeMinutes = isHoliday ? 0 : Math.max(0, workMinutes - scheduledMinutes)
+    if (employee.employeeType === 'パート') {
+      const labor = partTimeLaborMinutes(
+        clockIn,
+        clockOut,
+        employee.scheduledStart,
+        employee.scheduledEnd,
+        employee.earlyWorkStart,
+        settings.earlyRoundingUnit,
+        0,
+        settings.defaultBreakMinutes,
+      )
+      workMinutes = labor.workMinutes
+      overtimeMinutes = labor.overtimeMinutes
+      earlyOvertimeMinutes = labor.earlyOvertimeMinutes
+    } else {
+      overtimeMinutes = isHoliday ? 0 : Math.max(0, workMinutes - scheduledMinutes)
+    }
   }
 
   return {

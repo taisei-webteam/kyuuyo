@@ -106,11 +106,34 @@ export function subscribe(listener: () => void): () => void {
 /**
  * SQLite の会社情報(companies)をストアへ反映する。
  * 給与明細・源泉徴収票などが参照する会社名・住所等を、再起動後も維持するため
- * アプリ起動時に一度呼び出す。Electron 環境のみ動作。
+ * アプリ起動時に一度呼び出す。Electron は IPC、ブラウザ開発時は本番 DB のスナップショット。
  */
 export async function hydrateCompanyFromDb(): Promise<void> {
-  if (typeof window === 'undefined' || !('api' in window)) return
+  if (typeof window === 'undefined') return
   try {
+    if (!('api' in window)) {
+      const { loadDevSnapshot } = await import('./dev-db-snapshot')
+      const snap = await loadDevSnapshot()
+      if (!snap?.company) return
+      const d = snap.company
+      updateSettings({
+        companyName: d.name || current.companyName,
+        representativeName: d.representativeName ?? '',
+        postalCode: d.postalCode ?? '',
+        address: d.address ?? '',
+        phone: d.phone ?? '',
+        insuranceNumber: d.insuranceNumber ?? '',
+        roundingUnit: d.roundingUnit ?? current.roundingUnit,
+        gracePeriod: d.gracePeriod ?? current.gracePeriod,
+        defaultBreakMinutes: d.defaultBreakMinutes ?? current.defaultBreakMinutes,
+        earlyRoundingUnit: d.earlyRoundingUnit ?? current.earlyRoundingUnit,
+        overtimeRoundingUnit: d.overtimeRoundingUnit ?? current.overtimeRoundingUnit,
+        monthlyWorkHours: d.monthlyWorkHours ?? current.monthlyWorkHours,
+        paidLeaveResetMonth: d.paidLeaveResetMonth ?? null,
+        paidLeavePolicy: d.paidLeavePolicy ?? '',
+      })
+      return
+    }
     const res = await window.api.company.get()
     if (!res.success || !res.data) return
     const d = res.data

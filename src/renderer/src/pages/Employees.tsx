@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import type { ReactElement } from 'react'
 import {
   getEmployees,
@@ -39,6 +39,9 @@ export function Employees(): ReactElement {
   // 削除確認モーダルの対象従業員（null のとき非表示）
   const [deleteTarget, setDeleteTarget] = useState<MockEmployee | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [dragId, setDragId] = useState<number | null>(null)
+  const [dropId, setDropId] = useState<number | null>(null)
+  const dragIdRef = useRef<number | null>(null)
 
   /** 確認中の従業員がいれば照会し、確認済みになったものを取り込む（通知は出さない）。 */
   const refreshVerificationsSilently = useCallback(async (): Promise<void> => {
@@ -86,9 +89,47 @@ export function Employees(): ReactElement {
         }
         return true
       })
-      // 退職者は一覧の最後にまとめる（在籍者内・退職者内の並びは表示順を維持）
-      .sort((a, b) => Number(isEmployeeRetired(a)) - Number(isEmployeeRetired(b)))
   }, [employees, searchQuery, filterType])
+
+  const canReorder = filterType === 'all' && searchQuery.trim() === ''
+
+  async function persistDisplayOrder(ordered: MockEmployee[]): Promise<void> {
+    if (!hasElectronApi) {
+      ordered.forEach((emp, index) => {
+        updateEmployee({ ...emp, displayOrder: index + 1 })
+      })
+      setRefreshKey((k) => k + 1)
+      return
+    }
+    for (let index = 0; index < ordered.length; index++) {
+      const emp = ordered[index]
+      const displayOrder = index + 1
+      if (!emp || emp.displayOrder === displayOrder) continue
+      const res = await window.api.employees.update({ id: emp.id, displayOrder })
+      if (!res.success) {
+        setSyncMessage(`並び順の保存に失敗しました: ${res.error}`)
+        return
+      }
+    }
+    await reloadEmployeesFromDb()
+    setRefreshKey((k) => k + 1)
+  }
+
+  function handleDropOn(targetId: number): void {
+    const sourceId = dragIdRef.current
+    dragIdRef.current = null
+    setDragId(null)
+    setDropId(null)
+    if (!canReorder || sourceId == null || sourceId === targetId) return
+    const list = [...filtered]
+    const from = list.findIndex((emp) => emp.id === sourceId)
+    const to = list.findIndex((emp) => emp.id === targetId)
+    if (from < 0 || to < 0) return
+    const [moved] = list.splice(from, 1)
+    if (!moved) return
+    list.splice(to, 0, moved)
+    void persistDisplayOrder(list)
+  }
 
   function handleNew(): void {
     setEditingEmployee(null)
@@ -137,7 +178,7 @@ export function Employees(): ReactElement {
           setSyncMessage(`削除に失敗しました: ${res.error}`)
           return
         }
-        // 2) 打刻アプリ(Neon)へ is_active=false を送信し、一覧から即時に除外する
+        // 2) ごみ箱にした人だけを打刻アプリの名簿から削除する（他の人は触らない）
         const punch = await window.api.attendance.syncEmployees([
           {
             id: emp.id,
@@ -146,6 +187,7 @@ export function Employees(): ReactElement {
             employee_type: emp.employeeType,
             display_order: emp.displayOrder,
             is_active: false,
+            retain: false,
           },
         ])
         await reloadEmployeesFromDb()
@@ -214,19 +256,26 @@ export function Employees(): ReactElement {
     setSyncing(true)
     setSyncMessage(null)
     try {
-      // 退職者・役員は is_active=false で送り、打刻アプリの一覧から外す（IDと過去の打刻データは保持）
-      // 生年月日・入社日は送らない（Neon がマスタ。仮データでの上書き事故を防ぐ）
-      const payload = getEmployees().map((e) => ({
-        id: e.id,
-        name: e.name,
-        name_kana: e.nameKana,
-        employee_type: e.employeeType,
-        display_order: e.displayOrder,
-        is_active: !isEmployeeRetired(e) && e.employeeType !== '役員',
-      }))
-      const result = await window.api.attendance.syncEmployees(payload)
+      // 役員は is_active=false で送る（打刻画面には出さない）。在籍中の役員は名簿には残す。
+      // 退職日以降の人と、一覧に無いごみ箱の人は、この同期で打刻アプリから削除する。過去の打刻は残す。
+      // 日付は端末のローカル日（日本時間）。UTC日付だと朝9時前に1日早く退職扱いになる。
+      const now = new Date()
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const payload = getEmployees().map((e) => {
+        const retired = isEmployeeRetired(e, today)
+        return {
+          id: e.id,
+          name: e.name,
+          name_kana: e.nameKana,
+          employee_type: e.employeeType,
+          display_order: e.displayOrder,
+          is_active: !retired && e.employeeType !== '役員',
+          retain: !retired,
+        }
+      })
+      const result = await window.api.attendance.syncEmployees(payload, { pruneMissing: true })
       if (result.success) {
-        setSyncMessage(`${result.data.synced}名を打刻アプリへ同期しました`)
+        setSyncMessage(`${result.data.synced}名を同期しました。退職日を過ぎた人とごみ箱の人は打刻アプリから削除しました`)
       } else {
         setSyncMessage(`同期エラー: ${result.error}`)
       }
@@ -268,8 +317,8 @@ export function Employees(): ReactElement {
             label="一括入力"
             items={[
               {
-                label: '健康・介護保険を一括入力',
-                description: '健康保険と介護保険の合算額（本人負担）をまとめて登録します',
+                label: '健康保険料・厚生年金を一括入力',
+                description: '通知の健康保険料と厚生年金をまとめて登録し、給与の控除に使います',
                 onSelect: () => setIsSocialInsuranceOpen(true),
               },
               {
@@ -309,6 +358,7 @@ export function Employees(): ReactElement {
         <table className={styles.table}>
           <thead>
             <tr>
+              <th className={styles.thGrip}></th>
               <th className={styles.thFixed}>氏名</th>
               <th>区分</th>
               <th>部署</th>
@@ -316,7 +366,7 @@ export function Employees(): ReactElement {
               <th>年齢</th>
               <th>メール</th>
               <th className={styles.thRight}>基本給/時給</th>
-              <th className={styles.thRight}>健康・介護</th>
+              <th className={styles.thRight}>健康保険料</th>
               <th className={styles.thRight}>有給残</th>
               <th className={styles.thRight}>交通費</th>
               <th className={styles.thRight}>厚生年金</th>
@@ -327,11 +377,45 @@ export function Employees(): ReactElement {
             {filtered.map((emp) => {
               const age = emp.birthDate ? calcAge(emp.birthDate) : null
               const retired = isEmployeeRetired(emp)
+              const dragging = dragId === emp.id
+              const dropTarget = dropId === emp.id && dragId !== emp.id
               return (
                 <tr
                   key={emp.id}
-                  className={`${styles.row} ${retired ? styles.rowRetired : ''}`}
+                  className={`${styles.row} ${retired ? styles.rowRetired : ''} ${dragging ? styles.rowDragging : ''} ${dropTarget ? styles.rowDrop : ''}`}
+                  onDragOver={(e) => {
+                    if (!canReorder || dragId == null) return
+                    e.preventDefault()
+                    setDropId(emp.id)
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    handleDropOn(emp.id)
+                  }}
                 >
+                  <td className={styles.tdGrip}>
+                    {canReorder ? (
+                      <span
+                        className={styles.grip}
+                        draggable
+                        title="ドラッグして並び順を変える"
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', String(emp.id))
+                          e.dataTransfer.effectAllowed = 'move'
+                          dragIdRef.current = emp.id
+                          setDragId(emp.id)
+                        }}
+                        onDragEnd={() => {
+                          setDragId(null)
+                          setDropId(null)
+                        }}
+                      >
+                        ⋮⋮
+                      </span>
+                    ) : (
+                      <span className={styles.gripDisabled}>⋮⋮</span>
+                    )}
+                  </td>
                   <td className={styles.tdFixed}>
                     <div className={styles.nameCell}>
                       <span className={styles.namePrimary}>
@@ -379,7 +463,9 @@ export function Employees(): ReactElement {
                       '-'
                     )}
                   </td>
-                  <td className={styles.tdRight}>{yen(emp.basicSalary)}</td>
+                  <td className={styles.tdRight}>
+                    {emp.employeeType === 'パート' ? yen(emp.hourlyRate) : yen(emp.basicSalary)}
+                  </td>
                   <td className={styles.tdRight}>{yen(emp.healthInsurance)}</td>
                   <td className={styles.tdRight}>
                     {emp.paidLeaveBalance != null ? `${emp.paidLeaveBalance}日` : '-'}
@@ -409,6 +495,11 @@ export function Employees(): ReactElement {
 
       <div className={styles.footer}>
         <span className={styles.footerCount}>{filtered.length} / {employees.length} 名表示中</span>
+        <span className={styles.footerHint}>
+          {canReorder
+            ? '左の ⋮⋮ をドラッグすると並び順が変わり、給与と賞与の一覧もこの順になります。'
+            : '並び替えは、検索を消して「全員」にしたときにできます。'}
+        </span>
       </div>
 
       {isFormOpen && (

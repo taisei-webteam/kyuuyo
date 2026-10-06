@@ -30,6 +30,12 @@ interface EmployeeRow {
   employee_type: string;
   display_order: number;
   is_active: boolean;
+  /**
+   * 打刻アプリの名簿に残すか。
+   * false は退職日以降、またはごみ箱。省略時は残す。
+   * 役員は is_active=false でも、在籍中なら true にする。
+   */
+  retain?: boolean;
   /** 生年月日 (YYYY-MM-DD)。未設定は null */
   birth_date?: string | null;
   /** 入社日 (YYYY-MM-DD)。未設定は null */
@@ -197,6 +203,7 @@ export async function fetchEmployeesFromNeon(config: NeonConfig): Promise<Employ
 export async function syncEmployeesToNeon(
   config: NeonConfig,
   employees: EmployeeRow[],
+  options?: { pruneMissing?: boolean },
 ): Promise<void> {
   if (employees.length === 0) return;
 
@@ -254,6 +261,39 @@ export async function syncEmployeesToNeon(
       is_active = excluded.is_active,
       -- birth_date / hire_date は Neon がマスタのため push では一切更新しない
       updated_at = excluded.updated_at
+  `;
+
+  // 打刻履歴 (punch_records) は残す。名簿 (employees_sync) だけ外す。
+  // punch_records.employee_id の外部キーは外してある（004_punch_roster_delete.sql）。
+  // 履歴の従業員IDは残るので、給与アプリへの打刻取り込みは退職後もできる。
+  // 一覧同期のときだけ、送られなかった人（ごみ箱）と retain=false（退職日以降）を削除する。
+  // 1人だけの削除では、その人以外を消さない。
+  if (options?.pruneMissing) {
+    const retainIds = employees
+      .filter((e) => e.retain !== false)
+      .map((e) => ({ id: e.id }));
+    await sql`
+      delete from public.employees_sync
+      where id not in (
+        select id
+        from jsonb_to_recordset(${JSON.stringify(retainIds)}::jsonb)
+          as x(id int)
+      )
+    `;
+    return;
+  }
+
+  const dropIds = employees
+    .filter((e) => e.is_active === false)
+    .map((e) => ({ id: e.id }));
+  if (dropIds.length === 0) return;
+  await sql`
+    delete from public.employees_sync
+    where id in (
+      select id
+      from jsonb_to_recordset(${JSON.stringify(dropIds)}::jsonb)
+        as x(id int)
+    )
   `;
 }
 

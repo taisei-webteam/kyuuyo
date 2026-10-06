@@ -60,11 +60,24 @@ interface ImportResult {
   unmatched: number
 }
 
-/** CSVテキストから { 従業員ID → 健康・介護合算額 } を抽出する。 */
-function parseHealthCsv(text: string, validIds: Set<number>): { map: Map<number, number>; result: ImportResult } {
+interface PremiumDraft {
+  health: string
+  pension: string
+}
+
+interface PremiumAmounts {
+  health: number | null
+  pension: number | null
+}
+
+/** CSVテキストから { 従業員ID → 健康保険料・厚生年金 } を抽出する。 */
+function parsePremiumCsv(
+  text: string,
+  validIds: Set<number>,
+): { map: Map<number, PremiumAmounts>; result: ImportResult } {
   const stripped = text.replace(/^\uFEFF/, '')
   const lines = stripped.split(/\r?\n/).filter((l) => l.trim() !== '')
-  const map = new Map<number, number>()
+  const map = new Map<number, PremiumAmounts>()
   let matched = 0
   let unmatched = 0
   if (lines.length === 0) return { map, result: { matched, unmatched } }
@@ -72,27 +85,34 @@ function parseHealthCsv(text: string, validIds: Set<number>): { map: Map<number,
   const firstCells = parseCsvLine(lines[0])
   const hasHeader = !/^\d+$/.test(firstCells[0].trim())
   let idIdx = 0
-  let amountIdx = firstCells.length - 1
+  let healthIdx = 2
+  let pensionIdx = 3
   let startRow = 0
   if (hasHeader) {
     startRow = 1
     const headerFoundId = firstCells.findIndex((c) => /id/i.test(c) || c.includes('番号'))
-    const headerFoundAmount = firstCells.findIndex(
-      (c) => c.includes('健康') || c.includes('介護') || c.includes('社会保険') || c.includes('保険料'),
+    const headerFoundHealth = firstCells.findIndex(
+      (c) => c.includes('健康') || c.includes('介護'),
     )
+    const headerFoundPension = firstCells.findIndex((c) => c.includes('厚生') || c.includes('年金'))
     if (headerFoundId >= 0) idIdx = headerFoundId
-    if (headerFoundAmount >= 0) amountIdx = headerFoundAmount
+    if (headerFoundHealth >= 0) healthIdx = headerFoundHealth
+    if (headerFoundPension >= 0) pensionIdx = headerFoundPension
+  } else if (firstCells.length < 4) {
+    healthIdx = firstCells.length - 1
+    pensionIdx = -1
   }
 
   for (let r = startRow; r < lines.length; r++) {
     const cells = parseCsvLine(lines[r])
     const id = Number(cells[idIdx]?.trim())
-    const amount = parseAmount(cells[amountIdx] ?? '')
-    if (!Number.isInteger(id) || !validIds.has(id) || amount === null) {
+    const health = parseAmount(cells[healthIdx] ?? '')
+    const pension = pensionIdx >= 0 ? parseAmount(cells[pensionIdx] ?? '') : null
+    if (!Number.isInteger(id) || !validIds.has(id) || (health === null && pension === null)) {
       unmatched++
       continue
     }
-    map.set(id, amount)
+    map.set(id, { health, pension })
     matched++
   }
   return { map, result: { matched, unmatched } }
@@ -107,48 +127,57 @@ export function SocialInsuranceBulkModal({
   onClose: () => void
   onSaved: () => void
 }): ReactElement {
-  const [drafts, setDrafts] = useState<Record<number, string>>(() => {
-    const init: Record<number, string> = {}
-    for (const e of employees) init[e.id] = String(e.healthInsurance)
+  const [drafts, setDrafts] = useState<Record<number, PremiumDraft>>(() => {
+    const init: Record<number, PremiumDraft> = {}
+    for (const e of employees) {
+      init[e.id] = { health: String(e.healthInsurance), pension: String(e.welfarePension) }
+    }
     return init
   })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const currentById = useMemo(() => {
-    const m = new Map<number, number>()
-    for (const e of employees) m.set(e.id, e.healthInsurance)
-    return m
-  }, [employees])
-
   const changedCount = useMemo(() => {
     let n = 0
     for (const e of employees) {
-      const draft = parseAmount(drafts[e.id] ?? '')
-      if (draft !== null && draft !== e.healthInsurance) n++
+      const draft = drafts[e.id]
+      const health = parseAmount(draft?.health ?? '')
+      const pension = parseAmount(draft?.pension ?? '')
+      if (health === null || pension === null) continue
+      if (health !== e.healthInsurance || pension !== e.welfarePension) n++
     }
     return n
   }, [drafts, employees])
 
-  const totalPreview = useMemo(() => {
-    let sum = 0
+  const totals = useMemo(() => {
+    let health = 0
+    let pension = 0
     for (const e of employees) {
-      const draft = parseAmount(drafts[e.id] ?? '')
-      sum += draft ?? e.healthInsurance
+      const draft = drafts[e.id]
+      health += parseAmount(draft?.health ?? '') ?? e.healthInsurance
+      pension += parseAmount(draft?.pension ?? '') ?? e.welfarePension
     }
-    return sum
+    return { health, pension }
   }, [drafts, employees])
 
-  const handleChange = useCallback((id: number, value: string): void => {
-    setDrafts((prev) => ({ ...prev, [id]: value }))
+  const handleChange = useCallback((id: number, field: keyof PremiumDraft, value: string): void => {
+    setDrafts((prev) => ({
+      ...prev,
+      [id]: { health: prev[id]?.health ?? '', pension: prev[id]?.pension ?? '', [field]: value },
+    }))
   }, [])
 
   const handleExportTemplate = useCallback(async (): Promise<void> => {
-    const header = ['ID', '氏名', '健康・介護保険']
-    const rows = employees.map((e) => [e.id, e.name, parseAmount(drafts[e.id] ?? '') ?? e.healthInsurance])
+    const header = ['ID', '氏名', '健康保険料', '厚生年金']
+    const rows = employees.map((e) => [
+      e.id,
+      e.name,
+      parseAmount(drafts[e.id]?.health ?? '') ?? e.healthInsurance,
+      parseAmount(drafts[e.id]?.pension ?? '') ?? e.welfarePension,
+    ])
     const content = [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n')
-    const fileName = '健康介護保険一括入力テンプレート'
+    const fileName = '健康保険料・厚生年金一括入力テンプレート'
     const exportCsv = window.api?.export?.csv
     if (typeof exportCsv === 'function') {
       const result = await exportCsv({ fileName, content })
@@ -180,14 +209,20 @@ export function SocialInsuranceBulkModal({
       try {
         const text = await file.text()
         const validIds = new Set(employees.map((emp) => emp.id))
-        const { map, result } = parseHealthCsv(text, validIds)
+        const { map, result } = parsePremiumCsv(text, validIds)
         if (map.size === 0) {
           setMessage('取り込めるデータが見つかりませんでした。ID列と金額列を確認してください。')
           return
         }
         setDrafts((prev) => {
           const next = { ...prev }
-          for (const [id, amount] of map) next[id] = String(amount)
+          for (const [id, amount] of map) {
+            const current = next[id] ?? { health: '', pension: '' }
+            next[id] = {
+              health: amount.health === null ? current.health : String(amount.health),
+              pension: amount.pension === null ? current.pension : String(amount.pension),
+            }
+          }
           return next
         })
         setMessage(
@@ -202,14 +237,24 @@ export function SocialInsuranceBulkModal({
   )
 
   const handleSave = useCallback(async (): Promise<void> => {
-    const invalid = employees.filter((e) => parseAmount(drafts[e.id] ?? '') === null)
+    const invalid = employees.filter((e) => {
+      const draft = drafts[e.id]
+      return parseAmount(draft?.health ?? '') === null || parseAmount(draft?.pension ?? '') === null
+    })
     if (invalid.length > 0) {
       setMessage(`入力が正しくない従業員がいます（${invalid.map((e) => e.name).join('、')}）。数字を入力してください。`)
       return
     }
     const targets = employees
-      .map((e) => ({ e, amount: parseAmount(drafts[e.id] ?? '') as number }))
-      .filter(({ e, amount }) => amount !== e.healthInsurance)
+      .map((e) => ({
+        e,
+        health: parseAmount(drafts[e.id]?.health ?? '') as number,
+        pension: parseAmount(drafts[e.id]?.pension ?? '') as number,
+      }))
+      .filter(
+        ({ e, health, pension }) =>
+          health !== e.healthInsurance || pension !== e.welfarePension,
+      )
 
     if (targets.length === 0) {
       setMessage('変更はありません。')
@@ -220,21 +265,27 @@ export function SocialInsuranceBulkModal({
     try {
       if (hasElectronApi) {
         let ok = 0
-        for (const { e, amount } of targets) {
+        for (const { e, health, pension } of targets) {
           const res = await window.api.employees.update({
             id: e.id,
-            healthInsurance: amount,
+            healthInsurance: health,
+            welfarePension: pension,
             healthInsuranceManual: true,
           })
           if (res.success) ok++
         }
         await reloadEmployeesFromDb()
-        setMessage(ok === targets.length ? `${ok} 名の健康・介護保険を更新しました` : `${ok}/${targets.length} 名を更新しました（一部失敗）`)
+        setMessage(ok === targets.length ? `${ok} 名の健康保険料と厚生年金を更新しました` : `${ok}/${targets.length} 名を更新しました（一部失敗）`)
       } else {
-        for (const { e, amount } of targets) {
-          updateEmployee({ ...e, healthInsurance: amount, healthInsuranceManual: true })
+        for (const { e, health, pension } of targets) {
+          updateEmployee({
+            ...e,
+            healthInsurance: health,
+            welfarePension: pension,
+            healthInsuranceManual: true,
+          })
         }
-        setMessage(`${targets.length} 名の健康・介護保険を更新しました`)
+        setMessage(`${targets.length} 名の健康保険料と厚生年金を更新しました`)
       }
       onSaved()
     } catch (err) {
@@ -246,17 +297,19 @@ export function SocialInsuranceBulkModal({
 
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+      <div className={`${styles.modal} ${styles.modalWide}`} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
-          <h2 className={styles.title}>健康・介護保険の一括入力</h2>
+          <h2 className={styles.title}>健康保険料・厚生年金の一括入力</h2>
           <button className={styles.closeBtn} onClick={onClose} aria-label="閉じる">
             ×
           </button>
         </div>
 
         <p className={styles.desc}>
-          労務士の通知に記載された健康保険と介護保険の合算額（本人負担・月額）を入力します。
-          画面で直接入力するか、CSVで一括取込できます。給与作成時にこの金額を控除へ入れます。
+          労務士の通知にある健康保険料と厚生年金（本人負担・月額）を入力します。
+          給与を作成すると、この2つを控除にそのまま入れます。
+          介護保険と子育て支援金も引くときは、健康保険料に通知の「健康保険計」を入れてください。
+          令和8年9月28日の定時決定は、10月に支払う給与から使います。
         </p>
 
         <div className={styles.note}>
@@ -266,7 +319,7 @@ export function SocialInsuranceBulkModal({
               まず<strong>「テンプレート出力」</strong>でCSVを書き出し、金額欄に記入して取り込むのが確実です。
             </li>
             <li>
-              列の並び:<code>A列＝従業員ID</code> / <code>B列＝氏名</code> / <code>C列＝健康・介護保険（合算・円）</code>
+              列の並び:<code>A列＝従業員ID</code> / <code>B列＝氏名</code> / <code>C列＝健康保険料（円）</code> / <code>D列＝厚生年金（円）</code>
             </li>
             <li>
               照合は<strong>従業員ID（A列）</strong>で行います。<strong>ID列は変更・削除しないでください</strong>（氏名は参考表示のみ）。
@@ -296,7 +349,10 @@ export function SocialInsuranceBulkModal({
             変更対象: <span className={styles.summaryValue}>{changedCount} 名</span>
           </span>
           <span>
-            合算 合計（月額）: <span className={styles.summaryValue}>{yen(totalPreview)}</span>
+            健康保険料 合計: <span className={styles.summaryValue}>{yen(totals.health)}</span>
+          </span>
+          <span>
+            厚生年金 合計: <span className={styles.summaryValue}>{yen(totals.pension)}</span>
           </span>
         </div>
 
@@ -306,28 +362,39 @@ export function SocialInsuranceBulkModal({
               <tr>
                 <th>氏名</th>
                 <th>区分</th>
-                <th className={styles.thRight}>現在</th>
-                <th className={styles.thRight}>新しい合算額（月額）</th>
+                <th className={styles.thRight}>健康保険料（月額）</th>
+                <th className={styles.thRight}>厚生年金（月額）</th>
               </tr>
             </thead>
             <tbody>
               {employees.map((e) => {
-                const draftRaw = drafts[e.id] ?? ''
-                const draft = parseAmount(draftRaw)
-                const current = currentById.get(e.id) ?? 0
-                const changed = draft !== null && draft !== current
+                const draft = drafts[e.id] ?? { health: '', pension: '' }
+                const health = parseAmount(draft.health)
+                const pension = parseAmount(draft.pension)
+                const healthChanged = health !== null && health !== e.healthInsurance
+                const pensionChanged = pension !== null && pension !== e.welfarePension
                 return (
                   <tr key={e.id}>
                     <td>{e.name}</td>
                     <td className={styles.muted}>{e.employeeType}</td>
-                    <td className={styles.tdRight}>{yen(current)}</td>
                     <td className={styles.tdRight}>
                       <input
                         type="text"
                         inputMode="numeric"
-                        className={`${styles.input} ${changed ? styles.changed : ''}`}
-                        value={draftRaw}
-                        onChange={(ev) => handleChange(e.id, ev.target.value)}
+                        className={`${styles.input} ${healthChanged ? styles.changed : ''}`}
+                        value={draft.health}
+                        aria-label={`${e.name}の健康保険料`}
+                        onChange={(ev) => handleChange(e.id, 'health', ev.target.value)}
+                      />
+                    </td>
+                    <td className={styles.tdRight}>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        className={`${styles.input} ${pensionChanged ? styles.changed : ''}`}
+                        value={draft.pension}
+                        aria-label={`${e.name}の厚生年金`}
+                        onChange={(ev) => handleChange(e.id, 'pension', ev.target.value)}
                       />
                     </td>
                   </tr>

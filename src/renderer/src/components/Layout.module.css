@@ -107,6 +107,35 @@
   font-weight: 600;
 }
 
+.headerLead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.historyButton {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.historyButton:not(:disabled):hover {
+  background: #f1f5f9;
+}
+
+.historyButton:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .headerCompany {
   font-size: 13px;
   color: var(--color-text-secondary);

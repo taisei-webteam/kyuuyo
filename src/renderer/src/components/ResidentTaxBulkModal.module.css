@@ -22,6 +22,10 @@
   overflow: hidden;
 }
 
+.modalWide {
+  max-width: 920px;
+}
+
 .header {
   display: flex;
   align-items: center;

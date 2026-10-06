@@ -685,11 +685,12 @@ const employees: MockEmployee[] = [
 // ========================================
 
 import { getHolidaysForYear } from './holidays-jp'
-import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes, unpaidGoOutMinutes, toMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes } from './time-rounding'
+import { roundClockIn, roundClockOut, calcEarlyOvertime, calcBreakMinutes, unpaidGoOutMinutes, toMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes, partTimeLaborMinutes } from './time-rounding'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
-import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, EmailVerifyStatus, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus } from '../../../shared/types'
+import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, EmailVerifyStatus, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus, InsuranceRate } from '../../../shared/types'
+import { loadDevSnapshot } from './dev-db-snapshot'
 import { confirmedPaidLeaveDays } from '../../../shared/types'
 
 export type { PayslipExtraLine } from '../../../shared/types'
@@ -1053,7 +1054,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const workStartMin = timeToMinutes(clockIn)
     let workEndMin = timeToMinutes(clockOut)
 
-    const overtimeAllowed = emp?.overtimeAllowed ?? true
+    const overtimeAllowed = emp?.employeeType === 'パート' ? true : (emp?.overtimeAllowed ?? true)
     const overtimeStart = emp?.overtimeStart ?? null
     const overtimeEnd = emp?.overtimeEnd ?? null
 
@@ -1074,7 +1075,39 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - settings.defaultBreakMinutes
 
     let overtime = 0
-    if (!overtimeAllowed) {
+    if (emp?.employeeType === 'パート') {
+      const labor = partTimeLaborMinutes(
+        clockIn,
+        clockOut,
+        scheduledStart,
+        scheduledEnd,
+        emp.earlyWorkStart,
+        settings.earlyRoundingUnit,
+        goOutMinutes,
+        settings.defaultBreakMinutes,
+      )
+      overtime = labor.overtimeMinutes
+      days.push({
+        date: dateStr,
+        rawClockIn,
+        rawClockOut,
+        clockIn,
+        clockOut,
+        stampIn: clockInTypeToStampIn(clockInResult.type),
+        stampOut: detectStampOut(clockOut, scheduledEnd),
+        goOut,
+        goReturn,
+        workMinutes: labor.workMinutes,
+        overtimeMinutes: labor.overtimeMinutes,
+        earlyOvertimeMinutes: labor.earlyOvertimeMinutes,
+        isHoliday: false,
+        isHolidayWork: false,
+        paidLeaveUsage: null,
+        paidLeaveStatus: null,
+        dataSource: day % 5 === 0 ? 'manual' : 'ipad',
+      })
+      continue
+    } else if (!overtimeAllowed) {
       overtime = 0
     } else if (overtimeStart) {
       const otStartMin = timeToMinutes(overtimeStart)
@@ -1128,7 +1161,19 @@ export interface AttendanceAggregate {
 function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefined): number {
   const settings = getSettings()
   let timecard = r.workMinutes
-  if (r.clockIn && r.clockOut) {
+  if (r.clockIn && r.clockOut && emp?.employeeType === 'パート') {
+    // 定時の外は時間外なので、基本給の時間には入れない
+    timecard = partTimeLaborMinutes(
+      r.clockIn,
+      r.clockOut,
+      emp.scheduledStart,
+      emp.scheduledEnd,
+      emp.earlyWorkStart,
+      settings.earlyRoundingUnit,
+      unpaidGoOutMinutes(r.goOut, r.goReturn),
+      settings.defaultBreakMinutes,
+    ).workMinutes
+  } else if (r.clockIn && r.clockOut) {
     const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
     const inMin = toMinutes(r.clockIn)
     const outMin = toMinutes(r.clockOut)
@@ -1164,9 +1209,22 @@ export function aggregateAttendanceRecords(
     if (workMinutes > 0) cur.workDays++
     cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
     cur.totalWork += workMinutes
-    // 時間外手当 = 早出 + 平日の終業後残業。
-    // 休日出勤の実働は総労働時間（基本給）に含め、ここには足さない（紙の「通常」と同じ）。
-    if (r.isHolidayWork) {
+    const emp = empById.get(r.employeeId)
+    // パートは定時の外（前・後、休日も含む）を時間外にする。保存値の早出と重ねない。
+    if (emp?.employeeType === 'パート' && r.clockIn && r.clockOut) {
+      cur.totalOvertime += partTimeLaborMinutes(
+        r.clockIn,
+        r.clockOut,
+        emp.scheduledStart,
+        emp.scheduledEnd,
+        emp.earlyWorkStart,
+        getSettings().earlyRoundingUnit,
+        unpaidGoOutMinutes(r.goOut, r.goReturn),
+        getSettings().defaultBreakMinutes,
+      ).overtimeMinutes
+      if (r.isHolidayWork) cur.holidayWorkDays++
+    } else if (r.isHolidayWork) {
+      // 社員の休日出勤: 実働は基本給。早出だけ時間外。
       cur.totalOvertime += r.earlyOvertimeMinutes
       cur.holidayWorkDays++
     } else {
@@ -1284,13 +1342,14 @@ function generatePayslips(
     }
 
     const isPartTime = emp.employeeType === 'パート'
+    const isOfficer = emp.employeeType === '役員'
 
     let basicSalary: number
     let hourlyRate: number
     if (isPartTime) {
       hourlyRate = emp.hourlyRate
-      // チクホーの明細: 基本給 = 時給 × 総労働時間（残業時間を含む）
-      basicSalary = Math.round(hourlyRate * workHours)
+      // パートの基本給 = 時給 × 定時内の労働時間。1円未満は切捨て。定時の外は時間外で、ここには入れない。
+      basicSalary = Math.floor(hourlyRate * workHours)
     } else {
       // 月給者の時間外単価 = 基本給 ÷ 1か月平均所定労働時間数（会社設定・労基則19条）
       const monthlyHours = getSettings().monthlyWorkHours || 173.5
@@ -1303,22 +1362,33 @@ function generatePayslips(
       basicSalary = Math.round(basicSalary * employment.prorationFactor)
     }
 
-    const overtimePay = (emp.fixedOvertimePay ?? 0) > 0
-      ? emp.fixedOvertimePay!
-      : Math.round(hourlyRate * 1.25 * overtimeHours)
+    // 役員の支給は基本給以外を初期値 0 にする（残業・手当・追加支給は作らない）。
+    const overtimePay = isOfficer
+      ? 0
+      : (emp.fixedOvertimePay ?? 0) > 0
+        ? emp.fixedOvertimePay!
+        : isPartTime
+          ? Math.floor(hourlyRate * 1.25 * overtimeHours)
+          : Math.round(hourlyRate * 1.25 * overtimeHours)
+    const transportAllowance = isOfficer ? 0 : emp.transportAllowance
+    const positionAllowance = isOfficer ? 0 : emp.positionAllowance
+    const familyAllowance = isOfficer ? 0 : emp.familyAllowance
+    const specialAllowance = isOfficer ? 0 : emp.specialAllowance
+    const dangerAllowance = isOfficer ? 0 : emp.dangerAllowance
+    const salesAllowance = isOfficer ? 0 : emp.salesAllowance
 
     // 超過分を除く支給合計（雇用保険控除の算定基数）
     const subtotalPayment =
       basicSalary +
       overtimePay +
-      emp.transportAllowance +
-      emp.positionAllowance +
-      emp.familyAllowance +
-      emp.specialAllowance +
-      emp.dangerAllowance +
-      emp.salesAllowance
+      transportAllowance +
+      positionAllowance +
+      familyAllowance +
+      specialAllowance +
+      dangerAllowance +
+      salesAllowance
 
-    const employmentInsuranceOverage = emp.employmentInsuranceOverage ?? 0
+    const employmentInsuranceOverage = isOfficer ? 0 : (emp.employmentInsuranceOverage ?? 0)
     const extraPaymentLines: PayslipExtraLine[] = employmentInsuranceOverage > 0
       ? [{ id: `ei-overage-${emp.id}`, label: '雇用保険料超過分', amount: employmentInsuranceOverage }]
       : []
@@ -1328,20 +1398,24 @@ function generatePayslips(
     const social = employment.socialInsuranceApplies
       ? calcAgeBasedSocialInsurance(emp.standardMonthlyRemuneration, age)
       : { healthInsurance: 0, nursingInsurance: 0, welfarePension: 0 }
-    // 労務士合算を手入力した人だけマスタの健康・介護を使う。それ以外は標準報酬＋年齢で計算する。
-    const healthInsurance = emp.healthInsuranceManual
+    // 通知の金額を手入力した人は、その健康保険料と厚生年金を控除にそのまま使う。
+    // 介護・子育て支援金も引くときは、健康保険料欄に通知の「健康保険計」を入れる。
+    const useNoticePremiums = emp.healthInsuranceManual && employment.socialInsuranceApplies
+    const healthInsurance = useNoticePremiums
       ? emp.healthInsurance
       : social.healthInsurance + social.nursingInsurance
     const nursingInsurance = 0
-    const welfarePension = social.welfarePension
-    // 雇用保険: 超過分を除く支給合計 × 料率（円未満切捨て）
-    const employmentInsurance = Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
+    const welfarePension = useNoticePremiums ? emp.welfarePension : social.welfarePension
+    // 雇用保険: 役員は適用除外で0。それ以外は支給合計 × 料率（円未満切捨て）。残業代も含む。
+    const employmentInsurance = isOfficer
+      ? 0
+      : Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
 
     // その月の社会保険料等控除後の給与等の金額（課税支給 − 社会保険料）。
     // 通勤手当は非課税限度額まで非課税。課税対象額(taxableTransport)のみ課税支給に残す。
     const socialInsuranceTotal =
       healthInsurance + nursingInsurance + welfarePension + employmentInsurance
-    const nonTaxableTransport = emp.transportAllowance - (emp.taxableTransport ?? 0)
+    const nonTaxableTransport = transportAllowance - (isOfficer ? 0 : (emp.taxableTransport ?? 0))
     const taxableBase = totalPayment - nonTaxableTransport - socialInsuranceTotal
     // 源泉徴収税額（令和8年分 月額表・甲欄の実額）。扶養親族等の数で税額が変わる。
     // 所得税は作成時に一度入れて以降は固定（支給・社保を後から直しても再計算しない）
@@ -1377,12 +1451,12 @@ function generatePayslips(
       paidLeaveDays,
       basicSalary,
       overtimePay,
-      transportAllowance: emp.transportAllowance,
-      positionAllowance: emp.positionAllowance,
-      familyAllowance: emp.familyAllowance,
-      specialAllowance: emp.specialAllowance,
-      dangerAllowance: emp.dangerAllowance,
-      salesAllowance: emp.salesAllowance,
+      transportAllowance,
+      positionAllowance,
+      familyAllowance,
+      specialAllowance,
+      dangerAllowance,
+      salesAllowance,
       otherAllowance: employmentInsuranceOverage,
       extraPaymentLines,
       extraDeductionLines,
@@ -1427,7 +1501,15 @@ export function setEmployees(list: MockEmployee[]): void {
  * 画面共通のデータソース(employeeData)へ反映する。Vite 単体では何もしない。
  */
 export async function reloadEmployeesFromDb(): Promise<boolean> {
-  if (typeof window === 'undefined' || !('api' in window)) return false
+  if (typeof window === 'undefined') return false
+  if (!('api' in window)) {
+    const snap = await loadDevSnapshot()
+    if (!snap) return false
+    const active = snap.employees.filter((e) => e.isActive)
+    if (active.length === 0) return false
+    setEmployees(active.map(mapDbEmployeeToMock).sort((a, b) => a.displayOrder - b.displayOrder))
+    return true
+  }
   const res = await window.api.employees.list()
   if (!res.success) return false
   const active = res.data.filter((e) => e.isActive)
@@ -1443,15 +1525,12 @@ export async function reloadEmployeesFromDb(): Promise<boolean> {
  * 適用年の選び方: 指定 year 以下で最も新しい年度の行を採用する
  * （例: 2024年度の行だけがある状態で 2026 を渡すと 2024年度を適用）。
  * 該当年以下が無い場合は最古の登録年度をフォールバックに使う。
- * Electron 環境のみ動作。読み込めた場合 true を返す。
+ * Electron は IPC、ブラウザ開発時は本番 DB のスナップショット。読み込めた場合 true を返す。
  * 給与キャッシュはクリアし、次回作成時に新料率で再計算されるようにする。
  */
-export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean> {
-  if (typeof window === 'undefined' || !('api' in window)) return false
-  const res = await window.api.insuranceRates.list()
-  if (!res.success || res.data.length === 0) return false
-
-  const sorted = [...res.data].sort((a, b) => b.year - a.year)
+function applyInsuranceRateRows(rows: InsuranceRate[], year: number): boolean {
+  if (rows.length === 0) return false
+  const sorted = [...rows].sort((a, b) => b.year - a.year)
   const applicable = sorted.find((r) => r.year <= year) ?? sorted[sorted.length - 1]
   if (!applicable) return false
 
@@ -1462,6 +1541,18 @@ export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean
   INSURANCE_RATES.childSupportRate = applicable.childSupportRate ?? 0
   payslipCache.clear()
   return true
+}
+
+export async function hydrateInsuranceRatesFromDb(year: number): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  if (!('api' in window)) {
+    const snap = await loadDevSnapshot()
+    if (!snap) return false
+    return applyInsuranceRateRows(snap.insuranceRates, year)
+  }
+  const res = await window.api.insuranceRates.list()
+  if (!res.success || res.data.length === 0) return false
+  return applyInsuranceRateRows(res.data, year)
 }
 
 /**
@@ -1753,6 +1844,28 @@ export function createPayslips(
   return data
 }
 
+/**
+ * その月の明細が既にある人は、作成を押し直しても保存済みの金額と勤怠集計を残す。
+ * 明細が無い人だけ、今回の計算結果を使う。
+ */
+export function preserveSavedPayslipFigures(
+  generated: MockPayslip[],
+  saved: Payslip[],
+): MockPayslip[] {
+  if (saved.length === 0) return generated
+  const savedByEmployee = new Map(saved.map((row) => [row.employeeId, payslipToMock(row)]))
+  const merged = generated.map((row) => {
+    const previous = savedByEmployee.get(row.employeeId)
+    if (!previous) return row
+    return { ...previous, year: row.year, month: row.month }
+  })
+  const generatedIds = new Set(generated.map((row) => row.employeeId))
+  for (const row of saved) {
+    if (!generatedIds.has(row.employeeId)) merged.push(payslipToMock(row))
+  }
+  return merged
+}
+
 export function isPayslipsCreated(year: number, month: number): boolean {
   return createdMonths.has(`${year}-${month}`)
 }
@@ -1906,11 +2019,38 @@ export function setPayslips(year: number, month: number, list: MockPayslip[]): v
 }
 
 /**
- * SQLite から指定年月の給与明細(salary)を読み込み、メモリキャッシュへ反映する。
- * Electron 環境のみ動作。DB に該当データがあれば作成済み扱いにし true を返す。
+ * ブラウザ開発時、本番 DB の給与明細を月ごとにメモリへ載せる（ダッシュボードの件数用）。
+ * Electron では空振りする。
  */
+export async function preloadDevSalaryPayslips(): Promise<void> {
+  const snap = await loadDevSnapshot()
+  if (!snap) return
+  const groups = new Map<string, Payslip[]>()
+  for (const row of snap.payslips) {
+    if (row.payslipType !== 'salary') continue
+    const key = `${row.year}-${row.month}`
+    const list = groups.get(key) ?? []
+    list.push(row)
+    groups.set(key, list)
+  }
+  for (const [key, rows] of groups) {
+    const [year, month] = key.split('-').map(Number)
+    if (!year || !month) continue
+    setPayslips(year, month, rows.map(payslipToMock))
+  }
+}
+
 export async function loadPayslipsFromDb(year: number, month: number): Promise<boolean> {
-  if (!hasApi()) return false
+  if (!hasApi()) {
+    const snap = await loadDevSnapshot()
+    if (!snap) return false
+    const rows = snap.payslips.filter(
+      (p) => p.year === year && p.month === month && p.payslipType === 'salary',
+    )
+    if (rows.length === 0) return false
+    setPayslips(year, month, rows.map(payslipToMock))
+    return true
+  }
   const res = await window.api.payslips.list(year, month, 'salary')
   if (!res.success || res.data.length === 0) return false
   setPayslips(year, month, res.data.map(payslipToMock))
@@ -1961,8 +2101,19 @@ export async function loadBonusFromDb(
   year: number,
   season: '夏季' | '冬季',
 ): Promise<{ list: MockPayslip[]; paymentDate: string | null } | null> {
-  if (!hasApi()) return null
   const month = bonusSeasonToMonth(season)
+  if (!hasApi()) {
+    const snap = await loadDevSnapshot()
+    if (!snap) return null
+    const rows = snap.payslips.filter(
+      (p) => p.year === year && p.month === month && p.payslipType === 'bonus',
+    )
+    if (rows.length === 0) return null
+    return {
+      list: rows.map(payslipToMock),
+      paymentDate: rows[0]?.paymentDate ?? null,
+    }
+  }
   const res = await window.api.payslips.list(year, month, 'bonus')
   if (!res.success || res.data.length === 0) return null
   return {
@@ -1981,7 +2132,6 @@ export async function loadPreviousBonusFromDb(
   season: '夏季' | '冬季',
   maxLookbackYears = 10,
 ): Promise<{ list: MockPayslip[]; year: number } | null> {
-  if (!hasApi()) return null
   for (let y = year - 1; y >= year - maxLookbackYears; y--) {
     const res = await loadBonusFromDb(y, season)
     if (res) return { list: res.list, year: y }

@@ -263,7 +263,9 @@ export function BonusCreate(): React.ReactElement {
     setSaveMessage(null)
     void (async () => {
       if (hasElectronApi) await loadEmailHistory('bonus', selectedYear, selectedSeason)
-      const saved = hasElectronApi ? await loadBonusFromDb(selectedYear, selectedSeason) : null
+      const saved = (hasElectronApi || import.meta.env.DEV)
+        ? await loadBonusFromDb(selectedYear, selectedSeason)
+        : null
       if (cancelled || gen !== bonusLoadGenRef.current) return
       if (saved) {
         const loaded = saved.list.map((p) => payslipShapeToBonus(p, selectedSeason))
@@ -281,7 +283,9 @@ export function BonusCreate(): React.ReactElement {
         prevPaymentDateRef.current = payDate
       } else {
         // 未作成のシーズンは、前回（同季）の入力値を初期値として引き継ぐ。
-        const prev = hasElectronApi ? await loadPreviousBonusFromDb(selectedYear, selectedSeason) : null
+        const prev = (hasElectronApi || import.meta.env.DEV)
+          ? await loadPreviousBonusFromDb(selectedYear, selectedSeason)
+          : null
         if (cancelled || gen !== bonusLoadGenRef.current) return
         const previousBonuses = prev?.list.map((p) => payslipShapeToBonus(p, selectedSeason))
         setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason, previousBonuses))

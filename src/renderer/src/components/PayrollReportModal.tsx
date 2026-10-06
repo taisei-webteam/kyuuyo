@@ -74,8 +74,8 @@ interface PayrollReportModalProps {
   onClose: () => void
 }
 
-/** 固定3列 + 支払10列 + 控除11列 */
-const PAYROLL_TABLE_COLS = 24
+/** 固定3列 + 支払10列 + 控除10列（健康保険〜貸付、空欄、控除額合計） */
+const PAYROLL_TABLE_COLS = 23
 
 export function PayrollReportModal({
   payslips,
@@ -130,11 +130,6 @@ export function PayrollReportModal({
 
   const paymentExtraLabel = useMemo(
     () => firstExtraLineLabel(payslips.map((ps) => resolveSalaryPaymentExtras(ps))) || '追加支給',
-    [payslips],
-  )
-
-  const deductionExtraLabel = useMemo(
-    () => firstExtraLineLabel(payslips.map((ps) => ps.extraDeductionLines)) || '追加控除',
     [payslips],
   )
 
@@ -228,7 +223,7 @@ export function PayrollReportModal({
                   <th rowSpan={2} className={styles.thSmall}>労働<br />日数</th>
                   <th rowSpan={2} className={styles.thAmount}>銀行<br />振込額</th>
                   <th colSpan={10} className={styles.thGroup}>支　払</th>
-                  <th colSpan={11} className={styles.thGroup}>控　除</th>
+                  <th colSpan={10} className={styles.thGroup}>控　除</th>
                 </tr>
                 <tr>
                   <th className={styles.thAmount}>基本給</th>
@@ -249,8 +244,7 @@ export function PayrollReportModal({
                   <th className={styles.thAmount}>住民税</th>
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
-                  <th className={styles.thAmount}>共済掛金</th>
-                  <th className={styles.thExtra}>{deductionExtraLabel}</th>
+                  <th className={styles.thAmount}></th>
                   <th className={styles.thAmountTotal}>控除額<br />合計</th>
                 </tr>
               </thead>
@@ -278,8 +272,7 @@ export function PayrollReportModal({
                     <td className={styles.tdAmount}>{num(r.residentTax)}</td>
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
-                    <td className={styles.tdAmount}>{num(r.otherDeduction)}</td>
-                    <td className={styles.tdAmount}>{numOrBlank(r.extraDeduction)}</td>
+                    <td className={styles.tdAmount}></td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -307,8 +300,7 @@ export function PayrollReportModal({
                   <td className={styles.tdAmount}>{num(totals.residentTax)}</td>
                   <td className={styles.tdAmount}>{num(totals.savingsDeduction)}</td>
                   <td className={styles.tdAmount}>{num(totals.loanDeduction)}</td>
-                  <td className={styles.tdAmount}>{num(totals.otherDeduction)}</td>
-                  <td className={styles.tdAmount}>{numOrBlank(totals.extraDeduction)}</td>
+                  <td className={styles.tdAmount}></td>
                   <td className={styles.tdAmountTotal}>{num(totals.totalDeduction)}</td>
                 </tr>
               </tfoot>

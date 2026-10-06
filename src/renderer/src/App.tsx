@@ -12,18 +12,19 @@ import { PayslipHistory } from './pages/PayslipHistory'
 // 源泉徴収票: 今回スコープ外（別途料金の追加機能。2026-07-03 決定）。将来対応時に下記2行を復帰
 // import { WithholdingCertificate } from './pages/WithholdingCertificate'
 import Settings from './pages/Settings'
-import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb } from './lib/mock-data'
+import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb, preloadDevSalaryPayslips } from './lib/mock-data'
 import { hydrateCompanyFromDb } from './lib/settings-store'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
+const loadsLocalDb = hasElectronApi || import.meta.env.DEV
 
 export function App(): ReactElement {
-  // Electron 環境では起動時に DB の従業員一覧を共通データソースへ読み込む。
-  // これにより従業員管理・給与作成・給与生成が DB の従業員（打刻アプリ追加分含む）を反映する。
-  const [ready, setReady] = useState(!hasElectronApi)
+  // Electron は端末の SQLite、ブラウザ開発時は本番アプリの SQLite を読み込む。
+  // これにより従業員管理・給与作成・給与生成が本番と同じ従業員を反映する。
+  const [ready, setReady] = useState(!loadsLocalDb)
 
   useEffect(() => {
-    if (!hasElectronApi) return
+    if (!loadsLocalDb) return
     let cancelled = false
     void (async () => {
       try {
@@ -31,6 +32,7 @@ export function App(): ReactElement {
         await hydrateCompanyFromDb()
         await hydrateCalendarYearFromDb(new Date().getFullYear())
         await hydrateInsuranceRatesFromDb(new Date().getFullYear())
+        await preloadDevSalaryPayslips()
       } finally {
         if (!cancelled) setReady(true)
       }
