@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import type { ReactElement } from 'react'
+import type { ChangeEvent, DragEvent, ReactElement } from 'react'
 import {
   getEmployees,
   updateEmployee,
@@ -16,6 +16,7 @@ import { EmployeeForm } from '@/components/EmployeeForm'
 import { EmailVerifyBulkModal } from '@/components/EmailVerifyBulkModal'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
 import { SocialInsuranceBulkModal } from '@/components/SocialInsuranceBulkModal'
+import { employeesToCsv, parseEmployeeCsv, planEmployeeImport } from '@/lib/employee-csv'
 import styles from './Employees.module.css'
 
 function yen(amount: number): string {
@@ -41,7 +42,11 @@ export function Employees(): ReactElement {
   const [deleting, setDeleting] = useState(false)
   const [dragId, setDragId] = useState<number | null>(null)
   const [dropId, setDropId] = useState<number | null>(null)
+  const [csvBusy, setCsvBusy] = useState(false)
+  const [csvDragOver, setCsvDragOver] = useState(false)
   const dragIdRef = useRef<number | null>(null)
+  const csvInputRef = useRef<HTMLInputElement>(null)
+  const csvDragDepth = useRef(0)
 
   /** 確認中の従業員がいれば照会し、確認済みになったものを取り込む（通知は出さない）。 */
   const refreshVerificationsSilently = useCallback(async (): Promise<void> => {
@@ -139,6 +144,160 @@ export function Employees(): ReactElement {
   function handleEdit(emp: MockEmployee): void {
     setEditingEmployee(emp)
     setIsFormOpen(true)
+  }
+
+  async function handleExportCsv(): Promise<void> {
+    const list = getEmployees()
+    if (list.length === 0) {
+      setSyncMessage('書き出す従業員がいません')
+      return
+    }
+    const content = employeesToCsv(list)
+    setCsvBusy(true)
+    try {
+      if (hasElectronApi) {
+        const result = await window.api.export.csv({ fileName: '従業員マスタ', content })
+        if (!result.success) {
+          setSyncMessage(`CSV出力に失敗しました: ${result.error}`)
+          return
+        }
+        if (result.data.path) setSyncMessage(`従業員 ${list.length}名のCSVを保存しました`)
+        return
+      }
+      const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = '従業員マスタ.csv'
+      a.click()
+      URL.revokeObjectURL(url)
+      setSyncMessage(`従業員 ${list.length}名のCSVを保存しました`)
+    } finally {
+      setCsvBusy(false)
+    }
+  }
+
+  async function readCsvFile(file: File): Promise<string> {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+      return new TextDecoder('utf-8').decode(bytes.subarray(3))
+    }
+    try {
+      return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      return new TextDecoder('shift_jis').decode(bytes)
+    }
+  }
+
+  function isCsvFile(file: File): boolean {
+    const name = file.name.toLowerCase()
+    return name.endsWith('.csv') || file.type === 'text/csv'
+  }
+
+  function hasDraggedFiles(e: DragEvent<HTMLDivElement>): boolean {
+    return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+  }
+
+  function handleCsvDragEnter(e: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(e) || csvBusy) return
+    e.preventDefault()
+    csvDragDepth.current += 1
+    setCsvDragOver(true)
+  }
+
+  function handleCsvDragOver(e: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(e)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = csvBusy ? 'none' : 'copy'
+  }
+
+  function handleCsvDragLeave(e: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(e) || csvBusy) return
+    csvDragDepth.current = Math.max(0, csvDragDepth.current - 1)
+    if (csvDragDepth.current === 0) setCsvDragOver(false)
+  }
+
+  function handleCsvDrop(e: DragEvent<HTMLDivElement>): void {
+    if (!hasDraggedFiles(e)) return
+    e.preventDefault()
+    csvDragDepth.current = 0
+    setCsvDragOver(false)
+    if (csvBusy) return
+    const csvs = Array.from(e.dataTransfer.files).filter(isCsvFile)
+    if (csvs.length === 0) {
+      setSyncMessage('CSVファイルをドロップしてください')
+      return
+    }
+    if (csvs.length > 1) {
+      setSyncMessage('CSVは1ファイルずつドロップしてください')
+      return
+    }
+    void importCsvFile(csvs[0])
+  }
+
+  async function handleImportFile(e: ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    await importCsvFile(file)
+  }
+
+  async function importCsvFile(file: File): Promise<void> {
+    if (!isCsvFile(file)) {
+      setSyncMessage('CSVファイルを選んでください')
+      return
+    }
+    setCsvBusy(true)
+    try {
+      const text = await readCsvFile(file)
+      const parsed = parseEmployeeCsv(text)
+      const plan = planEmployeeImport(getEmployees(), parsed.rows)
+      const notes = [...parsed.errors, ...plan.skipped]
+      if (plan.updates.length === 0 && plan.creates.length === 0) {
+        setSyncMessage(notes[0] ?? '取り込める従業員がありません')
+        return
+      }
+      const noteText = notes.length > 0 ? `\n取り込みできない行: ${notes.length}件` : ''
+      const ok = window.confirm(
+        `従業員CSVを反映します。\n\n更新 ${plan.updates.length}名（値がある項目だけ上書きします。空欄は今の値を残します）\n新規 ${plan.creates.length}名${noteText}\n\nこの内容で保存しますか？`,
+      )
+      if (!ok) return
+
+      for (const emp of plan.updates) {
+        if (hasElectronApi) {
+          const res = await window.api.employees.update({ id: emp.id, ...mockToEmployeeInput(emp) })
+          if (!res.success) {
+            setSyncMessage(`更新に失敗しました（${emp.name}）: ${res.error}`)
+            await reloadEmployeesFromDb()
+            setRefreshKey((k) => k + 1)
+            return
+          }
+        } else {
+          updateEmployee(emp)
+        }
+      }
+      for (const emp of plan.creates) {
+        if (hasElectronApi) {
+          const res = await window.api.employees.create(mockToEmployeeInput(emp))
+          if (!res.success) {
+            setSyncMessage(`新規登録に失敗しました（${emp.name}）: ${res.error}`)
+            await reloadEmployeesFromDb()
+            setRefreshKey((k) => k + 1)
+            return
+          }
+        } else {
+          updateEmployee(emp)
+        }
+      }
+      if (hasElectronApi) await reloadEmployeesFromDb()
+      setRefreshKey((k) => k + 1)
+      const skipText = notes.length > 0 ? `（${notes.length}行はスキップ）` : ''
+      setSyncMessage(`更新 ${plan.updates.length}名、新規 ${plan.creates.length}名を保存しました${skipText}`)
+    } catch (err) {
+      setSyncMessage(`CSVの読み込みに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setCsvBusy(false)
+    }
   }
 
   async function handleSave(data: MockEmployee): Promise<void> {
@@ -287,7 +446,16 @@ export function Employees(): ReactElement {
   }
 
   return (
-    <div className={styles.container}>
+    <div
+      className={styles.container}
+      onDragEnter={handleCsvDragEnter}
+      onDragOver={handleCsvDragOver}
+      onDragLeave={handleCsvDragLeave}
+      onDrop={handleCsvDrop}
+    >
+      {csvDragOver && (
+        <div className={styles.dropOverlay}>CSVをドロップして取り込みます</div>
+      )}
       <div className={styles.header}>
         <div className={styles.headerLeft}>
           <div className={styles.searchBox}>
@@ -347,6 +515,29 @@ export function Employees(): ReactElement {
           <button className={styles.btnSecondary} onClick={handleSyncToPunchApp} disabled={syncing}>
             {syncing ? '同期中...' : '打刻アプリへ同期'}
           </button>
+          <button
+            className={styles.btnSecondary}
+            onClick={() => void handleExportCsv()}
+            disabled={csvBusy}
+            title="時給・定時・給与などの従業員情報をCSVで書き出します"
+          >
+            CSV出力
+          </button>
+          <button
+            className={styles.btnSecondary}
+            onClick={() => csvInputRef.current?.click()}
+            disabled={csvBusy}
+            title="CSVを選ぶか、この画面にドロップします。値がある項目だけ上書きし、空欄は今の値を残します"
+          >
+            CSV取込
+          </button>
+          <input
+            ref={csvInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            style={{ display: 'none' }}
+            onChange={(ev) => void handleImportFile(ev)}
+          />
           <button className={styles.btnPrimary} onClick={handleNew}>
             ＋ 新規登録
           </button>
