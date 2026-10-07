@@ -22,6 +22,7 @@ import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
 import { BonusBulkEditModal } from '@/components/BonusBulkEditModal'
+import { BonusRecipientModal } from '@/components/BonusRecipientModal'
 import { ExtraLinesSection } from '@/components/PayslipExtraLinesEditor'
 import { buildBonusEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
@@ -177,23 +178,69 @@ function applyBonusRule(bonus: MockBonus, emp: MockEmployee, season: '夏季' | 
 }
 
 /**
- * 支給対象者と賞与明細を同期する。
- * - 対象者全員に明細行を用意する（社員・パート、および役員で賞与支給チェック済みの人）
- * - 既存の入力値は維持し、新たに対象になった人だけ初期行または fallback を追加する
- * - 対象外になった人の明細は除外する
+ * 支給対象者の手動調整。自動判定（isBonusRecipient）に対して、
+ * include は「自動では対象外だが手で追加した人」、exclude は「自動では対象だが手で外した人」。
  */
-function syncBonusesWithEligible(
-  current: MockBonus[],
+interface RecipientOverrides {
+  include: ReadonlySet<number>
+  exclude: ReadonlySet<number>
+}
+
+const NO_OVERRIDES: RecipientOverrides = { include: new Set(), exclude: new Set() }
+
+/** 自動判定に手動の追加・除外を重ねた、現在の支給対象者（従業員マスタの並び順）。 */
+function resolveRecipients(
   employees: MockEmployee[],
   year: number,
   season: '夏季' | '冬季',
-  paymentDate?: string | null,
+  paymentDate: string | null | undefined,
+  overrides: RecipientOverrides,
+): MockEmployee[] {
+  return employees.filter((emp) => {
+    if (overrides.exclude.has(emp.id)) return false
+    if (overrides.include.has(emp.id)) return true
+    return isBonusRecipient(emp, year, season, paymentDate)
+  })
+}
+
+/**
+ * 「この人たちを対象にしたい」という ID 集合から、自動判定との差分を手動調整として求める。
+ * 保存済みの顔ぶれを復元するときと、対象者モーダルで確定したときに使う。
+ */
+function deriveOverrides(
+  recipientIds: ReadonlySet<number>,
+  employees: MockEmployee[],
+  year: number,
+  season: '夏季' | '冬季',
+  paymentDate: string | null | undefined,
+): RecipientOverrides {
+  const include = new Set<number>()
+  const exclude = new Set<number>()
+  for (const emp of employees) {
+    const auto = isBonusRecipient(emp, year, season, paymentDate)
+    const wanted = recipientIds.has(emp.id)
+    if (wanted && !auto) include.add(emp.id)
+    if (!wanted && auto) exclude.add(emp.id)
+  }
+  return { include, exclude }
+}
+
+/**
+ * 支給対象者と賞与明細を同期する。
+ * - 対象者全員に明細行を用意する
+ * - 既存の入力値は維持し、新たに対象になった人だけ初期行または fallback を追加する
+ * - 対象外になった人の明細は除外する
+ */
+function syncBonusesWithRecipients(
+  current: MockBonus[],
+  recipients: MockEmployee[],
+  year: number,
+  season: '夏季' | '冬季',
   fallback?: MockBonus[],
 ): MockBonus[] {
-  const eligible = employees.filter((emp) => isBonusRecipient(emp, year, season, paymentDate))
   const bonusMap = new Map(current.map((b) => [b.employeeId, b]))
   const fallbackMap = new Map((fallback ?? []).map((b) => [b.employeeId, b]))
-  return eligible.map((emp, idx) => {
+  return recipients.map((emp, idx) => {
     const existing = bonusMap.get(emp.id)
     if (existing) {
       return recalcBonus(normalizeBonusForEdit({ ...existing, id: idx + 1, year, season }))
@@ -221,7 +268,8 @@ function buildInitialBonuses(
   previous?: MockBonus[],
   paymentDate?: string | null,
 ): MockBonus[] {
-  return syncBonusesWithEligible([], employees, year, season, paymentDate, previous)
+  const recipients = resolveRecipients(employees, year, season, paymentDate, NO_OVERRIDES)
+  return syncBonusesWithRecipients([], recipients, year, season, previous)
 }
 
 export function BonusCreate(): React.ReactElement {
@@ -234,6 +282,7 @@ export function BonusCreate(): React.ReactElement {
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [showReport, setShowReport] = useState(false)
+  const [showRecipients, setShowRecipients] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -252,25 +301,33 @@ export function BonusCreate(): React.ReactElement {
 
   const employees = useMemo(() => getEmployees(), [employeeRefreshKey])
 
-  // 賞与は「支給月に在籍している人」が対象（社員・パート・賞与支給チェック済みの役員）。支給月より前に退職した人は除外する。
-  const eligibleEmployees = useMemo(
-    () => employees.filter((emp) => isBonusRecipient(emp, selectedYear, selectedSeason, paymentDate)),
-    [employees, selectedYear, selectedSeason, paymentDate],
+  // 支給対象者の手動調整（自動判定への追加・除外）。保存済みを読み込んだときは保存どおりの顔ぶれになるよう逆算する。
+  const [overrides, setOverrides] = useState<RecipientOverrides>(NO_OVERRIDES)
+
+  // 賞与データ。DB に保存済みがあればそれを（発行時の顔ぶれ・金額のまま）復元し、無ければ
+  // 自動判定の対象者に対して基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継いで初期表示する。
+  const [bonuses, setBonuses] = useState<MockBonus[]>(() =>
+    buildInitialBonuses(employees, selectedYear, selectedSeason),
+  )
+
+  // 現在の支給対象者 = 明細行がある人（従業員マスタの並び順）。一覧・一括編集・PDF・メールはこれを使う。
+  const recipientEmployees = useMemo(() => {
+    const ids = new Set(bonuses.map((b) => b.employeeId))
+    return employees.filter((emp) => ids.has(emp.id))
+  }, [employees, bonuses])
+
+  const recipientIds = useMemo(
+    () => new Set(recipientEmployees.map((e) => e.id)),
+    [recipientEmployees],
   )
 
   const filteredEmployees = useMemo(
     () =>
-      eligibleEmployees.filter(
+      recipientEmployees.filter(
         (emp) =>
           emp.name.includes(searchQuery) || emp.nameKana.includes(searchQuery),
       ),
-    [eligibleEmployees, searchQuery],
-  )
-
-  // 賞与データ。DB に保存済みがあればそれを（発行時のまま）復元し、無ければ
-  // 基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継いで初期表示する。
-  const [bonuses, setBonuses] = useState<MockBonus[]>(() =>
-    buildInitialBonuses(employees, selectedYear, selectedSeason),
+    [recipientEmployees, searchQuery],
   )
 
   useEffect(() => {
@@ -284,26 +341,24 @@ export function BonusCreate(): React.ReactElement {
         : null
       if (cancelled || gen !== bonusLoadGenRef.current) return
       if (saved) {
+        // 保存済みは保存どおりの顔ぶれで復元する（自動判定で人を足し引きしない）。
         const loaded = saved.list.map((p) => payslipShapeToBonus(p, selectedSeason))
         const payDate = saved.paymentDate ?? ''
-        setBonuses(
-          syncBonusesWithEligible(
-            loaded,
-            employees,
-            selectedYear,
-            selectedSeason,
-            payDate,
-          ),
-        )
+        const savedIds = new Set(loaded.map((b) => b.employeeId))
+        const nextOverrides = deriveOverrides(savedIds, employees, selectedYear, selectedSeason, payDate)
+        const recipients = resolveRecipients(employees, selectedYear, selectedSeason, payDate, nextOverrides)
+        setOverrides(nextOverrides)
+        setBonuses(syncBonusesWithRecipients(loaded, recipients, selectedYear, selectedSeason))
         setPaymentDate(payDate)
         prevPaymentDateRef.current = payDate
       } else {
-        // 未作成のシーズンは、基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継ぐ。
+        // 未作成のシーズンは、自動判定の対象者で、基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継ぐ。
         const prev = (hasElectronApi || import.meta.env.DEV)
           ? await loadPreviousBonusFromDb(selectedYear, selectedSeason)
           : null
         if (cancelled || gen !== bonusLoadGenRef.current) return
         const previousBonuses = prev?.list.map((p) => payslipShapeToBonus(p, selectedSeason))
+        setOverrides(NO_OVERRIDES)
         setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason, previousBonuses))
         setPaymentDate('')
         prevPaymentDateRef.current = ''
@@ -317,7 +372,7 @@ export function BonusCreate(): React.ReactElement {
     }
   }, [employees, selectedYear, selectedSeason])
 
-  // 支給日変更で支給対象者が変わったとき、一覧・明細を同期する（DB再読込はしない）
+  // 支給日変更で自動判定の対象者が変わったとき、手動の追加・除外は保ったまま一覧・明細を同期する（DB再読込はしない）
   useEffect(() => {
     if (prevPaymentDateRef.current === undefined) {
       prevPaymentDateRef.current = paymentDate
@@ -325,18 +380,46 @@ export function BonusCreate(): React.ReactElement {
     }
     if (prevPaymentDateRef.current === paymentDate) return
     prevPaymentDateRef.current = paymentDate
-    setBonuses((prev) =>
-      syncBonusesWithEligible(prev, employees, selectedYear, selectedSeason, paymentDate),
-    )
-  }, [paymentDate, employees, selectedYear, selectedSeason])
+    const recipients = resolveRecipients(employees, selectedYear, selectedSeason, paymentDate, overrides)
+    setBonuses((prev) => syncBonusesWithRecipients(prev, recipients, selectedYear, selectedSeason))
+  }, [paymentDate, employees, selectedYear, selectedSeason, overrides])
 
-  // 支給月に在籍していない人（支給月より前に退職）を除外して保存対象を確定する。
+  // 対象者モーダル・「対象から外す」で決めた顔ぶれを反映する。追加された人は初期行で入り、外された人の明細は消える。
+  const handleRecipientsApply = useCallback(
+    (ids: number[]): void => {
+      const wanted = new Set(ids)
+      const nextOverrides = deriveOverrides(wanted, employees, selectedYear, selectedSeason, paymentDate)
+      const recipients = resolveRecipients(employees, selectedYear, selectedSeason, paymentDate, nextOverrides)
+      dirtyRef.current = true
+      setOverrides(nextOverrides)
+      setBonuses((prev) => syncBonusesWithRecipients(prev, recipients, selectedYear, selectedSeason))
+      setShowRecipients(false)
+    },
+    [employees, selectedYear, selectedSeason, paymentDate],
+  )
+
+  const handleExcludeSelected = useCallback((): void => {
+    const emp = employees.find((e) => e.id === selectedEmployeeId)
+    if (!emp) return
+    if (recipientIds.size <= 1) {
+      alert('対象者が 0 名になるため外せません。別の人を追加してから外してください。')
+      return
+    }
+    const ok = window.confirm(
+      `${emp.name} を ${selectedYear}年 ${selectedSeason}賞与の対象から外します。\n` +
+        'この人の入力内容は消えます。よろしいですか？（対象者を追加・除外 から戻せます）',
+    )
+    if (!ok) return
+    handleRecipientsApply([...recipientIds].filter((id) => id !== emp.id))
+  }, [employees, selectedEmployeeId, recipientIds, selectedYear, selectedSeason, handleRecipientsApply])
+
+  // 従業員マスタから消えた人の行を除いて保存対象を確定する。
   const recipientBonuses = useCallback(
     (list: MockBonus[]): MockBonus[] => {
-      const eligibleIds = new Set(eligibleEmployees.map((e) => e.id))
-      return list.filter((b) => eligibleIds.has(b.employeeId))
+      const ids = new Set(employees.map((e) => e.id))
+      return list.filter((b) => ids.has(b.employeeId))
     },
-    [eligibleEmployees],
+    [employees],
   )
 
   const handleSave = useCallback(async (): Promise<void> => {
@@ -372,6 +455,7 @@ export function BonusCreate(): React.ReactElement {
     } else {
       setBonuses(buildInitialBonuses(employees, selectedYear, selectedSeason))
     }
+    setOverrides(NO_OVERRIDES)
     setPaymentDate('')
     dirtyRef.current = false
     setRefreshKey((k) => k + 1)
@@ -468,7 +552,7 @@ export function BonusCreate(): React.ReactElement {
     [bonuses, selectedEmployeeId],
   )
 
-  // 選択中の従業員が対象外（賞与支給月より前に退職など）になったら先頭へ切り替える。
+  // 選択中の従業員が対象外（除外・賞与支給月より前に退職など）になったら先頭へ切り替える。
   useEffect(() => {
     if (filteredEmployees.length === 0) return
     if (!filteredEmployees.some((e) => e.id === selectedEmployeeId)) {
@@ -481,12 +565,12 @@ export function BonusCreate(): React.ReactElement {
 
   const emailSentMap = useMemo(() => {
     const map = new Map<number, boolean>()
-    for (const emp of eligibleEmployees) {
+    for (const emp of recipientEmployees) {
       map.set(emp.id, isEmailSent(emp.id, 'bonus', selectedYear, selectedSeason))
     }
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligibleEmployees, selectedYear, selectedSeason, emailRefresh])
+  }, [recipientEmployees, selectedYear, selectedSeason, emailRefresh])
 
   const buildMailItem = useCallback(
     (emp: MockEmployee): MailDocItem | null => {
@@ -614,6 +698,16 @@ export function BonusCreate(): React.ReactElement {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
+          <div className={styles.recipientBar}>
+            <span className={styles.recipientCount}>対象 {recipientEmployees.length} 名</span>
+            <button
+              type="button"
+              className={styles.recipientButton}
+              onClick={() => setShowRecipients(true)}
+            >
+              対象者を追加・除外
+            </button>
+          </div>
           <ul className={styles.employeeList}>
             {filteredEmployees.map((emp) => {
               const sent = emailSentMap.get(emp.id) ?? false
@@ -645,16 +739,33 @@ export function BonusCreate(): React.ReactElement {
               syncKey={`${selectedYear}-${selectedSeason}-${refreshKey}-${selectedEmployee.id}`}
               onChange={handleFieldChange}
               onExtraLinesCommit={handleExtraLinesCommit}
+              onExclude={handleExcludeSelected}
             />
           ) : (
-            <div className={styles.emptyState}>従業員を選択してください</div>
+            <div className={styles.emptyState}>
+              {recipientEmployees.length === 0
+                ? '支給対象者がいません。「対象者を追加・除外」から追加してください'
+                : '従業員を選択してください'}
+            </div>
           )}
         </main>
       </div>
 
+      {showRecipients && (
+        <BonusRecipientModal
+          employees={employees}
+          recipientIds={recipientIds}
+          year={selectedYear}
+          season={selectedSeason}
+          paymentDate={paymentDate}
+          onApply={handleRecipientsApply}
+          onClose={() => setShowRecipients(false)}
+        />
+      )}
+
       {showBulkEmail && (
         <BulkEmailModal
-          employees={eligibleEmployees}
+          employees={recipientEmployees}
           type="bonus"
           year={selectedYear}
           monthOrSeason={selectedSeason}
@@ -692,7 +803,7 @@ export function BonusCreate(): React.ReactElement {
       {showBulkEdit && (
         <BonusBulkEditModal
           bonuses={visibleBonuses}
-          employees={eligibleEmployees}
+          employees={recipientEmployees}
           year={selectedYear}
           season={selectedSeason}
           onApply={handleBulkApply}
@@ -718,6 +829,7 @@ function BonusDetail({
   syncKey,
   onChange,
   onExtraLinesCommit,
+  onExclude,
 }: {
   employee: MockEmployee
   bonus: MockBonus
@@ -731,6 +843,7 @@ function BonusDetail({
     kind: 'payment' | 'deduction',
     updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[],
   ) => void
+  onExclude: () => void
 }): React.ReactElement {
   const handleChange = useCallback(
     (field: keyof MockBonus) =>
@@ -763,6 +876,9 @@ function BonusDetail({
           {year}年 {season} 賞与明細
           {paymentDate && <span className={styles.detailPayDate}>（支給日: {formatPaymentDate(paymentDate)}）</span>}
         </span>
+        <button type="button" className={styles.excludeButton} onClick={onExclude}>
+          対象から外す
+        </button>
       </div>
 
       <div className={styles.columns}>
