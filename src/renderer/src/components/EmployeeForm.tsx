@@ -55,7 +55,7 @@ const emptyEmployee: MockEmployee = {
   isActive: true,
   scheduledStart: '09:00',
   scheduledEnd: '18:00',
-  holidayDays: [0, 6],
+  holidayDays: [0],
   holidayMode: 'calendar' as HolidayMode,
   earlyWorkStart: null,
   earlyWorkEnd: null,
@@ -454,6 +454,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     />
                     残業不可
                   </label>
+                  <p className={styles.fieldNote}>
+                    残業不可は社員のみ有効です。チェックすると打刻から残業時間を自動で計算せず、定時終了より後の打刻は労働時間に入れません。残業は残業日報を見て、給与作成画面の残業手当に手入力してください。パートには効きません。
+                  </p>
                 </div>
                 <div className={styles.timePair}>
                   <div className={styles.field}>

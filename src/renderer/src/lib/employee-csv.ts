@@ -380,7 +380,7 @@ function defaultEmployee(id: number, displayOrder: number): MockEmployee {
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,

@@ -583,7 +583,7 @@ export function Attendance(): ReactElement {
       return '会社カレンダー'
     }
     const dayNames = ['日', '月', '火', '水', '木', '金', '土']
-    const days = selectedEmployee?.holidayDays ?? [0, 6]
+    const days = selectedEmployee?.holidayDays ?? [0]
     return days.map((d) => dayNames[d]).join('・')
   }, [selectedEmployee])
 

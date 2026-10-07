@@ -149,7 +149,7 @@ function getEmployeeMap(): Map<number, EmployeeRow> {
 
 /**
  * 会社カレンダー(company_calendar)の明示設定を date→isHoliday の Map で返す。
- * 指定日に明示設定がある場合は、土日/祝日の既定判定より優先する。
+ * 指定日に明示設定がある場合は、日曜/祝日の既定判定より優先する。
  */
 function getCalendarOverrides(datePrefix: string): Map<string, boolean> {
   const raw = getSqlite();
@@ -163,7 +163,8 @@ function getCalendarOverrides(datePrefix: string): Map<string, boolean> {
 
 /**
  * 指定日が休日かどうかを判定する。
- * 優先順位: 会社カレンダーの明示設定 > 土日・国民の祝日。
+ * 優先順位: 会社カレンダーの明示設定 > 日曜・国民の祝日。
+ * 土曜は通常出勤日（休日出勤ではない）。土曜を休みにする場合は会社カレンダーで個別に設定する。
  */
 function isHolidayDate(
   date: string,
@@ -172,7 +173,7 @@ function isHolidayDate(
 ): boolean {
   if (calendar.has(date)) return calendar.get(date)!;
   const dow = new Date(date + 'T00:00:00').getDay();
-  return dow === 0 || dow === 6 || nationalSet.has(date);
+  return dow === 0 || nationalSet.has(date);
 }
 
 /**

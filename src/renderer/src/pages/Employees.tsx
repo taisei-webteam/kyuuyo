@@ -16,6 +16,7 @@ import { EmployeeForm } from '@/components/EmployeeForm'
 import { EmailVerifyBulkModal } from '@/components/EmailVerifyBulkModal'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
 import { SocialInsuranceBulkModal } from '@/components/SocialInsuranceBulkModal'
+import { HourlyRateBulkModal } from '@/components/HourlyRateBulkModal'
 import { employeesToCsv, parseEmployeeCsv, planEmployeeImport } from '@/lib/employee-csv'
 import styles from './Employees.module.css'
 
@@ -32,6 +33,7 @@ export function Employees(): ReactElement {
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [isResidentTaxOpen, setIsResidentTaxOpen] = useState(false)
   const [isSocialInsuranceOpen, setIsSocialInsuranceOpen] = useState(false)
+  const [isHourlyRateOpen, setIsHourlyRateOpen] = useState(false)
   const [isVerifyBulkOpen, setIsVerifyBulkOpen] = useState(false)
   const [verifyRefreshing, setVerifyRefreshing] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -494,6 +496,11 @@ export function Employees(): ReactElement {
                 description: '特別徴収税額の決定通知書の月額をまとめて登録します',
                 onSelect: () => setIsResidentTaxOpen(true),
               },
+              {
+                label: 'パートの時給を一括入力',
+                description: '在籍しているパートだけを抽出し、時給をまとめて変更します（全員一律の加算も可）',
+                onSelect: () => setIsHourlyRateOpen(true),
+              },
             ]}
           />
           <ActionMenu
@@ -721,6 +728,14 @@ export function Employees(): ReactElement {
         <SocialInsuranceBulkModal
           employees={employees}
           onClose={() => setIsSocialInsuranceOpen(false)}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+      )}
+
+      {isHourlyRateOpen && (
+        <HourlyRateBulkModal
+          employees={employees}
+          onClose={() => setIsHourlyRateOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       )}

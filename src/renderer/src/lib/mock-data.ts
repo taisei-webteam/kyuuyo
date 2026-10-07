@@ -411,7 +411,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
@@ -448,7 +448,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
@@ -485,7 +485,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
@@ -522,7 +522,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '08:30',
     scheduledEnd: '17:30',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: '07:30',
     earlyWorkEnd: '08:15',
@@ -559,7 +559,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '18:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: '08:00',
     earlyWorkEnd: '08:45',
@@ -633,7 +633,7 @@ const employees: MockEmployee[] = [
     isActive: true,
     scheduledStart: '09:00',
     scheduledEnd: '15:00',
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
@@ -715,11 +715,12 @@ export function initCalendarYear(year: number): void {
     const key = formatDateKey(d)
     const dow = d.getDay()
     const nationalHolidayName = holidayMap.get(key) ?? null
-    const isWeekend = dow === 0 || dow === 6
+    // 既定の休日は日曜・祝日のみ。土曜は通常出勤日。
+    const isSunday = dow === 0
 
     if (!calendarStore.has(key)) {
       calendarStore.set(key, {
-        isHoliday: isWeekend || nationalHolidayName !== null,
+        isHoliday: isSunday || nationalHolidayName !== null,
         holidayName: nationalHolidayName,
         isNationalHoliday: nationalHolidayName !== null,
       })
@@ -791,7 +792,7 @@ export function resetCalendarYear(year: number): void {
 
 /**
  * Electron 環境では DB(company_calendar) から会社カレンダーを読み込み、
- * インメモリの calendarStore へ反映する。土日・祝日は holidays-jp から
+ * インメモリの calendarStore へ反映する。日曜・祝日は holidays-jp から
  * 既定値を再計算し、DB に保存された会社休日設定で上書きする。
  * Vite 単体では何もしない。
  */
@@ -952,7 +953,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
   const days: MockAttendanceDay[] = []
   const daysInMonth = new Date(year, month, 0).getDate()
 
-  const holidayDays = emp?.holidayDays ?? [0, 6]
+  const holidayDays = emp?.holidayDays ?? [0]
 
   // 今日より後の日はまだ勤務実績が存在しないため、仮の勤怠を捏造しない。
   const nowDate = new Date()
@@ -1605,7 +1606,7 @@ export function isPayrollTargetInMonth(
 /**
  * 賞与の支給対象者かどうかを判定する（判定は「支給月」単位）。
  * 賞与は支給月に在籍している人に支給するため、支給月より前に退職した人は対象外。
- * - パートは賞与対象外
+ * - 社員・パートは常に対象。役員は「賞与を支給する」にチェックした人のみ対象
  * - 支給月より後に入社する人（まだ在籍していない）は対象外
  * - 支給月より前に退職している人は対象外（＝支給月内の退職は対象。例: 8月退職は8月支給に載り、9月支給では消える）
  * 支給日(paymentDate, YYYY-MM-DD)があればその「月」を、未設定なら賞与月（夏季=7月/冬季=12月）を基準にする。
@@ -1616,8 +1617,7 @@ export function isBonusRecipient(
   season: '夏季' | '冬季',
   paymentDate?: string | null,
 ): boolean {
-  if (emp.employeeType === 'パート') return false
-  // 役員は「賞与を支給する」にチェックした人のみ対象（社員は常に対象）。
+  // 役員は「賞与を支給する」にチェックした人のみ対象（社員・パートは常に対象）。
   if (emp.employeeType === '役員' && !emp.bonusEligible) return false
   const pay = parseYmd(paymentDate)
   const refY = pay ? pay.y : year
@@ -1628,6 +1628,28 @@ export function isBonusRecipient(
   const resign = parseYmd(emp.resignDate)
   if (resign && resign.y * 12 + (resign.m - 1) < refIdx) return false
   return true
+}
+
+/** 社員の賞与倍率（基本給 × 倍率）。夏季 1 か月分、冬季 2 か月分。 */
+const EMPLOYEE_BONUS_MULTIPLIER: Record<'夏季' | '冬季', number> = { 夏季: 1, 冬季: 2 }
+
+/** パートの賞与額（定額）。夏季 70,000 円、冬季 80,000 円。 */
+const PART_TIME_BONUS_AMOUNT: Record<'夏季' | '冬季', number> = { 夏季: 70000, 冬季: 80000 }
+
+/**
+ * 賞与作成時の「基本賞与」の初期値を会社ルールから算出する（2026-10-06 打ち合わせ）。
+ * - 社員: 基本給 × 1（夏季）/ 基本給 × 2（冬季）
+ * - パート: 70,000 円（夏季）/ 80,000 円（冬季）
+ * - 役員: ルール無し（0。前回値の引き継ぎまたは手入力）
+ * 控除（社会保険料・所得税など）は自動計算せず手入力する運用。
+ */
+export function defaultBonusBasicAmount(
+  emp: Pick<MockEmployee, 'employeeType' | 'basicSalary'>,
+  season: '夏季' | '冬季',
+): number {
+  if (emp.employeeType === '社員') return emp.basicSalary * EMPLOYEE_BONUS_MULTIPLIER[season]
+  if (emp.employeeType === 'パート') return PART_TIME_BONUS_AMOUNT[season]
+  return 0
 }
 
 /**
@@ -1682,7 +1704,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
 
 /**
  * DB の Employee (shared/types) を画面用の MockEmployee 形に変換する。
- * holidayDays は DB に持っていないため既定値 [0,6]（土日休み）を補う。
+ * holidayDays は DB に持っていないため既定値 [0]（日曜休み。土曜は通常出勤）を補う。
  */
 export function mapDbEmployeeToMock(e: Employee): MockEmployee {
   return {
@@ -1717,7 +1739,7 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     isActive: e.isActive,
     scheduledStart: e.scheduledStart,
     scheduledEnd: e.scheduledEnd,
-    holidayDays: [0, 6],
+    holidayDays: [0],
     holidayMode: e.holidayMode,
     earlyWorkStart: e.earlyWorkStart,
     earlyWorkEnd: e.earlyWorkEnd,
@@ -1780,7 +1802,7 @@ export function buildAttendanceDaysFromRecords(
 ): MockAttendanceDay[] {
   const emp = employeeData.find((e) => e.id === employeeId)
   const holidayMode = emp?.holidayMode ?? 'calendar'
-  const holidayDays = emp?.holidayDays ?? [0, 6]
+  const holidayDays = emp?.holidayDays ?? [0]
 
   const recByDate = new Map<string, AttendanceRecord>()
   for (const r of records) {

@@ -4,6 +4,7 @@ import {
   isEmailSent,
   sendEmail,
   isBonusRecipient,
+  defaultBonusBasicAmount,
   loadBonusFromDb,
   loadPreviousBonusFromDb,
   saveBonusToDb,
@@ -139,33 +140,46 @@ function payslipShapeToBonus(p: MockPayslip, season: '夏季' | '冬季'): MockB
   }
 }
 
-/** 金額が全て 0 の空の賞与明細を作る（前回データが無い場合の初期値）。 */
+/**
+ * 前回データが無い場合の初期明細を作る。
+ * 基本賞与は会社ルール（社員: 基本給×1/×2、パート: 7万/8万）で埋め、控除は 0（手入力）。
+ */
 function emptyBonus(emp: MockEmployee, year: number, season: '夏季' | '冬季', idx: number): MockBonus {
+  const basicBonus = defaultBonusBasicAmount(emp, season)
   return {
     id: idx + 1,
     employeeId: emp.id,
     year,
     season,
-    basicBonus: 0,
+    basicBonus,
     performanceBonus: 0,
     specialBonus: 0,
     extraPaymentLines: [],
     extraDeductionLines: [],
-    totalPayment: 0,
+    totalPayment: basicBonus,
     healthInsurance: 0,
     nursingInsurance: 0,
     welfarePension: 0,
     employmentInsurance: 0,
     incomeTax: 0,
     totalDeduction: 0,
-    netPayment: 0,
+    netPayment: basicBonus,
   }
 }
 
 /**
+ * 前回（同季）の明細を引き継ぐ際、基本賞与だけは現在の基本給・区分から会社ルールで
+ * 再計算する（社員・パートのみ。役員は前回値のまま）。控除や追加行は前回値を維持する。
+ */
+function applyBonusRule(bonus: MockBonus, emp: MockEmployee, season: '夏季' | '冬季'): MockBonus {
+  if (emp.employeeType !== '社員' && emp.employeeType !== 'パート') return bonus
+  return { ...bonus, basicBonus: defaultBonusBasicAmount(emp, season) }
+}
+
+/**
  * 支給対象者と賞与明細を同期する。
- * - 対象者全員に明細行を用意する（役員で賞与支給チェック済みの人を含む）
- * - 既存の入力値は維持し、新たに対象になった人だけ空行または fallback を追加する
+ * - 対象者全員に明細行を用意する（社員・パート、および役員で賞与支給チェック済みの人）
+ * - 既存の入力値は維持し、新たに対象になった人だけ初期行または fallback を追加する
  * - 対象外になった人の明細は除外する
  */
 function syncBonusesWithEligible(
@@ -186,7 +200,9 @@ function syncBonusesWithEligible(
     }
     const prev = fallbackMap.get(emp.id)
     if (prev) {
-      return recalcBonus(normalizeBonusForEdit({ ...prev, id: idx + 1, year, season }))
+      return recalcBonus(
+        applyBonusRule(normalizeBonusForEdit({ ...prev, id: idx + 1, year, season }), emp, season),
+      )
     }
     return emptyBonus(emp, year, season, idx)
   })
@@ -194,9 +210,9 @@ function syncBonusesWithEligible(
 
 /**
  * 賞与作成時の初期表示データを組み立てる。
- * - 前回（同季）の入力値があれば、その金額をそのまま初期値にする（従業員ごとにマッチング）。
- * - 前回データが無い従業員（新入社員など）は 0 円で開始し、手入力してもらう。
- * ※仮の賞与率による自動算出は廃止。以降は全て手入力で編集する運用。
+ * - 基本賞与は会社ルールで算出する（社員: 基本給×1（夏）/×2（冬）、パート: 7万（夏）/8万（冬））。
+ * - 前回（同季）の入力値があれば、控除・追加行はそのまま引き継ぐ（従業員ごとにマッチング）。
+ * - 控除（社会保険料・所得税など）は自動計算せず手入力する運用。
  */
 function buildInitialBonuses(
   employees: MockEmployee[],
@@ -236,7 +252,7 @@ export function BonusCreate(): React.ReactElement {
 
   const employees = useMemo(() => getEmployees(), [employeeRefreshKey])
 
-  // 賞与は「支給月に在籍している人」が対象。パート・支給月より前に退職した人は除外する。
+  // 賞与は「支給月に在籍している人」が対象（社員・パート・賞与支給チェック済みの役員）。支給月より前に退職した人は除外する。
   const eligibleEmployees = useMemo(
     () => employees.filter((emp) => isBonusRecipient(emp, selectedYear, selectedSeason, paymentDate)),
     [employees, selectedYear, selectedSeason, paymentDate],
@@ -252,7 +268,7 @@ export function BonusCreate(): React.ReactElement {
   )
 
   // 賞与データ。DB に保存済みがあればそれを（発行時のまま）復元し、無ければ
-  // 前回（同季）の入力値をそのまま初期表示する。前回が無ければ 0 円で開始する。
+  // 基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継いで初期表示する。
   const [bonuses, setBonuses] = useState<MockBonus[]>(() =>
     buildInitialBonuses(employees, selectedYear, selectedSeason),
   )
@@ -282,7 +298,7 @@ export function BonusCreate(): React.ReactElement {
         setPaymentDate(payDate)
         prevPaymentDateRef.current = payDate
       } else {
-        // 未作成のシーズンは、前回（同季）の入力値を初期値として引き継ぐ。
+        // 未作成のシーズンは、基本賞与を会社ルールで算出し、控除等は前回（同季）の入力値を引き継ぐ。
         const prev = (hasElectronApi || import.meta.env.DEV)
           ? await loadPreviousBonusFromDb(selectedYear, selectedSeason)
           : null
