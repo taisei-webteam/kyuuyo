@@ -84,9 +84,10 @@
   color: var(--color-text);
 }
 
+/* 横スクロール時に固定列（氏名）が端まで覆えるよう、左右の余白は付けない */
 .tableWrapper {
   overflow: auto;
-  padding: 12px 16px 20px;
+  padding: 12px 0 20px;
 }
 
 .table {
@@ -139,13 +140,15 @@
   line-height: 1.25;
 }
 
+/* 固定列（氏名）。背景は不透明にし、右端に線を描いて横スクロール中も区切りが見えるようにする */
 .thName {
   background: var(--color-bg);
   text-align: left;
   color: var(--color-text);
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 3;
+  box-shadow: inset -1px 0 0 var(--color-border), 2px 0 4px rgba(0, 0, 0, 0.06);
 }
 
 .thNetPay {
@@ -164,7 +167,14 @@
   color: var(--color-text);
   position: sticky;
   left: 0;
+  z-index: 2;
   background: var(--color-surface);
+  box-shadow: inset -1px 0 0 var(--color-border), 2px 0 4px rgba(0, 0, 0, 0.06);
+}
+
+/* 縞模様の行でも固定列は透けないよう、半透明ではなく不透明な色にする */
+.bodyRow:nth-child(even) td.tdName {
+  background: var(--color-bg);
 }
 
 .tdNetPay {
@@ -229,7 +239,9 @@
   text-align: left;
   position: sticky;
   left: 0;
+  z-index: 2;
   background: var(--color-bg);
+  box-shadow: inset -1px 0 0 var(--color-border), 2px 0 4px rgba(0, 0, 0, 0.06);
 }
 
 .tdNetPayFoot {
