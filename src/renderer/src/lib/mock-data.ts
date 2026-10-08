@@ -171,7 +171,7 @@ export interface MockEmployee {
   dangerAllowance: number
   salesAllowance: number
   healthInsurance: number
-  /** true のとき給与作成は標準報酬から計算せず、healthInsurance（健保+介護の合算）を使う */
+  /** true のとき給与作成は登録済みの healthInsurance（健保+介護の合算）と厚生年金を使う */
   healthInsuranceManual?: boolean
   welfarePension: number
   residentTax: number
@@ -1395,18 +1395,11 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    const age = emp.birthDate ? calcAge(emp.birthDate, monthEndDate(year, month)) : 0
-    const social = employment.socialInsuranceApplies
-      ? calcAgeBasedSocialInsurance(emp.standardMonthlyRemuneration, age)
-      : { healthInsurance: 0, nursingInsurance: 0, welfarePension: 0 }
-    // 通知の金額を手入力した人は、その健康保険料と厚生年金を控除にそのまま使う。
+    // 健保・厚生年金は従業員マスタに登録した通知額をそのまま使う（標準報酬月額からの自動計算はしない）。
     // 介護・子育て支援金も引くときは、健康保険料欄に通知の「健康保険計」を入れる。
-    const useNoticePremiums = emp.healthInsuranceManual && employment.socialInsuranceApplies
-    const healthInsurance = useNoticePremiums
-      ? emp.healthInsurance
-      : social.healthInsurance + social.nursingInsurance
+    const healthInsurance = employment.socialInsuranceApplies ? emp.healthInsurance : 0
     const nursingInsurance = 0
-    const welfarePension = useNoticePremiums ? emp.welfarePension : social.welfarePension
+    const welfarePension = employment.socialInsuranceApplies ? emp.welfarePension : 0
     // 雇用保険: 役員は適用除外で0。それ以外は支給合計 × 料率（円未満切捨て）。残業代も含む。
     const employmentInsurance = isOfficer
       ? 0
@@ -1679,7 +1672,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     dangerAllowance: m.dangerAllowance,
     salesAllowance: m.salesAllowance,
     healthInsurance: m.healthInsurance,
-    healthInsuranceManual: m.healthInsuranceManual ?? false,
+    healthInsuranceManual: m.healthInsuranceManual ?? true,
     welfarePension: m.welfarePension,
     residentTax: m.residentTax,
     savingsDeduction: m.savingsDeduction,
@@ -1854,6 +1847,15 @@ export function buildAttendanceDaysFromRecords(
   return days
 }
 
+/** 従業員マスタと勤怠から明細を計算する（キャッシュは書き換えない）。 */
+export function buildPayslipsFromMaster(
+  year: number,
+  month: number,
+  realAttendance?: Map<number, AttendanceAggregate>,
+): MockPayslip[] {
+  return generatePayslips(year, month, realAttendance)
+}
+
 export function createPayslips(
   year: number,
   month: number,
@@ -1886,6 +1888,123 @@ export function preserveSavedPayslipFigures(
     if (!generatedIds.has(row.employeeId)) merged.push(payslipToMock(row))
   }
   return merged
+}
+
+/**
+ * 勤怠の書き換え後に、既存明細へ出勤・時間・残業代などを反映する。
+ * 通知の保険料・住民税と追加行は残し、雇用保険と所得税は新しい支給額から計算し直す。
+ */
+export function applyAttendanceToPayslips(
+  existing: MockPayslip[],
+  generated: MockPayslip[],
+  employees: MockEmployee[],
+): MockPayslip[] {
+  const empMap = new Map(employees.map((e) => [e.id, e]))
+  const generatedById = new Map(generated.map((row) => [row.employeeId, row]))
+  const seen = new Set<number>()
+  const merged: MockPayslip[] = []
+
+  for (const row of existing) {
+    seen.add(row.employeeId)
+    const next = generatedById.get(row.employeeId)
+    if (!next) {
+      merged.push(row)
+      continue
+    }
+    merged.push(mergeAttendanceIntoPayslip(row, next, empMap.get(row.employeeId)))
+  }
+  for (const row of generated) {
+    if (seen.has(row.employeeId)) continue
+    merged.push(row)
+  }
+  return merged
+}
+
+function mergeAttendanceIntoPayslip(
+  existing: MockPayslip,
+  generated: MockPayslip,
+  emp: MockEmployee | undefined,
+): MockPayslip {
+  return finalizePayslipAfterAttendance(
+    {
+      ...existing,
+      workDays: generated.workDays,
+      workHours: generated.workHours,
+      overtimeHours: generated.overtimeHours,
+      holidayWorkDays: generated.holidayWorkDays,
+      paidLeaveDays: generated.paidLeaveDays,
+      basicSalary: generated.basicSalary,
+      overtimePay: generated.overtimePay,
+    },
+    emp,
+  )
+}
+
+/** 勤怠反映後に雇用保険・所得税・合計を支給額から再計算する。 */
+function finalizePayslipAfterAttendance(
+  ps: MockPayslip,
+  emp: MockEmployee | undefined,
+): MockPayslip {
+  const extraPaymentTotal = sumExtraLines(ps.extraPaymentLines)
+  const extraDeductionTotal = sumExtraLines(ps.extraDeductionLines)
+  const subtotalPayment =
+    ps.basicSalary +
+    ps.overtimePay +
+    ps.transportAllowance +
+    ps.positionAllowance +
+    ps.familyAllowance +
+    ps.specialAllowance +
+    ps.dangerAllowance +
+    ps.salesAllowance
+  const employmentInsurance =
+    emp?.employeeType === '役員' ? 0 : Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
+  const totalPayment = subtotalPayment + extraPaymentTotal
+  const socialInsuranceTotal =
+    ps.healthInsurance + ps.nursingInsurance + ps.welfarePension + employmentInsurance
+  const taxableTransport = emp?.employeeType === '役員' ? 0 : (emp?.taxableTransport ?? 0)
+  const nonTaxableTransport = ps.transportAllowance - taxableTransport
+  const taxableBase = totalPayment - nonTaxableTransport - socialInsuranceTotal
+  const incomeTax = emp?.incomeTaxExempt
+    ? 0
+    : calcWithholdingTaxByTable(taxableBase, emp?.dependents ?? 0)
+  const totalDeduction =
+    ps.healthInsurance +
+    ps.nursingInsurance +
+    ps.welfarePension +
+    employmentInsurance +
+    incomeTax +
+    ps.residentTax +
+    ps.savingsDeduction +
+    ps.loanDeduction +
+    ps.otherDeduction +
+    extraDeductionTotal
+  return {
+    ...ps,
+    otherAllowance: extraPaymentTotal,
+    employmentInsurance,
+    incomeTax,
+    totalPayment,
+    totalDeduction,
+    netPayment: totalPayment - totalDeduction,
+  }
+}
+
+/**
+ * 指定した従業員だけ、勤怠とマスタから明細を作り直す。他の人は触らない。
+ * 対象者が計算結果に居なければ null。
+ */
+export function replaceOnePayslip(
+  existing: MockPayslip[],
+  generated: MockPayslip[],
+  employeeId: number,
+): MockPayslip[] | null {
+  const next = generated.find((row) => row.employeeId === employeeId)
+  if (!next) return null
+  const idx = existing.findIndex((row) => row.employeeId === employeeId)
+  if (idx < 0) return [...existing, next]
+  const copy = [...existing]
+  copy[idx] = { ...next, id: existing[idx].id }
+  return copy
 }
 
 export function isPayslipsCreated(year: number, month: number): boolean {
@@ -2089,6 +2208,8 @@ export async function savePayslipsToDb(
   list: MockPayslip[],
 ): Promise<boolean> {
   if (!hasApi()) return false
+  // 空配列は月ごと全削除になる。更新・自動保存では絶対に空で上書きしない。
+  if (list.length === 0) return false
   const items = list.map((m) => mockToPayslipCreate(m, 'salary'))
   const res = await window.api.payslips.saveMonth(year, month, 'salary', items)
   return res.success

@@ -278,6 +278,26 @@
   background: #f0f5ff;
 }
 
+/* 入力中の行（いずれかの入力欄にフォーカスがある行）を強調する */
+.bodyRow:focus-within td,
+.bodyRow:focus-within td.tdNetPay,
+.bodyRow:focus-within td.tdTotal,
+.bodyRow:focus-within td.tdNotice,
+.bodyRow:focus-within td.tdReadonly {
+  background: color-mix(in srgb, var(--color-primary-light) 55%, #fff);
+}
+
+.bodyRow:focus-within td.tdName {
+  background: color-mix(in srgb, var(--color-primary-light) 80%, #fff);
+  color: var(--color-primary);
+}
+
+.bodyRow:focus-within .cellInput,
+.bodyRow:focus-within .cellInputSmall,
+.bodyRow:focus-within .cellInputNotice {
+  background: #fff;
+}
+
 .empName {
   font-weight: 600;
   font-size: 10px;

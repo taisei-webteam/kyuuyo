@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import type { EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
-import { calcAge, nextEmployeeId, calculateInsurancePremiums } from '@/lib/mock-data'
+import { calcAge, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
@@ -46,7 +46,7 @@ const emptyEmployee: MockEmployee = {
   dangerAllowance: 0,
   salesAllowance: 0,
   healthInsurance: 0,
-  healthInsuranceManual: false,
+  healthInsuranceManual: true,
   welfarePension: 0,
   residentTax: 0,
   savingsDeduction: 0,
@@ -66,10 +66,6 @@ const emptyEmployee: MockEmployee = {
   paidLeaveBalance: null,
   fixedOvertimePay: 0,
   incomeTaxExempt: false,
-}
-
-function yen(amount: number): string {
-  return `¥${amount.toLocaleString('ja-JP')}`
 }
 
 const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
@@ -215,26 +211,13 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     return calcAge(form.birthDate)
   }, [form.birthDate])
 
-  const autoInsurance = useMemo(() => {
-    if (!form.birthDate || !form.standardMonthlyRemuneration) return null
-    const totalPayment = form.basicSalary + form.transportAllowance + form.positionAllowance +
-      form.familyAllowance + form.specialAllowance + form.dangerAllowance + form.salesAllowance
-    return calculateInsurancePremiums(form.standardMonthlyRemuneration, form.birthDate, totalPayment)
-  }, [form.standardMonthlyRemuneration, form.birthDate, form.basicSalary, form.transportAllowance,
-    form.positionAllowance, form.familyAllowance, form.specialAllowance, form.dangerAllowance, form.salesAllowance])
-
   function handleChange(field: keyof MockEmployee, value: string | number | boolean): void {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
-    const saveData = { ...form }
-    if (!saveData.healthInsuranceManual && autoInsurance) {
-      saveData.healthInsurance = autoInsurance.healthInsurance + autoInsurance.nursingInsurance
-      saveData.welfarePension = autoInsurance.welfarePension
-    }
-    onSave(saveData)
+    onSave({ ...form, healthInsuranceManual: true })
   }
 
   const overlay = useOverlayDismiss(onClose)
@@ -600,15 +583,6 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   </div>
                 )}
                 <div className={styles.field}>
-                  <label>標準報酬月額</label>
-                  <input
-                    type="number"
-                    value={form.standardMonthlyRemuneration}
-                    onChange={(e) => handleChange('standardMonthlyRemuneration', Number(e.target.value))}
-                    min={0}
-                  />
-                </div>
-                <div className={styles.field}>
                   <label>交通費</label>
                   <input
                     type="number"
@@ -678,50 +652,32 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             <div className={styles.section}>
               <div className={styles.sectionTitle}>社会保険料</div>
               <p className={styles.fieldNote}>
-                通知の金額を使うときは、健康保険料と厚生年金を手入力します。給与を作成すると、この2つを控除にそのまま入れます。
+                労務士の通知にある健康保険料と厚生年金（本人負担・月額）を入力します。給与を作成すると、この2つを控除にそのまま入れます。
                 介護保険と子育て支援金も本人から引くときは、健康保険料に通知の「健康保険計」を入れてください。
                 雇用保険は総支給額から自動計算します。
               </p>
-              <div className={styles.field}>
-                <label className={styles.checkboxLabel}>
+              <div className={styles.fieldGrid}>
+                <div className={styles.field}>
+                  <label>健康保険料（月額）</label>
                   <input
-                    type="checkbox"
-                    checked={form.healthInsuranceManual ?? false}
-                    onChange={(e) => handleChange('healthInsuranceManual', e.target.checked)}
+                    type="text"
+                    inputMode="numeric"
+                    value={form.healthInsurance}
+                    onChange={(e) => handleChange('healthInsurance', parseYenInput(e.target.value))}
+                    placeholder="例: 22724"
                   />
-                  健康保険料と厚生年金は通知の金額を手入力する
-                </label>
-              </div>
-              {form.healthInsuranceManual ? (
-                <div className={styles.fieldGrid}>
-                  <div className={styles.field}>
-                    <label>健康保険料（月額）</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={form.healthInsurance}
-                      onChange={(e) => handleChange('healthInsurance', parseYenInput(e.target.value))}
-                      placeholder="例: 22724"
-                    />
-                  </div>
-                  <div className={styles.field}>
-                    <label>厚生年金（月額）</label>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={form.welfarePension}
-                      onChange={(e) => handleChange('welfarePension', parseYenInput(e.target.value))}
-                      placeholder="例: 34770"
-                    />
-                  </div>
                 </div>
-              ) : (
-                <p className={styles.fieldNote}>
-                  {autoInsurance
-                    ? `計算見込み: 健康・介護 ${yen(autoInsurance.healthInsurance + autoInsurance.nursingInsurance)} / 厚生年金 ${yen(autoInsurance.welfarePension)}`
-                    : '生年月日と標準報酬月額を入れると見込み額を表示します。'}
-                </p>
-              )}
+                <div className={styles.field}>
+                  <label>厚生年金（月額）</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={form.welfarePension}
+                    onChange={(e) => handleChange('welfarePension', parseYenInput(e.target.value))}
+                    placeholder="例: 34770"
+                  />
+                </div>
+              </div>
             </div>
 
             <div className={styles.section}>

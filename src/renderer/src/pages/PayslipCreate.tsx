@@ -7,7 +7,9 @@ import {
   getPayslips,
   createPayslips,
   preserveSavedPayslipFigures,
-  deletePayslips,
+  buildPayslipsFromMaster,
+  applyAttendanceToPayslips,
+  replaceOnePayslip,
   aggregateAttendanceRecords,
   isPayslipsCreated,
   isEmailSent,
@@ -162,8 +164,6 @@ export function PayslipCreate(): ReactElement {
   const [exportingCsv, setExportingCsv] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [deleteArmed, setDeleteArmed] = useState(false)
   const [createMessage, setCreateMessage] = useState<string | null>(null)
   const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
   // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
@@ -188,7 +188,6 @@ export function PayslipCreate(): ReactElement {
     }
     let cancelled = false
     dirtyRef.current = false
-    setDeleteArmed(false)
     setLoadingMonth(true)
     void (async () => {
       try {
@@ -212,6 +211,21 @@ export function PayslipCreate(): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [selectedYear, selectedMonth, refreshKey],
   )
+
+  // メモリ上の「作成済み」が消えても、DBに明細があれば読み直す（HMRや更新直後の取りこぼし対策）。
+  useEffect(() => {
+    if (created || loadingMonth) return
+    let cancelled = false
+    void loadPayslipsFromDb(selectedYear, selectedMonth).then((ok) => {
+      if (!cancelled && ok) {
+        setRefreshKey((k) => k + 1)
+        setCreateMessage(null)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [created, loadingMonth, selectedYear, selectedMonth])
 
   const rawPayslips = useMemo(
     () => getPayslips(selectedYear, selectedMonth),
@@ -264,6 +278,36 @@ export function PayslipCreate(): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employees, selectedYear, selectedMonth, emailRefresh])
 
+  /** 打刻を同期・丸めしてから、その月の勤怠集計を返す。 */
+  const loadAttendanceForMonth = useCallback(async (): Promise<
+    ReturnType<typeof aggregateAttendanceRecords> | undefined
+  > => {
+    if (!hasElectronApi) return undefined
+    const syncRes = await window.api.attendance.sync(selectedYear, selectedMonth)
+    if (!syncRes.success) {
+      // 打刻連携が使えないときは、すでに入っている実打刻で計算する
+    }
+    await window.api.attendance.roundAll(selectedYear, selectedMonth)
+    const result = await window.api.attendance.list(selectedYear, selectedMonth)
+    if (result.success && result.data.length > 0) {
+      return aggregateAttendanceRecords(result.data)
+    }
+    return undefined
+  }, [selectedYear, selectedMonth])
+
+  const persistPayslips = useCallback(
+    async (data: MockPayslip[]): Promise<boolean> => {
+      if (data.length === 0) return false
+      setPayslips(selectedYear, selectedMonth, data)
+      const saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
+      dirtyRef.current = false
+      if (saved) await loadPayslipsFromDb(selectedYear, selectedMonth)
+      setRefreshKey((k) => k + 1)
+      return saved
+    },
+    [selectedYear, selectedMonth],
+  )
+
   const handleCreate = useCallback(async (): Promise<void> => {
     // 未来月ガード: 当月より先の給与はまだ勤務実績が無いため作成させない
     const n = new Date()
@@ -278,19 +322,7 @@ export function PayslipCreate(): ReactElement {
     setCreateMessage(null)
     try {
       await hydrateInsuranceRatesFromDb(selectedYear)
-      // 最新の丸め規則で実打刻を勤怠へ反映してから集計する（手入力なしで明細を完成させる）
-      let realAttendance: ReturnType<typeof aggregateAttendanceRecords> | undefined
-      if (hasElectronApi) {
-        const syncRes = await window.api.attendance.sync(selectedYear, selectedMonth)
-        if (!syncRes.success) {
-          // 打刻連携が使えないときは、すでに入っている実打刻で作成する
-        }
-        await window.api.attendance.roundAll(selectedYear, selectedMonth)
-        const result = await window.api.attendance.list(selectedYear, selectedMonth)
-        if (result.success && result.data.length > 0) {
-          realAttendance = aggregateAttendanceRecords(result.data)
-        }
-      }
+      const realAttendance = await loadAttendanceForMonth()
       let savedRows: Payslip[] = []
       if (hasElectronApi) {
         const existing = await window.api.payslips.list(selectedYear, selectedMonth, 'salary')
@@ -298,11 +330,7 @@ export function PayslipCreate(): ReactElement {
       }
       const generated = createPayslips(selectedYear, selectedMonth, realAttendance)
       const data = preserveSavedPayslipFigures(generated, savedRows)
-      setPayslips(selectedYear, selectedMonth, data)
-      // 生成した明細を SQLite に永続化する（再起動後も保持される）
-      const saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
-      dirtyRef.current = false
-      setRefreshKey((k) => k + 1)
+      const saved = await persistPayslips(data)
       const keptCount = data.filter((row) => savedRows.some((savedRow) => savedRow.employeeId === row.employeeId)).length
       if (keptCount > 0) {
         const addedCount = data.length - keptCount
@@ -323,28 +351,96 @@ export function PayslipCreate(): ReactElement {
     } finally {
       setCreating(false)
     }
-  }, [selectedYear, selectedMonth])
+  }, [selectedYear, selectedMonth, loadAttendanceForMonth, persistPayslips])
 
-  const handleDelete = useCallback(async (): Promise<void> => {
-    setDeleteArmed(false)
-    setDeleting(true)
+  /** 勤怠管理の修正を、作成済みの全員へ反映する（保険料・追加行は残す）。 */
+  const handleUpdateAttendance = useCallback(async (): Promise<void> => {
+    const ok = window.confirm(
+      `${selectedYear}年${selectedMonth}月の勤怠から、出勤日数・労働時間・残業代などを計算し直します。\n` +
+        '健康保険料・厚生年金・住民税と、追加の支給・控除は残します。\nよろしいですか？',
+    )
+    if (!ok) return
+    setCreating(true)
     setCreateMessage(null)
     try {
-      const done = await deletePayslips(selectedYear, selectedMonth)
-      dirtyRef.current = false
-      setEditPayslips([])
-      setRefreshKey((k) => k + 1)
+      await hydrateInsuranceRatesFromDb(selectedYear)
+      const loaded = await loadPayslipsFromDb(selectedYear, selectedMonth)
+      const existing = loaded ? getPayslips(selectedYear, selectedMonth) : editPayslips
+      if (existing.length === 0) {
+        setCreateMessage('この月の給与が見つからないため、更新しませんでした。先に作成してください。')
+        return
+      }
+      const realAttendance = await loadAttendanceForMonth()
+      if (!realAttendance || realAttendance.size === 0) {
+        setCreateMessage('この月の勤怠データが無いため、更新しませんでした。既存の明細はそのままです。')
+        return
+      }
+      const generated = buildPayslipsFromMaster(selectedYear, selectedMonth, realAttendance)
+      // 勤怠レコードがある人だけ計算し直す。勤怠の無い人は仮勤怠で上書きしない。
+      const generatedFromAttendance = generated.filter((row) => realAttendance.has(row.employeeId))
+      const data = applyAttendanceToPayslips(existing, generatedFromAttendance, employees)
+      if (data.length === 0) {
+        setCreateMessage('更新結果が空のため、保存しませんでした。既存の明細はそのままです。')
+        return
+      }
+      const saved = await persistPayslips(data)
+      if (!saved) {
+        setCreateMessage('保存に失敗しました。既存の明細はそのままです。')
+        return
+      }
+      const updatedCount = existing.filter((row) => realAttendance.has(row.employeeId)).length
       setCreateMessage(
-        done
-          ? '給与データを削除しました。勤怠を確定・同期してから作り直してください。'
-          : '削除に失敗しました。もう一度お試しください。',
+        `勤怠がある${updatedCount}名を更新しました（他の人はそのまま）`,
       )
     } catch (err) {
-      setCreateMessage(`削除に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+      setCreateMessage(`更新に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
-      setDeleting(false)
+      setCreating(false)
     }
-  }, [selectedYear, selectedMonth])
+  }, [selectedYear, selectedMonth, editPayslips, employees, loadAttendanceForMonth, persistPayslips])
+
+  /** 選択中の一人だけ、マスタと勤怠から明細を作り直す。 */
+  const handleRebuildOne = useCallback(async (): Promise<void> => {
+    const emp = employees.find((e) => e.id === selectedEmployeeId)
+    if (!emp) return
+    const ok = window.confirm(
+      `${emp.name}さんの ${selectedYear}年${selectedMonth}月 を、従業員詳細と勤怠から作り直します。\n` +
+        'この人の手入力は消えます。他の人は変わりません。よろしいですか？',
+    )
+    if (!ok) return
+    setCreating(true)
+    setCreateMessage(null)
+    try {
+      await hydrateInsuranceRatesFromDb(selectedYear)
+      const loaded = await loadPayslipsFromDb(selectedYear, selectedMonth)
+      const existing = loaded ? getPayslips(selectedYear, selectedMonth) : editPayslips
+      const realAttendance = await loadAttendanceForMonth()
+      const generated = buildPayslipsFromMaster(selectedYear, selectedMonth, realAttendance)
+      const data = replaceOnePayslip(existing, generated, selectedEmployeeId)
+      if (!data) {
+        setCreateMessage(`${emp.name}さんはこの月の給与対象ではないため、作り直せません`)
+        return
+      }
+      const saved = await persistPayslips(data)
+      if (!saved) {
+        setCreateMessage('保存に失敗しました。既存の明細はそのままです。')
+        return
+      }
+      setCreateMessage(`${emp.name}さんの明細を作り直しました`)
+    } catch (err) {
+      setCreateMessage(`作り直しに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setCreating(false)
+    }
+  }, [
+    employees,
+    selectedEmployeeId,
+    selectedYear,
+    selectedMonth,
+    editPayslips,
+    loadAttendanceForMonth,
+    persistPayslips,
+  ])
 
   const handleFieldChange = useCallback(
     (employeeId: number, field: keyof MockPayslip, value: number): void => {
@@ -591,27 +687,28 @@ export function PayslipCreate(): ReactElement {
             </div>
             <button
               type="button"
-              className={styles.btnSecondary}
-              onClick={() => { void handleCreate() }}
+              className={styles.iconButton}
+              onClick={() => { void handleUpdateAttendance() }}
               disabled={creating}
-              title="この月に保存してある金額はそのまま残します"
+              title="勤怠を反映して更新"
+              aria-label="勤怠を反映して更新"
             >
-              {creating ? '作成中...' : `${selectedMonth}月分を作成`}
+              <svg className={styles.iconSvg} viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21 12a9 9 0 1 1-2.2-5.8M21 4v5h-5"
+                />
+              </svg>
             </button>
             <button
               className={styles.btnSecondary}
               onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
             >
               一括編集
-            </button>
-            <button
-              type="button"
-              className={styles.btnDanger}
-              onClick={() => setDeleteArmed(true)}
-              disabled={deleting}
-              title="この月の給与データを削除して未作成に戻します"
-            >
-              {deleting ? '削除中...' : '削除して作り直す'}
             </button>
             {distributeMode === 'pdf' ? (
               <>
@@ -635,22 +732,6 @@ export function PayslipCreate(): ReactElement {
           </div>
         )}
       </div>
-
-      {created && deleteArmed && (
-        <div className={styles.confirmBar}>
-          <p>
-            {selectedYear}年{selectedMonth}月分を削除して未作成に戻します。この月に入力した内容は失われ、次の作成は従業員詳細と勤怠から計算し直します。
-          </p>
-          <div className={styles.confirmActions}>
-            <button type="button" className={styles.btnDanger} onClick={() => { void handleDelete() }} disabled={deleting}>
-              {deleting ? '削除中...' : '削除する'}
-            </button>
-            <button type="button" className={styles.btnSecondary} onClick={() => setDeleteArmed(false)} disabled={deleting}>
-              キャンセル
-            </button>
-          </div>
-        </div>
-      )}
 
       {created && createMessage && (
         <p className={styles.notCreatedDesc} style={{ margin: '0 0 12px' }}>{createMessage}</p>
@@ -690,9 +771,23 @@ export function PayslipCreate(): ReactElement {
                 month={selectedMonth}
                 syncKey={`${selectedYear}-${selectedMonth}-${refreshKey}-${selectedEmployee.id}`}
                 distributeMode={distributeMode}
+                rebuildBusy={creating}
+                onRebuild={() => { void handleRebuildOne() }}
                 onChange={handleFieldChange}
                 onExtraLinesCommit={handleExtraLinesCommit}
               />
+            ) : selectedEmployee ? (
+              <div className={styles.emptyState}>
+                <p>この月の明細がまだありません</p>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  onClick={() => { void handleRebuildOne() }}
+                  disabled={creating}
+                >
+                  {creating ? '作成中...' : 'この人の明細を作成'}
+                </button>
+              </div>
             ) : (
               <div className={styles.emptyState}>従業員を選択してください</div>
             )}
@@ -770,6 +865,8 @@ function PayslipDetail({
   month,
   syncKey,
   distributeMode,
+  rebuildBusy,
+  onRebuild,
   onChange,
   onExtraLinesCommit,
 }: {
@@ -779,6 +876,8 @@ function PayslipDetail({
   month: number
   syncKey: string
   distributeMode: DistributeMode
+  rebuildBusy: boolean
+  onRebuild: () => void
   onChange: (employeeId: number, field: keyof MockPayslip, value: number) => void
   onExtraLinesCommit: (
     employeeId: number,
@@ -824,9 +923,20 @@ function PayslipDetail({
           <span className={styles.detailName}>{employee.name}</span>
           <span className={styles.detailBadge}>{employee.employeeType}</span>
         </div>
-        <span className={styles.detailPeriod}>
-          {year}年{month}月 給与明細
-        </span>
+        <div className={styles.detailHeaderRight}>
+          <span className={styles.detailPeriod}>
+            {year}年{month}月 給与明細
+          </span>
+          <button
+            type="button"
+            className={styles.rebuildOneButton}
+            onClick={onRebuild}
+            disabled={rebuildBusy}
+            title="この人だけ、従業員詳細と勤怠から計算し直します。他の人は変わりません"
+          >
+            {rebuildBusy ? '作り直し中...' : 'この人を作り直す'}
+          </button>
+        </div>
       </div>
 
       {distributeMode === 'email' && employee.email && (
