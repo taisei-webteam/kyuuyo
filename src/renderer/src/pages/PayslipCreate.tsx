@@ -1187,11 +1187,6 @@ function PayslipDetail({
               {isPartTime && <span className={styles.autoTag}>時給制</span>}
             </div>
             <div className={styles.sectionBody}>
-              {isPartTime && (
-                <div className={styles.hourlyBreakdown}>
-                  時給 ¥{employee.hourlyRate.toLocaleString('ja-JP')} × {payslip.workHours}h
-                </div>
-              )}
               <EditableRow label={isPartTime ? '基本給（時給計算）' : '基本給'} value={payslip.basicSalary} onValue={setField('basicSalary')} />
               <EditableRow
                 label="残業手当"
