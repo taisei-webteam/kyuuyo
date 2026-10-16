@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
+import { createPortal } from 'react-dom'
 import styles from './ActionMenu.module.css'
 
 export interface ActionMenuItem {
@@ -23,8 +24,10 @@ export function ActionMenu({
   items: ActionMenuItem[]
 }): ReactElement {
   const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const close = useCallback((focusTrigger: boolean): void => {
@@ -32,11 +35,48 @@ export function ActionMenu({
     if (focusTrigger) triggerRef.current?.focus()
   }, [])
 
+  // ページ内の overflow に切られず、サイドメニューより手前に出す
+  const placeMenu = useCallback((): void => {
+    const trigger = triggerRef.current
+    const menu = menuRef.current
+    if (!trigger || !menu) return
+    const rect = trigger.getBoundingClientRect()
+    const margin = 8
+    const width = menu.offsetWidth
+    const height = menu.offsetHeight
+    let left = rect.right - width
+    if (left < margin) left = margin
+    const maxLeft = window.innerWidth - width - margin
+    if (left > maxLeft) left = Math.max(margin, maxLeft)
+    let top = rect.bottom + 6
+    if (top + height > window.innerHeight - margin && rect.top - height - 6 >= margin) {
+      top = rect.top - height - 6
+    }
+    setMenuPos({ top, left })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPos(null)
+      return
+    }
+    placeMenu()
+    window.addEventListener('resize', placeMenu)
+    window.addEventListener('scroll', placeMenu, true)
+    return () => {
+      window.removeEventListener('resize', placeMenu)
+      window.removeEventListener('scroll', placeMenu, true)
+    }
+  }, [open, items, placeMenu])
+
   // 外側クリックで閉じる
   useEffect(() => {
     if (!open) return
     function handlePointerDown(event: MouseEvent): void {
-      if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false)
+      const target = event.target as Node
+      if (wrapperRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handlePointerDown)
     return () => document.removeEventListener('mousedown', handlePointerDown)
@@ -96,40 +136,58 @@ export function ActionMenu({
         </span>
       </button>
 
-      {open && (
-        <div className={styles.menu} role="menu" aria-label={label}>
-          {items.map((item, index) => (
-            <button
-              key={item.label}
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              disabled={item.disabled}
-              ref={(el) => {
-                itemRefs.current[index] = el
-              }}
-              onClick={() => {
-                close(false)
-                item.onSelect()
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault()
-                  moveFocus(index, 1)
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault()
-                  moveFocus(index, -1)
-                }
-              }}
-            >
-              <span className={styles.itemLabel}>{item.label}</span>
-              {item.description && (
-                <span className={styles.itemDescription}>{item.description}</span>
-              )}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className={styles.menu}
+            role="menu"
+            aria-label={label}
+            style={{
+              top: menuPos?.top ?? 0,
+              left: menuPos?.left ?? 0,
+              visibility: menuPos ? 'visible' : 'hidden',
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                close(true)
+              }
+            }}
+          >
+            {items.map((item, index) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                disabled={item.disabled}
+                ref={(el) => {
+                  itemRefs.current[index] = el
+                }}
+                onClick={() => {
+                  close(false)
+                  item.onSelect()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    moveFocus(index, 1)
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    moveFocus(index, -1)
+                  }
+                }}
+              >
+                <span className={styles.itemLabel}>{item.label}</span>
+                {item.description && (
+                  <span className={styles.itemDescription}>{item.description}</span>
+                )}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { getEmployees, type MockEmployee, type MockPayslip, resolveSalaryPaymentExtras, firstExtraLineLabel, sumExtraLines, visibleExtraLines } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
+import { manualDemoLogo } from '@/lib/manual-demo-flag'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './PayrollReportModal.module.css'
@@ -13,7 +14,7 @@ const logoModules = import.meta.glob<{ default: string }>(
   '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
   { eager: true },
 )
-const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
+const companyLogoSrc = manualDemoLogo(Object.values(logoModules)[0]?.default)
 
 function num(amount: number): string {
   if (amount === 0) return '0'

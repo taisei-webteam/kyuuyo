@@ -13,6 +13,8 @@ import { PayslipHistory } from './pages/PayslipHistory'
 // import { WithholdingCertificate } from './pages/WithholdingCertificate'
 import Settings from './pages/Settings'
 import { reloadEmployeesFromDb, hydrateCalendarYearFromDb, hydrateInsuranceRatesFromDb, preloadDevSalaryPayslips } from './lib/mock-data'
+import { applyManualDemo } from './lib/manual-demo'
+import { isManualDemo } from './lib/manual-demo-flag'
 import { hydrateCompanyFromDb } from './lib/settings-store'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -20,7 +22,7 @@ const loadsLocalDb = hasElectronApi || import.meta.env.DEV
 
 export function App(): ReactElement {
   // Electron は端末の SQLite、ブラウザ開発時は本番アプリの SQLite を読み込む。
-  // これにより従業員管理・給与作成・給与生成が本番と同じ従業員を反映する。
+  // ?manual=1 のときは架空データだけを使い、本番の SQLite は読まない。
   const [ready, setReady] = useState(!loadsLocalDb)
 
   useEffect(() => {
@@ -28,6 +30,10 @@ export function App(): ReactElement {
     let cancelled = false
     void (async () => {
       try {
+        if (isManualDemo()) {
+          applyManualDemo()
+          return
+        }
         await reloadEmployeesFromDb()
         await hydrateCompanyFromDb()
         await hydrateCalendarYearFromDb(new Date().getFullYear())

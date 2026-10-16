@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import type { MockEmployee, MockPayslip } from '@/lib/mock-data'
 import { formatPaidLeaveDays } from '../../../shared/types'
 import { getSettings } from '@/lib/settings-store'
+import { manualDemoLogo } from '@/lib/manual-demo-flag'
 import styles from './PayslipPrintDocument.module.css'
 
 // 会社ロゴ。src/assets/logo-dark.(png|jpg|jpeg|svg|webp) を置くと自動で読み込まれる。
@@ -10,7 +11,7 @@ const logoModules = import.meta.glob<{ default: string }>(
   '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
   { eager: true },
 )
-const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
+const companyLogoSrc = manualDemoLogo(Object.values(logoModules)[0]?.default)
 
 function num(amount: number): string {
   return amount.toLocaleString('ja-JP')

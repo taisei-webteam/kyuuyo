@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "dev": "npm run dev:renderer",
+    "dev:manual": "cd src/renderer && npx vite --open \"/?manual=1\"",
     "dev:renderer": "cd src/renderer && npx vite",
     "dev:electron": "npm run build:preload && tsc -p tsconfig.main.json && electron .",
     "build:preload": "esbuild src/preload/index.ts --bundle --platform=node --outfile=dist/preload.cjs --format=cjs --external:electron",

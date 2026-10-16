@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { RawPunch } from '../../../shared/types'
 import { getEmployees } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
+import { manualDemoLogo } from '@/lib/manual-demo-flag'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './RawPunchModal.module.css'
@@ -18,7 +19,7 @@ const logoModules = import.meta.glob<{ default: string }>(
   '../assets/logo-dark.{png,jpg,jpeg,svg,webp}',
   { eager: true },
 )
-const companyLogoSrc: string | undefined = Object.values(logoModules)[0]?.default
+const companyLogoSrc = manualDemoLogo(Object.values(logoModules)[0]?.default)
 
 interface Props {
   year: number

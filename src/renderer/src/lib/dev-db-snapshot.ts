@@ -1,4 +1,5 @@
 import type { AttendanceRecord, Employee, InsuranceRate, Payslip, RawPunch } from '../../../shared/types'
+import { isManualDemo } from './manual-demo-flag'
 
 /** 本番 SQLite の会社情報（Vite 開発時の画面反映用） */
 export interface DevCompanyRow {
@@ -36,6 +37,7 @@ let pending: Promise<DevDbSnapshot | null> | null = null
 export function loadDevSnapshot(): Promise<DevDbSnapshot | null> {
   if (!import.meta.env.DEV) return Promise.resolve(null)
   if (typeof window !== 'undefined' && 'api' in window) return Promise.resolve(null)
+  if (isManualDemo()) return Promise.resolve(null)
   pending ??= fetch('/__dev/snapshot')
     .then(async (res) => {
       if (!res.ok) return null
