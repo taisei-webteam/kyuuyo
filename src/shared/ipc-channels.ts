@@ -73,6 +73,8 @@ export const IPC = {
   APP: {
     // アプリの現在バージョン取得
     GET_VERSION: 'app:get-version',
+    // 確認ダイアログのあと、ページがキー入力を受け取れるように戻す
+    FOCUS_PAGE: 'app:focus-page',
   },
   UPDATER: {
     // Main → Renderer: 自動更新の状態通知

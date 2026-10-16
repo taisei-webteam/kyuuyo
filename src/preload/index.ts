@@ -180,6 +180,8 @@ const api = {
   app: {
     /** アプリの現在バージョンを取得する。 */
     getVersion: (): Promise<string> => ipcRenderer.invoke(IPC.APP.GET_VERSION),
+    /** ページがキー入力を受け取れるように焦点を戻す。 */
+    focusPage: (): Promise<void> => ipcRenderer.invoke(IPC.APP.FOCUS_PAGE),
   },
 
   updater: {

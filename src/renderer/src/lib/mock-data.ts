@@ -1280,7 +1280,8 @@ function regularOvertimeMinutes(r: AttendanceRecord, emp: MockEmployee): number 
 
 /** 社員の早出分。打刻が無い日だけ保存値を使う。 */
 function earlyOvertimeForRecord(r: AttendanceRecord, emp: MockEmployee | undefined): number {
-  if (!emp || emp.employeeType === 'パート') return 0
+  if (!emp) return r.earlyOvertimeMinutes
+  if (emp.employeeType === 'パート') return 0
   if (!r.clockIn) return r.earlyOvertimeMinutes
   const settings = getSettings()
   return calcEarlyOvertime(
@@ -1399,6 +1400,28 @@ function getMonthlyEmployment(
   return { employed: enrolledDays > 0, prorationFactor, socialInsuranceApplies }
 }
 
+/**
+ * 残業手当。役員は 0。固定残業代がある人はその金額。
+ * それ以外は時間外単価 × 1.25 × 残業時間。
+ * パートは円未満切捨て、月給者は円未満四捨五入。
+ * 月給者の時間外単価は基本給 ÷ 月平均所定労働時間（日割り前の基本給）。
+ */
+export function calcOvertimePay(
+  emp: Pick<MockEmployee, 'employeeType' | 'basicSalary' | 'hourlyRate' | 'fixedOvertimePay'>,
+  overtimeHours: number,
+): number {
+  if (emp.employeeType === '役員') return 0
+  const fixed = emp.fixedOvertimePay ?? 0
+  if (fixed > 0) return fixed
+  const isPartTime = emp.employeeType === 'パート'
+  const monthlyHours = getSettings().monthlyWorkHours || 173.5
+  const hourlyRate = isPartTime
+    ? emp.hourlyRate
+    : Math.round(emp.basicSalary / monthlyHours)
+  const raw = hourlyRate * 1.25 * overtimeHours
+  return isPartTime ? Math.floor(raw) : Math.round(raw)
+}
+
 function generatePayslips(
   year: number,
   month: number,
@@ -1443,15 +1466,10 @@ function generatePayslips(
     const isOfficer = emp.employeeType === '役員'
 
     let basicSalary: number
-    let hourlyRate: number
     if (isPartTime) {
-      hourlyRate = emp.hourlyRate
       // パートの基本給 = 時給 × 定時内の労働時間。1円未満は切捨て。定時の外は時間外で、ここには入れない。
-      basicSalary = Math.floor(hourlyRate * workHours)
+      basicSalary = Math.floor(emp.hourlyRate * workHours)
     } else {
-      // 月給者の時間外単価 = 基本給 ÷ 1か月平均所定労働時間数（会社設定・労基則19条）
-      const monthlyHours = getSettings().monthlyWorkHours || 173.5
-      hourlyRate = Math.round(emp.basicSalary / monthlyHours)
       basicSalary = emp.basicSalary
     }
 
@@ -1460,14 +1478,8 @@ function generatePayslips(
       basicSalary = Math.round(basicSalary * employment.prorationFactor)
     }
 
-    // 役員の支給は基本給以外を初期値 0 にする（残業・手当・追加支給は作らない）。
-    const overtimePay = isOfficer
-      ? 0
-      : (emp.fixedOvertimePay ?? 0) > 0
-        ? emp.fixedOvertimePay!
-        : isPartTime
-          ? Math.floor(hourlyRate * 1.25 * overtimeHours)
-          : Math.round(hourlyRate * 1.25 * overtimeHours)
+    // 役員は 0。固定残業代がある人はその金額。それ以外は残業時間から計算する。
+    const overtimePay = calcOvertimePay(emp, overtimeHours)
     const transportAllowance = isOfficer ? 0 : emp.transportAllowance
     const positionAllowance = isOfficer ? 0 : emp.positionAllowance
     const familyAllowance = isOfficer ? 0 : emp.familyAllowance

@@ -419,6 +419,7 @@ interface ElectronUpdaterApi {
 
 interface ElectronAppApi {
   getVersion(): Promise<string>;
+  focusPage(): Promise<void>;
 }
 
 interface ElectronApi {

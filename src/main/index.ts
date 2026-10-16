@@ -147,6 +147,12 @@ if (!gotSingleInstanceLock) {
 
     // アプリの現在バージョン（画面表示用）
     ipcMain.handle(IPC.APP.GET_VERSION, () => app.getVersion());
+    // ウィンドウがすでに前面でも、ページへキー入力を戻す
+    ipcMain.handle(IPC.APP.FOCUS_PAGE, () => {
+      const win = mainWindow;
+      if (!win || win.isDestroyed()) return;
+      win.webContents.focus();
+    });
 
     // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）
     void autoBackupDaily();

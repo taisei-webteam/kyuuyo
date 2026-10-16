@@ -21,6 +21,7 @@ import {
   isPayrollTargetInMonth,
   hydrateInsuranceRatesFromDb,
   calcSalaryEmploymentInsurance,
+  calcOvertimePay,
   type MockEmployee,
   type MockPayslip,
   type PayslipExtraLine,
@@ -105,6 +106,24 @@ function readStoredPayslipCreatePeriod(): StoredPayslipCreatePeriod | null {
   }
 }
 
+/** OS の確認を閉じたあと、ページがキー入力を受け取れなくなるのを戻す。 */
+function restorePageInput(): void {
+  const active = document.activeElement
+  if (active instanceof HTMLElement) active.blur()
+  window.setTimeout(() => {
+    const current = document.activeElement
+    if (current instanceof HTMLElement) current.blur()
+    const appApi = 'api' in window ? window.api.app : undefined
+    if (appApi && typeof appApi.focusPage === 'function') void appApi.focusPage()
+  }, 30)
+}
+
+interface ConfirmRequest {
+  message: string
+  confirmLabel: string
+  run: () => Promise<void>
+}
+
 function writeStoredPayslipCreatePeriod(period: StoredPayslipCreatePeriod): void {
   try {
     window.localStorage.setItem(PAYSLIP_CREATE_PERIOD_KEY, JSON.stringify(period))
@@ -130,6 +149,13 @@ function withRecalculatedEmploymentInsurance(ps: MockPayslip, employeeId: number
     ...ps,
     employmentInsurance: calcSalaryEmploymentInsurance(ps, employeeType),
   }
+}
+
+/** 残業時間の手入力から残業手当を計算し直す。雇用保険は呼び出し側で再計算する。 */
+function withOvertimePayFromHours(ps: MockPayslip, employeeId: number, overtimeHours: number): MockPayslip {
+  const emp = getEmployees().find((e) => e.id === employeeId)
+  if (!emp) return { ...ps, overtimeHours }
+  return { ...ps, overtimeHours, overtimePay: calcOvertimePay(emp, overtimeHours) }
 }
 
 function recalcTotals(ps: MockPayslip): MockPayslip {
@@ -185,6 +211,7 @@ export function PayslipCreate(): ReactElement {
   const [emailRefresh, setEmailRefresh] = useState(0)
   const [creating, setCreating] = useState(false)
   const [createMessage, setCreateMessage] = useState<string | null>(null)
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null)
   const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
   // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
   const dirtyRef = useRef(false)
@@ -358,11 +385,15 @@ export function PayslipCreate(): ReactElement {
       await enqueueSave(async () => {
         if (saveSeqRef.current !== seq) return
         setPayslips(selectedYear, selectedMonth, data)
-        saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
-        if (!saved || saveSeqRef.current !== seq) return
+        const ok = await savePayslipsToDb(selectedYear, selectedMonth, data)
+        if (!ok || saveSeqRef.current !== seq) return
+        saved = true
         await loadPayslipsFromDb(selectedYear, selectedMonth)
+        // 反映の保存より後に積まれた、反映前の自動保存は捨てる
+        saveSeqRef.current += 1
+        dirtyRef.current = false
+        setRefreshKey((k) => k + 1)
       })
-      if (saveSeqRef.current === seq) setRefreshKey((k) => k + 1)
       return saved
     },
     [enqueueSave, selectedYear, selectedMonth],
@@ -414,12 +445,7 @@ export function PayslipCreate(): ReactElement {
   }, [selectedYear, selectedMonth, loadAttendanceForMonth, persistPayslips])
 
   /** 勤怠管理の修正を、作成済みの全員へ反映する（保険料・追加行は残す）。 */
-  const handleUpdateAttendance = useCallback(async (): Promise<void> => {
-    const ok = window.confirm(
-      `${selectedYear}年${selectedMonth}月の勤怠から、出勤日数・労働時間・残業代などを計算し直します。\n` +
-        '健康保険料・厚生年金・住民税と、追加の支給・控除は残します。\nよろしいですか？',
-    )
-    if (!ok) return
+  const runUpdateAttendance = useCallback(async (): Promise<void> => {
     invalidatePendingSave()
     setCreating(true)
     setCreateMessage(null)
@@ -457,19 +483,24 @@ export function PayslipCreate(): ReactElement {
       setCreateMessage(`更新に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
       setCreating(false)
-      window.setTimeout(() => window.focus(), 0)
+      restorePageInput()
     }
   }, [selectedYear, selectedMonth, editPayslips, employees, loadSavedAttendance, persistPayslips, invalidatePendingSave])
 
+  const handleUpdateAttendance = useCallback((): void => {
+    setConfirmRequest({
+      message:
+        `${selectedYear}年${selectedMonth}月の勤怠から、出勤日数・労働時間・残業代などを計算し直します。\n` +
+        '健康保険料・厚生年金・住民税と、追加の支給・控除は残します。\nよろしいですか？',
+      confirmLabel: '勤怠を反映',
+      run: runUpdateAttendance,
+    })
+  }, [selectedYear, selectedMonth, runUpdateAttendance])
+
   /** 選択中の一人だけ、マスタと勤怠から明細を作り直す。 */
-  const handleRebuildOne = useCallback(async (): Promise<void> => {
+  const runRebuildOne = useCallback(async (): Promise<void> => {
     const emp = employees.find((e) => e.id === selectedEmployeeId)
     if (!emp) return
-    const ok = window.confirm(
-      `${emp.name}さんの ${selectedYear}年${selectedMonth}月 を、従業員詳細と勤怠から作り直します。\n` +
-        'この人の手入力は消えます。他の人は変わりません。よろしいですか？',
-    )
-    if (!ok) return
     invalidatePendingSave()
     setCreating(true)
     setCreateMessage(null)
@@ -494,7 +525,7 @@ export function PayslipCreate(): ReactElement {
       setCreateMessage(`作り直しに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
       setCreating(false)
-      window.setTimeout(() => window.focus(), 0)
+      restorePageInput()
     }
   }, [
     employees,
@@ -507,6 +538,18 @@ export function PayslipCreate(): ReactElement {
     invalidatePendingSave,
   ])
 
+  const handleRebuildOne = useCallback((): void => {
+    const emp = employees.find((e) => e.id === selectedEmployeeId)
+    if (!emp) return
+    setConfirmRequest({
+      message:
+        `${emp.name}さんの ${selectedYear}年${selectedMonth}月 を、従業員詳細と勤怠から作り直します。\n` +
+        'この人の手入力は消えます。他の人は変わりません。よろしいですか？',
+      confirmLabel: '作り直す',
+      run: runRebuildOne,
+    })
+  }, [employees, selectedEmployeeId, selectedYear, selectedMonth, runRebuildOne])
+
   const handleFieldChange = useCallback(
     (employeeId: number, field: keyof MockPayslip, value: number): void => {
       dirtyRef.current = true
@@ -516,10 +559,13 @@ export function PayslipCreate(): ReactElement {
           const next =
             field === 'healthInsurance'
               ? { ...ps, healthInsurance: value, nursingInsurance: 0 }
-              : { ...ps, [field]: value }
-          const priced = EMPLOYMENT_INSURANCE_WAGE_FIELDS.has(field)
-            ? withRecalculatedEmploymentInsurance(next, employeeId)
-            : next
+              : field === 'overtimeHours'
+                ? withOvertimePayFromHours(ps, employeeId, value)
+                : { ...ps, [field]: value }
+          const priced =
+            field === 'overtimeHours' || EMPLOYMENT_INSURANCE_WAGE_FIELDS.has(field)
+              ? withRecalculatedEmploymentInsurance(next, employeeId)
+              : next
           return recalcTotals(priced)
         }),
       )
@@ -812,6 +858,23 @@ export function PayslipCreate(): ReactElement {
         <p className={styles.notCreatedDesc} style={{ margin: '0 0 12px' }}>{createMessage}</p>
       )}
 
+      {confirmRequest && (
+        <ConfirmDialog
+          message={confirmRequest.message}
+          confirmLabel={confirmRequest.confirmLabel}
+          onCancel={() => {
+            setConfirmRequest(null)
+            restorePageInput()
+          }}
+          onConfirm={() => {
+            const run = confirmRequest.run
+            setConfirmRequest(null)
+            restorePageInput()
+            void run()
+          }}
+        />
+      )}
+
       {created ? (
         <div className={styles.body}>
           <aside className={styles.sidebar}>
@@ -839,7 +902,7 @@ export function PayslipCreate(): ReactElement {
           <main className={styles.detail}>
             {selectedEmployee && selectedPayslip ? (
               <PayslipDetail
-                key={`${selectedYear}-${selectedMonth}-${refreshKey}-${selectedEmployee.id}`}
+                key={`${selectedYear}-${selectedMonth}-${selectedEmployee.id}`}
                 employee={selectedEmployee}
                 payslip={selectedPayslip}
                 year={selectedYear}
@@ -933,6 +996,53 @@ export function PayslipCreate(): ReactElement {
   )
 }
 
+function ConfirmDialog({
+  message,
+  confirmLabel,
+  onCancel,
+  onConfirm,
+}: {
+  message: string
+  confirmLabel: string
+  onCancel: () => void
+  onConfirm: () => void
+}): ReactElement {
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
+
+  useEffect(() => {
+    cancelRef.current?.focus()
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onCancelRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  return (
+    <div className={styles.confirmBackdrop} onMouseDown={onCancel}>
+      <div
+        className={styles.confirmDialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payslip-confirm-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <p id="payslip-confirm-title" className={styles.confirmMessage}>{message}</p>
+        <div className={styles.confirmActions}>
+          <button ref={cancelRef} type="button" className={styles.btnSecondary} onClick={onCancel}>
+            キャンセル
+          </button>
+          <button type="button" className={styles.btnPrimary} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PayslipDetail({
   employee,
   payslip,
@@ -961,6 +1071,7 @@ function PayslipDetail({
   ) => void
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
+  const overtimeFromHours = employee.employeeType !== '役員' && (employee.fixedOvertimePay ?? 0) <= 0
   const settings = getSettings()
   const emailPreview = buildPayslipEmail({
     employeeName: employee.name,
@@ -1037,7 +1148,20 @@ function PayslipDetail({
       <div className={styles.attendanceRow}>
         <AttendanceInput label="出勤日数" value={payslip.workDays} unit="日" onValue={setField('workDays')} />
         <AttendanceInput label="労働時間" value={payslip.workHours} unit="h" onValue={setField('workHours')} allowDecimal />
-        <AttendanceInput label="残業時間" value={payslip.overtimeHours} unit="h" onValue={setField('overtimeHours')} allowDecimal />
+        <AttendanceInput
+          label="残業時間"
+          value={payslip.overtimeHours}
+          unit="h"
+          onValue={setField('overtimeHours')}
+          allowDecimal
+          title={
+            overtimeFromHours
+              ? 'この時間から残業手当と雇用保険を計算し直します'
+              : (employee.fixedOvertimePay ?? 0) > 0
+                ? '固定残業代のため、時間を変えても残業手当は変わりません'
+                : '役員は残業手当を計算しません'
+          }
+        />
         <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onValue={setField('holidayWorkDays')} />
         <AttendanceInput label="有給" value={payslip.paidLeaveDays} unit="日" onValue={setField('paidLeaveDays')} allowDecimal />
       </div>
@@ -1056,7 +1180,13 @@ function PayslipDetail({
                 </div>
               )}
               <EditableRow label={isPartTime ? '基本給（時給計算）' : '基本給'} value={payslip.basicSalary} onValue={setField('basicSalary')} />
-              <EditableRow label="残業手当" value={payslip.overtimePay} onValue={setField('overtimePay')} />
+              <EditableRow
+                label="残業手当"
+                value={payslip.overtimePay}
+                onValue={setField('overtimePay')}
+                auto={overtimeFromHours}
+                fixed={(employee.fixedOvertimePay ?? 0) > 0}
+              />
               <EditableRow label="通勤手当" value={payslip.transportAllowance} onValue={setField('transportAllowance')} />
               <EditableRow label="役職手当" value={payslip.positionAllowance} onValue={setField('positionAllowance')} />
               <EditableRow label="家族手当" value={payslip.familyAllowance} onValue={setField('familyAllowance')} />
@@ -1198,15 +1328,17 @@ function AttendanceInput({
   unit,
   onValue,
   allowDecimal,
+  title,
 }: {
   label: string
   value: number
   unit: string
   onValue: (value: number) => void
   allowDecimal?: boolean
+  title?: string
 }): ReactElement {
   return (
-    <div className={styles.attendanceItem}>
+    <div className={styles.attendanceItem} title={title}>
       <span className={styles.attendanceLabel}>{label}</span>
       <div className={styles.attendanceInputWrap}>
         <NumericField
