@@ -386,7 +386,16 @@ export function PayslipCreate(): ReactElement {
         if (saveSeqRef.current !== seq) return
         setPayslips(selectedYear, selectedMonth, data)
         const ok = await savePayslipsToDb(selectedYear, selectedMonth, data)
-        if (!ok || saveSeqRef.current !== seq) return
+        if (saveSeqRef.current !== seq) return
+        if (!ok) {
+          // ブラウザ開発は SQLite が無い。メモリに載せた明細をそのまま画面へ出す。
+          if (!hasElectronApi) {
+            saved = true
+            dirtyRef.current = false
+            setRefreshKey((k) => k + 1)
+          }
+          return
+        }
         saved = true
         await loadPayslipsFromDb(selectedYear, selectedMonth)
         // 反映の保存より後に積まれた、反映前の自動保存は捨てる
@@ -436,6 +445,10 @@ export function PayslipCreate(): ReactElement {
         setCreateMessage('同期済み勤怠が無いため、仮の勤怠で作成しました（勤怠管理で同期・丸めを実行してください）')
       } else if (hasElectronApi) {
         setCreateMessage('給与データを作成・保存しました')
+      } else if (saved) {
+        setCreateMessage('給与データを作成しました')
+      } else {
+        setCreateMessage('作成できませんでした。対象の従業員がいないか、保存に失敗しています')
       }
     } catch (err) {
       setCreateMessage(`作成に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
@@ -949,7 +962,7 @@ export function PayslipCreate(): ReactElement {
             <>
               <p className={styles.notCreatedDesc}>
                 まだ作成されていません。<br />
-                勤怠データと従業員マスタをもとに給与データを自動生成します。
+                勤怠と支給項目から給与を作ります。控除は雇用保険以外、0 から始まります。
               </p>
               <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
                 {creating ? '作成中...' : `${selectedMonth}月分を作成`}
@@ -1218,7 +1231,7 @@ function PayslipDetail({
                 value={payslip.healthInsurance + payslip.nursingInsurance}
                 onValue={setField('healthInsurance')}
               />
-              <EditableRow label="厚生年金" value={payslip.welfarePension} onValue={setField('welfarePension')} auto />
+              <EditableRow label="厚生年金" value={payslip.welfarePension} onValue={setField('welfarePension')} />
               <EditableRow label="雇用保険" value={payslip.employmentInsurance} onValue={setField('employmentInsurance')} auto />
               <EditableRow label="住民税" value={payslip.residentTax} onValue={setField('residentTax')} />
             </div>

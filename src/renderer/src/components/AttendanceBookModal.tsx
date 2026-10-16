@@ -196,7 +196,7 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
   const handlePrint = useCallback(async (): Promise<void> => {
     const exportPdf = window.api?.export?.pdf
     if (typeof exportPdf !== 'function') {
-      triggerPrint({ orientation: 'portrait', mode: 'modal', size: 'A4' })
+      triggerPrint({ orientation: 'portrait', mode: 'modal', size: 'B5' })
       return
     }
     const ym = `${year}-${String(month).padStart(2, '0')}`
@@ -207,7 +207,7 @@ export function AttendanceBookModal({ year, month, employeeId, onClose }: Props)
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
-      const result = await exportPdf({ fileName, pageSize: 'A4', landscape: false })
+      const result = await exportPdf({ fileName, pageSize: 'B5', landscape: false })
       if (!result.success) {
         alert(`PDF出力に失敗しました: ${result.error}`)
       }

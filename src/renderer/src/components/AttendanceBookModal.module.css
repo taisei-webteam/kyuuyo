@@ -91,9 +91,9 @@
 }
 
 .employeeSection {
-  --sheet-h: 296mm;
+  --sheet-h: 256mm;
   box-sizing: border-box;
-  width: 210mm;
+  width: 182mm;
   max-width: 100%;
   height: var(--sheet-h);
   max-height: var(--sheet-h);
@@ -274,7 +274,7 @@
   font-weight: 700;
 }
 
-/* ── 印刷 / PDF（A4縦・1人1ページ・控えなし） ── */
+/* ── 印刷 / PDF（JIS B5縦・1人1ページ・控えなし） ── */
 
 @media print {
   .overlay {
@@ -309,7 +309,7 @@
   }
 
   .employeeSection {
-    width: 210mm;
+    width: 182mm;
     height: var(--sheet-h);
     max-height: var(--sheet-h);
     margin: 0;

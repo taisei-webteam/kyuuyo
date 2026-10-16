@@ -51,7 +51,7 @@ async function renderPdfBase64(doc: PayslipPrintDocumentProps, fileName: string)
   container.style.position = 'fixed'
   container.style.left = '-10000px'
   container.style.top = '0'
-  container.style.width = '210mm'
+  container.style.width = '182mm'
   document.body.appendChild(container)
 
   const root = createRoot(container)
@@ -67,7 +67,7 @@ async function renderPdfBase64(doc: PayslipPrintDocumentProps, fileName: string)
     await delay(120)
 
     document.body.classList.add('is-printing-modal')
-    const res = await window.api.export.pdfBuffer({ fileName, pageSize: 'A4', landscape: false })
+    const res = await window.api.export.pdfBuffer({ fileName, pageSize: 'B5', landscape: false })
     if (!res.success) {
       throw new Error(res.error)
     }

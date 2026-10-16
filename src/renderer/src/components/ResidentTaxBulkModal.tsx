@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from 'react'
 import type { ReactElement, ChangeEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { updateEmployee, reloadEmployeesFromDb, type MockEmployee } from '@/lib/mock-data'
+import { keepZeroSelectionOnMouseUp, normalizeIntegerDraft, selectZeroOnFocus } from './ClearableNumberInput'
 import styles from './ResidentTaxBulkModal.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -140,7 +141,7 @@ export function ResidentTaxBulkModal({
   }, [drafts, employees])
 
   const handleChange = useCallback((id: number, value: string): void => {
-    setDrafts((prev) => ({ ...prev, [id]: value }))
+    setDrafts((prev) => ({ ...prev, [id]: normalizeIntegerDraft(value) }))
   }, [])
 
   const handleExportTemplate = useCallback(async (): Promise<void> => {
@@ -327,6 +328,8 @@ export function ResidentTaxBulkModal({
                         className={`${styles.input} ${changed ? styles.changed : ''}`}
                         value={draftRaw}
                         onChange={(ev) => handleChange(e.id, ev.target.value)}
+                        onFocus={selectZeroOnFocus}
+                        onMouseUp={keepZeroSelectionOnMouseUp}
                       />
                     </td>
                   </tr>

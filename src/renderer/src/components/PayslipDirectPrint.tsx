@@ -20,7 +20,7 @@ export function PayslipDirectPrint({
     const exportPdf = window.api?.export?.pdf
     if (typeof exportPdf !== 'function') {
       // ブラウザ(Vite単体) または preload未更新時は従来の印刷ダイアログにフォールバック
-      triggerPrint({ orientation: 'portrait', mode: 'modal' })
+      triggerPrint({ orientation: 'portrait', mode: 'modal', size: 'B5' })
       return
     }
 
@@ -30,7 +30,7 @@ export function PayslipDirectPrint({
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
-      const result = await exportPdf({ fileName, pageSize: 'A4', landscape: false })
+      const result = await exportPdf({ fileName, pageSize: 'B5', landscape: false })
       if (!result.success) {
         alert(`PDF出力に失敗しました: ${result.error}`)
       }

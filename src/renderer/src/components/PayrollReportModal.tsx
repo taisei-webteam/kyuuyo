@@ -157,7 +157,7 @@ export function PayrollReportModal({
     const exportPdf = window.api?.export?.pdf
     if (typeof exportPdf !== 'function') {
       // ブラウザ(Vite単体) または preload未更新時は従来の印刷ダイアログにフォールバック
-      triggerPrint({ orientation: 'landscape', mode: 'modal', size: 'A3' })
+      triggerPrint({ orientation: 'landscape', mode: 'modal', size: 'B4' })
       return
     }
 
@@ -166,7 +166,7 @@ export function PayrollReportModal({
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
-      const result = await exportPdf({ fileName, pageSize: 'A3', landscape: true })
+      const result = await exportPdf({ fileName, pageSize: 'B4', landscape: true })
       if (!result.success) {
         alert(`PDF出力に失敗しました: ${result.error}`)
       }
@@ -182,7 +182,7 @@ export function PayrollReportModal({
     <div className={`${styles.overlay} printScope`} {...overlay}>
       <div className={styles.modal}>
         <div className={`${styles.modalHeader} noPrint`}>
-          <h2>給与一覧表（A3横）印刷プレビュー</h2>
+          <h2>給与一覧表（B4横）印刷プレビュー</h2>
           <div className={styles.headerActions}>
             <label className={styles.payDateField}>
               支給日

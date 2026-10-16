@@ -1,10 +1,11 @@
 import { useMemo, useState, useCallback } from 'react'
-import type { ReactElement, ChangeEvent, KeyboardEvent } from 'react'
+import type { ReactElement, KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import type { MockEmployee } from '@/lib/mock-data'
-import { sumExtraLines, firstExtraLineLabel, visibleExtraLines } from '@/lib/mock-data'
+import { sumExtraLines, firstExtraLineLabel, visibleExtraLines, recalcBonusAmounts } from '@/lib/mock-data'
 import type { MockBonus } from '@/pages/BonusCreate'
+import { ClearableNumberInput } from '@/components/ClearableNumberInput'
 import styles from './BonusBulkEditModal.module.css'
 
 function num(amount: number): string {
@@ -28,22 +29,9 @@ function extraDeductionAmount(row: MockBonus): number {
   return sumExtraLines(visibleExtraLines(row.extraDeductionLines))
 }
 
-/** 支給・控除の変更後に合計と差引支給額を再計算する。 */
-function recalcBonus(b: MockBonus): MockBonus {
-  const extraPaymentTotal = sumExtraLines(b.extraPaymentLines)
-  const extraDeductionTotal = sumExtraLines(b.extraDeductionLines)
-  const totalPayment = b.basicBonus + b.performanceBonus + b.specialBonus + extraPaymentTotal
-  const totalDeduction =
-    b.healthInsurance +
-    b.nursingInsurance +
-    b.welfarePension +
-    b.employmentInsurance +
-    b.incomeTax +
-    extraDeductionTotal
-  return { ...b, totalPayment, totalDeduction, netPayment: totalPayment - totalDeduction }
-}
-
 type BonusField = keyof MockBonus
+
+const GROSS_BONUS_FIELDS = new Set<BonusField>(['basicBonus', 'performanceBonus', 'specialBonus'])
 
 interface Column {
   key: BonusField
@@ -113,13 +101,20 @@ export function BonusBulkEditModal({
   const [busy, setBusy] = useState(false)
 
   const handleChange = useCallback((idx: number, field: BonusField, value: number): void => {
+    const amount = Number.isFinite(value) ? value : 0
     setEditData((prev) => {
       const updated = [...prev]
-      const recalced = recalcBonus({ ...updated[idx], [field]: value })
-      updated[idx] = { ...updated[idx], ...recalced }
+      const row = updated[idx]
+      const employeeType = employees.find((emp) => emp.id === row.employeeId)?.employeeType
+      const recalced = recalcBonusAmounts(
+        { ...row, [field]: amount },
+        employeeType,
+        GROSS_BONUS_FIELDS.has(field),
+      )
+      updated[idx] = { ...row, ...recalced }
       return updated
     })
-  }, [])
+  }, [employees])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>, rowIdx: number, colIdx: number): void => {
@@ -232,17 +227,13 @@ export function BonusBulkEditModal({
                     const val = row[col.key] as number
                     return (
                       <td key={col.key} className={styles.tdEditable}>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           className={styles.cellInput}
                           value={val}
-                          data-row={rowIdx}
-                          data-col={colIdx}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            handleChange(rowIdx, col.key, Number(e.target.value))
-                          }
+                          dataRow={rowIdx}
+                          dataCol={colIdx}
+                          onValue={(next) => handleChange(rowIdx, col.key, next ?? 0)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
-                          min={0}
                         />
                       </td>
                     )
@@ -252,19 +243,20 @@ export function BonusBulkEditModal({
                   {DEDUCT_BASE_COLUMNS.map((col, colIdx) => {
                     const val = row[col.key] as number
                     const dataCol = PAY_BASE_COLUMNS.length + 1 + colIdx
+                    const employmentTitle =
+                      col.key === 'employmentInsurance'
+                        ? '総支給額×雇用保険料率。基本・業績・特別賞与を変えると再計算します'
+                        : undefined
                     return (
                       <td key={col.key} className={styles.tdEditable}>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           className={styles.cellInput}
                           value={val}
-                          data-row={rowIdx}
-                          data-col={dataCol}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            handleChange(rowIdx, col.key, Number(e.target.value))
-                          }
+                          dataRow={rowIdx}
+                          dataCol={dataCol}
+                          title={employmentTitle}
+                          onValue={(next) => handleChange(rowIdx, col.key, next ?? 0)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
-                          min={0}
                         />
                       </td>
                     )

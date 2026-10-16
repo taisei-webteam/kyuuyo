@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, type KeyboardEvent } from 'react'
-import type { ReactElement, ChangeEvent } from 'react'
+import type { ReactElement } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   getEmployees,
@@ -23,6 +23,7 @@ import { buildYearSelectOptions } from '@/lib/year-options'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { PayrollReportModal } from '@/components/PayrollReportModal'
+import { ClearableNumberInput } from '@/components/ClearableNumberInput'
 import styles from './PayslipHistory.module.css'
 
 function num(amount: number): string {
@@ -480,17 +481,13 @@ export function PayslipHistory(): ReactElement {
                     <span className={styles.empName}>{row.employeeName}</span>
                   </td>
                   <td className={styles.tdNum}>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       className={styles.cellInputSmall}
                       value={row.workDays}
-                      data-row={rowIdx}
-                      data-col={-1}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                        handleChange(rowIdx, 'workDays', Number(e.target.value))
-                      }
+                      dataRow={rowIdx}
+                      dataCol={-1}
+                      onValue={(next) => handleChange(rowIdx, 'workDays', next ?? 0)}
                       onKeyDown={(e) => handleKeyDown(e, rowIdx, -1)}
-                      min={0}
                     />
                   </td>
                   <td className={styles.tdNetPay}>{num(row.netPayment)}</td>
@@ -498,17 +495,13 @@ export function PayslipHistory(): ReactElement {
                     const val = row[col.key] as number
                     return (
                       <td key={col.key} className={styles.tdEditable}>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           className={styles.cellInput}
                           value={val}
-                          data-row={rowIdx}
-                          data-col={colIdx}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            handleChange(rowIdx, col.key, Number(e.target.value))
-                          }
+                          dataRow={rowIdx}
+                          dataCol={colIdx}
+                          onValue={(next) => handleChange(rowIdx, col.key, next ?? 0)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, colIdx)}
-                          min={0}
                         />
                       </td>
                     )
@@ -523,17 +516,13 @@ export function PayslipHistory(): ReactElement {
                     const notice = isMonthlyNoticeColumn(col.key)
                     return (
                       <td key={col.key} className={notice ? `${styles.tdEditable} ${styles.tdNotice}` : styles.tdEditable}>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           className={notice ? `${styles.cellInput} ${styles.cellInputNotice}` : styles.cellInput}
                           value={val}
-                          data-row={rowIdx}
-                          data-col={dataCol}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            handleChange(rowIdx, col.key, Number(e.target.value))
-                          }
+                          dataRow={rowIdx}
+                          dataCol={dataCol}
+                          onValue={(next) => handleChange(rowIdx, col.key, next ?? 0)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
-                          min={0}
                         />
                       </td>
                     )
@@ -546,21 +535,14 @@ export function PayslipHistory(): ReactElement {
                     const dataCol = freeStartCol + slotIdx
                     return (
                       <td key={kind} className={styles.tdEditable}>
-                        <input
-                          type="number"
+                        <ClearableNumberInput
                           className={styles.cellInput}
-                          value={amount === 0 ? '' : amount}
-                          data-row={rowIdx}
-                          data-col={dataCol}
-                          onChange={(e: ChangeEvent<HTMLInputElement>) =>
-                            handleNamedDeductChange(
-                              rowIdx,
-                              kind,
-                              e.target.value === '' ? 0 : Number(e.target.value),
-                            )
-                          }
+                          value={amount}
+                          blankWhenZero
+                          dataRow={rowIdx}
+                          dataCol={dataCol}
+                          onValue={(next) => handleNamedDeductChange(rowIdx, kind, next ?? 0)}
                           onKeyDown={(e) => handleKeyDown(e, rowIdx, dataCol)}
-                          min={0}
                         />
                       </td>
                     )

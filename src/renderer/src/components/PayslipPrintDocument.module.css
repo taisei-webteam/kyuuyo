@@ -103,7 +103,7 @@
   justify-content: safe center;
 }
 
-/* A4ページ(210mm)はモーダルより大きいため縮小せず固定し、はみ出しはスクロール */
+/* B5ページはモーダルより大きいため縮小せず固定し、はみ出しはスクロール */
 .previewBody .page {
   flex-shrink: 0;
 }
@@ -121,24 +121,40 @@
 
 /* ============ 帳票本体 ============ */
 
-/* プレビューとPDFを一致させるため、A4寸法(mm)・フォントを画面/印刷で共通化する */
+/* 用紙は JIS B5 (182×257mm)。中身は従来のA4レイアウトを zoom で縮小し、
+   原本と控えが1枚に収まるようにする。プレビューとPDFで同じ寸法を使う。 */
 .page {
   background: #fff;
-  width: 210mm;
-  height: 297mm;
+  width: 182mm;
+  height: 256mm;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  padding: 6mm 7mm;
+  padding: 0;
+  overflow: hidden;
   font-family: "Yu Gothic", "Hiragino Kaku Gothic Pro", sans-serif;
   font-size: 14px;
   color: #1a1a1a;
   line-height: 1.35;
   box-sizing: border-box;
+}
+
+.sheet {
+  width: 210mm;
+  height: 297mm;
+  box-sizing: border-box;
+  padding: 6mm 7mm;
+  /* 257/297 より少し小さくし、端数で次ページへ送られないようにする */
+  zoom: 0.86;
   display: flex;
   flex-direction: column;
 }
 
 /* メール添付用: 控えがない1枚構成のため、上下2分割をやめ内容高さで上部に配置する */
 .pageMail {
+  height: auto;
+  overflow: visible;
+}
+
+.pageMail .sheet {
   height: auto;
   display: block;
 }
@@ -147,7 +163,7 @@
   flex: none;
 }
 
-/* 控えは A4 半分（148.5mm）より下から始める。線は出さない */
+/* 控えは用紙の下半分から始める。線は出さない */
 .stubGap {
   flex: 0 0 16mm;
 }
@@ -443,7 +459,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 印刷(PDF)はベーススタイル（A4寸法・フォント）をそのまま使い、
+/* 印刷(PDF)はベーススタイル（B5寸法・フォント）をそのまま使い、
    プレビューと完全一致させる。ここでは印刷時の表示制御のみ行う。 */
 @media print {
   .previewOverlay {

@@ -321,13 +321,15 @@ export function PayslipPrintDocument({
 
   return (
     <div className={layout === 'mail' ? `${styles.page} ${styles.pageMail}` : styles.page}>
-      <PayslipBlock {...blockProps} title={title} period={period} />
-      {layout === 'print' && (
-        <>
-          <div className={styles.stubGap} aria-hidden="true" />
-          <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
-        </>
-      )}
+      <div className={styles.sheet}>
+        <PayslipBlock {...blockProps} title={title} period={period} />
+        {layout === 'print' && (
+          <>
+            <div className={styles.stubGap} aria-hidden="true" />
+            <PayslipBlock {...blockProps} title={`${title}（控え）`} period={period} />
+          </>
+        )}
+      </div>
     </div>
   )
 }

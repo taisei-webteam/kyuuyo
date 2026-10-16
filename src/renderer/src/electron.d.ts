@@ -137,7 +137,7 @@ interface ElectronEmployeesApi {
 interface ElectronExportApi {
   pdf(params?: {
     fileName?: string;
-    pageSize?: 'A4' | 'A3';
+    pageSize?: 'A4' | 'A3' | 'B5' | 'B4';
     landscape?: boolean;
   }): Promise<{
     success: true;
@@ -148,7 +148,7 @@ interface ElectronExportApi {
   }>;
   pdfBuffer(params?: {
     fileName?: string;
-    pageSize?: 'A4' | 'A3';
+    pageSize?: 'A4' | 'A3' | 'B5' | 'B4';
     landscape?: boolean;
   }): Promise<{
     success: true;

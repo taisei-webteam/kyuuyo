@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReactElement, ChangeEvent } from 'react'
 import { updateEmployee, reloadEmployeesFromDb, type MockEmployee } from '@/lib/mock-data'
+import { keepZeroSelectionOnMouseUp, normalizeIntegerDraft, selectZeroOnFocus } from './ClearableNumberInput'
 import styles from './ResidentTaxBulkModal.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -162,9 +163,10 @@ export function SocialInsuranceBulkModal({
   }, [drafts, employees])
 
   const handleChange = useCallback((id: number, field: keyof PremiumDraft, value: string): void => {
+    const next = normalizeIntegerDraft(value)
     setDrafts((prev) => ({
       ...prev,
-      [id]: { health: prev[id]?.health ?? '', pension: prev[id]?.pension ?? '', [field]: value },
+      [id]: { health: prev[id]?.health ?? '', pension: prev[id]?.pension ?? '', [field]: next },
     }))
   }, [])
 
@@ -385,6 +387,8 @@ export function SocialInsuranceBulkModal({
                         value={draft.health}
                         aria-label={`${e.name}の健康保険料`}
                         onChange={(ev) => handleChange(e.id, 'health', ev.target.value)}
+                        onFocus={selectZeroOnFocus}
+                        onMouseUp={keepZeroSelectionOnMouseUp}
                       />
                     </td>
                     <td className={styles.tdRight}>
@@ -395,6 +399,8 @@ export function SocialInsuranceBulkModal({
                         value={draft.pension}
                         aria-label={`${e.name}の厚生年金`}
                         onChange={(ev) => handleChange(e.id, 'pension', ev.target.value)}
+                        onFocus={selectZeroOnFocus}
+                        onMouseUp={keepZeroSelectionOnMouseUp}
                       />
                     </td>
                   </tr>

@@ -5,6 +5,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from '../shared/ipc-channels.js';
+import type { PdfPaper } from '../shared/print-page.js';
 import type {
   IpcResult,
   Employee,
@@ -118,13 +119,13 @@ const api = {
   export: {
     pdf: (params?: {
       fileName?: string
-      pageSize?: 'A4' | 'A3'
+      pageSize?: PdfPaper
       landscape?: boolean
     }): Promise<IpcResult<{ path: string }>> =>
       ipcRenderer.invoke(IPC.EXPORT.PDF, params ?? {}),
     pdfBuffer: (params?: {
       fileName?: string
-      pageSize?: 'A4' | 'A3'
+      pageSize?: PdfPaper
       landscape?: boolean
     }): Promise<IpcResult<{ base64: string }>> =>
       ipcRenderer.invoke(IPC.EXPORT.PDF_BUFFER, params ?? {}),

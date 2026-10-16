@@ -135,7 +135,7 @@ export function calculateBonusInsurancePremiums(
 
   const healthAndNursing = calcAgeBasedSocialInsurance(standardBonus, age)
   const pension = calcAgeBasedSocialInsurance(pensionBase, age)
-  const employmentInsurance = Math.floor(totalPayment * INSURANCE_RATES.employmentRate)
+  const employmentInsurance = calcBonusEmploymentInsurance(totalPayment)
   return {
     healthInsurance: healthAndNursing.healthInsurance,
     nursingInsurance: healthAndNursing.nursingInsurance,
@@ -362,6 +362,65 @@ export function calcSalaryEmploymentInsurance(
 ): number {
   if (employeeType === '役員') return 0
   return Math.floor(employmentInsuranceWageBase(ps) * INSURANCE_RATES.employmentRate)
+}
+
+/**
+ * 賞与の雇用保険料。総支給額 × 料率の円未満切捨て。役員は適用除外で 0。
+ * 健康保険・厚生年金・所得税は賞与では手入力（初期値 0）とし、ここでは計算しない。
+ */
+export function calcBonusEmploymentInsurance(
+  totalPayment: number,
+  employeeType?: string,
+): number {
+  if (employeeType === '役員') return 0
+  const base = Number.isFinite(totalPayment) ? Math.max(0, totalPayment) : 0
+  return Math.floor(base * INSURANCE_RATES.employmentRate)
+}
+
+/** 賞与の支給・控除から合計を出し直すときの入力 */
+export interface BonusAmountInput {
+  basicBonus: number
+  performanceBonus: number
+  specialBonus: number
+  extraPaymentLines?: PayslipExtraLine[]
+  extraDeductionLines?: PayslipExtraLine[]
+  healthInsurance: number
+  nursingInsurance: number
+  welfarePension: number
+  employmentInsurance: number
+  incomeTax: number
+}
+
+/**
+ * 賞与の支給合計・控除合計・差引支給額を再計算する。
+ * refreshEmploymentInsurance が true のときだけ雇用保険を総支給額から算出し直す。
+ * 健康保険などを手入力したときは false にし、その金額を控除合計へ反映する。
+ */
+export function recalcBonusAmounts<T extends BonusAmountInput>(
+  bonus: T,
+  employeeType: string | undefined,
+  refreshEmploymentInsurance: boolean,
+): T & { totalPayment: number; totalDeduction: number; netPayment: number } {
+  const extraPaymentTotal = sumExtraLines(bonus.extraPaymentLines)
+  const extraDeductionTotal = sumExtraLines(bonus.extraDeductionLines)
+  const totalPayment = bonus.basicBonus + bonus.performanceBonus + bonus.specialBonus + extraPaymentTotal
+  const employmentInsurance = refreshEmploymentInsurance
+    ? calcBonusEmploymentInsurance(totalPayment, employeeType)
+    : bonus.employmentInsurance
+  const totalDeduction =
+    bonus.healthInsurance +
+    bonus.nursingInsurance +
+    bonus.welfarePension +
+    employmentInsurance +
+    bonus.incomeTax +
+    extraDeductionTotal
+  return {
+    ...bonus,
+    employmentInsurance,
+    totalPayment,
+    totalDeduction,
+    netPayment: totalPayment - totalDeduction,
+  }
 }
 
 export function newExtraLine(label = '', amount = 0): PayslipExtraLine {
@@ -1402,9 +1461,10 @@ function getMonthlyEmployment(
 
 /**
  * 残業手当。役員は 0。固定残業代がある人はその金額。
- * それ以外は時間外単価 × 1.25 × 残業時間。
- * パートは円未満切捨て、月給者は円未満四捨五入。
- * 月給者の時間外単価は基本給 ÷ 月平均所定労働時間（日割り前の基本給）。
+ * パートは登録時給 × 1.25 × 残業時間（円未満切捨て）。
+ * 社員は（基本給 ÷ 月平均所定労働時間）× 1.25 × 残業時間。
+ * 時給は基本給÷173.5（設定の月平均所定労働時間。既定 173.5）の端数を残したまま割増し、
+ * 合計だけ円未満四捨五入する。基本給は日割り前のマスタ金額。
  */
 export function calcOvertimePay(
   emp: Pick<MockEmployee, 'employeeType' | 'basicSalary' | 'hourlyRate' | 'fixedOvertimePay'>,
@@ -1413,13 +1473,12 @@ export function calcOvertimePay(
   if (emp.employeeType === '役員') return 0
   const fixed = emp.fixedOvertimePay ?? 0
   if (fixed > 0) return fixed
-  const isPartTime = emp.employeeType === 'パート'
+  if (emp.employeeType === 'パート') {
+    return Math.floor(emp.hourlyRate * 1.25 * overtimeHours)
+  }
   const monthlyHours = getSettings().monthlyWorkHours || 173.5
-  const hourlyRate = isPartTime
-    ? emp.hourlyRate
-    : Math.round(emp.basicSalary / monthlyHours)
-  const raw = hourlyRate * 1.25 * overtimeHours
-  return isPartTime ? Math.floor(raw) : Math.round(raw)
+  const raw = (emp.basicSalary / monthlyHours) * 1.25 * overtimeHours
+  return Math.round(raw)
 }
 
 function generatePayslips(
@@ -1504,12 +1563,11 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 健保・厚生年金は従業員マスタに登録した通知額をそのまま使う（標準報酬月額からの自動計算はしない）。
-    // 介護・子育て支援金も引くときは、健康保険料欄に通知の「健康保険計」を入れる。
-    const healthInsurance = employment.socialInsuranceApplies ? emp.healthInsurance : 0
+    // 控除の初期値は 0。雇用保険だけ総支給（雇用保険料超過分を除く）から自動計算する。
+    // 役員は適用除外で 0。料率は円未満切捨て。残業代を含む。
+    const healthInsurance = 0
     const nursingInsurance = 0
-    const welfarePension = employment.socialInsuranceApplies ? emp.welfarePension : 0
-    // 雇用保険: 役員は適用除外で0。それ以外は総支給（超過分を除く）× 料率（円未満切捨て）。残業代も含む。
+    const welfarePension = 0
     const employmentInsurance = calcSalaryEmploymentInsurance(
       {
         basicSalary,
@@ -1524,32 +1582,11 @@ function generatePayslips(
       },
       emp.employeeType,
     )
+    const incomeTax = 0
+    const residentTax = 0
+    const extraDeductionLines = padExtraLines([], FREE_DEDUCTION_SLOTS)
 
-    // その月の社会保険料等控除後の給与等の金額（課税支給 − 社会保険料）。
-    // 通勤手当は非課税限度額まで非課税。課税対象額(taxableTransport)のみ課税支給に残す。
-    const socialInsuranceTotal =
-      healthInsurance + nursingInsurance + welfarePension + employmentInsurance
-    const nonTaxableTransport = transportAllowance - (isOfficer ? 0 : (emp.taxableTransport ?? 0))
-    const taxableBase = totalPayment - nonTaxableTransport - socialInsuranceTotal
-    // 源泉徴収税額（令和8年分 月額表・甲欄の実額）。扶養親族等の数で税額が変わる。
-    // 所得税は作成時に一度入れて以降は固定（支給・社保を後から直しても再計算しない）
-    const incomeTax = emp.incomeTaxExempt
-      ? 0
-      : calcWithholdingTaxByTable(taxableBase, emp.dependents)
-
-    const extraDeductionLines = padExtraLines([
-      ...(emp.savingsDeduction > 0 ? [newExtraLine('積立金', emp.savingsDeduction)] : []),
-      ...(emp.loanDeduction > 0 ? [newExtraLine('貸付返済', emp.loanDeduction)] : []),
-    ], FREE_DEDUCTION_SLOTS)
-
-    const totalDeduction =
-      healthInsurance +
-      nursingInsurance +
-      welfarePension +
-      employmentInsurance +
-      incomeTax +
-      emp.residentTax +
-      sumExtraLines(extraDeductionLines)
+    const totalDeduction = employmentInsurance
 
     const netPayment = totalPayment - totalDeduction
 
@@ -1580,7 +1617,7 @@ function generatePayslips(
       welfarePension,
       employmentInsurance,
       incomeTax,
-      residentTax: emp.residentTax,
+      residentTax,
       savingsDeduction: 0,
       loanDeduction: 0,
       otherDeduction: 0,
@@ -1754,7 +1791,7 @@ const PART_TIME_BONUS_AMOUNT: Record<'夏季' | '冬季', number> = { 夏季: 70
  * - 社員: 基本給 × 1（夏季）/ 基本給 × 2（冬季）
  * - パート: 70,000 円（夏季）/ 80,000 円（冬季）
  * - 役員: ルール無し（0。前回値の引き継ぎまたは手入力）
- * 控除（社会保険料・所得税など）は自動計算せず手入力する運用。
+ * 控除の初期値は 0。雇用保険だけ総支給額から自動計算し、他の控除は手入力。
  */
 export function defaultBonusBasicAmount(
   emp: Pick<MockEmployee, 'employeeType' | 'basicSalary'>,
@@ -2386,7 +2423,8 @@ export async function loadBonusFromDb(
 
 /**
  * 直近の「同じ季節」の賞与明細を過去にさかのぼって探す（夏季と冬季は別々に扱う）。
- * 新規シーズン作成時に、前回入力した金額をそのまま初期表示するために使用する。
+ * 新規シーズン作成時に、前回の支給額を初期表示するために使用する。
+ * 控除の初期値は呼び出し側で 0 に戻し、雇用保険だけ総支給額から計算する。
  * Electron 環境のみ動作。見つからなければ null を返す。
  */
 export async function loadPreviousBonusFromDb(

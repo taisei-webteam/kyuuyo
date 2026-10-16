@@ -1,6 +1,8 @@
+import { toCssPageSize, type PdfPaper } from '../../../shared/print-page'
+
 export type PrintOrientation = 'portrait' | 'landscape'
 export type PrintMode = 'page' | 'modal'
-export type PrintPaperSize = 'A4' | 'A3'
+export type PrintPaperSize = PdfPaper
 
 export interface PrintOptions {
   orientation?: PrintOrientation
@@ -17,7 +19,8 @@ function applyPageStyle(orientation: PrintOrientation, size: PrintPaperSize): vo
     styleEl.id = STYLE_ID
     document.head.appendChild(styleEl)
   }
-  styleEl.textContent = `@media print { @page { size: ${size} ${orientation}; margin: 8mm; } }`
+  const cssSize = toCssPageSize(size)
+  styleEl.textContent = `@media print { @page { size: ${cssSize} ${orientation}; margin: 8mm; } }`
 }
 
 export function triggerPrint(options?: PrintOptions): void {

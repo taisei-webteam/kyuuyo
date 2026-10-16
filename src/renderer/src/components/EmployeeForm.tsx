@@ -7,14 +7,8 @@ import { calcAge, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
+import { ClearableNumberInput } from './ClearableNumberInput'
 import styles from './EmployeeForm.module.css'
-
-function parseYenInput(raw: string): number {
-  const half = raw.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-  const digits = half.replace(/[^\d]/g, '')
-  if (digits === '') return 0
-  return Number(digits)
-}
 
 interface EmployeeFormProps {
   employee: MockEmployee | null
@@ -365,11 +359,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                 </div>
                 <div className={styles.field}>
                   <label>表示順</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.displayOrder}
-                    onChange={(e) => handleChange('displayOrder', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('displayOrder', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
@@ -475,11 +467,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                 </div>
                 <div className={styles.field}>
                   <label>固定時間外手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.fixedOvertimePay ?? 0}
-                    onChange={(e) => handleChange('fixedOvertimePay', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('fixedOvertimePay', next ?? 0)}
                   />
                   <p className={styles.fieldNote}>0 円のときは勤怠の残業時間から計算します。田中さんのように月額固定の場合は金額を入れます。</p>
                 </div>
@@ -535,18 +525,17 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
               <div className={styles.fieldGrid}>
                 <div className={styles.field}>
                   <label>有給残日数</label>
-                  <input
-                    type="number"
-                    value={form.paidLeaveBalance ?? ''}
-                    onChange={(e) =>
+                  <ClearableNumberInput
+                    value={form.paidLeaveBalance ?? null}
+                    nullable
+                    allowDecimal
+                    placeholder="例: 12.5"
+                    onValue={(next) =>
                       setForm((prev) => ({
                         ...prev,
-                        paidLeaveBalance: e.target.value === '' ? null : Number(e.target.value),
+                        paidLeaveBalance: next,
                       }))
                     }
-                    min={0}
-                    step={0.5}
-                    placeholder="例: 12.5"
                   />
                   <p className={styles.fieldNote}>
                     付与時・年度始めの残日数をここで設定します。勤怠管理で有給を確定保存すると自動で減算され、この値が更新されます（予定は減算されません）。
@@ -562,88 +551,69 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                 {form.employeeType === 'パート' ? (
                   <div className={styles.field}>
                     <label>時給（円）</label>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={form.hourlyRate}
-                      onChange={(e) => handleChange('hourlyRate', Number(e.target.value))}
-                      min={0}
                       placeholder="例: 1200"
+                      onValue={(next) => handleChange('hourlyRate', next ?? 0)}
                     />
                   </div>
                 ) : (
                   <div className={styles.field}>
                     <label>基本給（月給）</label>
-                    <input
-                      type="number"
+                    <ClearableNumberInput
                       value={form.basicSalary}
-                      onChange={(e) => handleChange('basicSalary', Number(e.target.value))}
-                      min={0}
                       placeholder="例: 300000"
+                      onValue={(next) => handleChange('basicSalary', next ?? 0)}
                     />
                   </div>
                 )}
                 <div className={styles.field}>
                   <label>交通費</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.transportAllowance}
-                    onChange={(e) => handleChange('transportAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('transportAllowance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>うち課税分（非課税限度超過）</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.taxableTransport ?? 0}
-                    onChange={(e) => handleChange('taxableTransport', Number(e.target.value))}
-                    min={0}
-                    max={form.transportAllowance}
+                    onValue={(next) => handleChange('taxableTransport', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>役職手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.positionAllowance}
-                    onChange={(e) => handleChange('positionAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('positionAllowance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>家族手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.familyAllowance}
-                    onChange={(e) => handleChange('familyAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('familyAllowance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>特別手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.specialAllowance}
-                    onChange={(e) => handleChange('specialAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('specialAllowance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>危険手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.dangerAllowance}
-                    onChange={(e) => handleChange('dangerAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('dangerAllowance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>営業手当</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.salesAllowance}
-                    onChange={(e) => handleChange('salesAllowance', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('salesAllowance', next ?? 0)}
                   />
                 </div>
               </div>
@@ -659,22 +629,18 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
               <div className={styles.fieldGrid}>
                 <div className={styles.field}>
                   <label>健康保険料（月額）</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
+                  <ClearableNumberInput
                     value={form.healthInsurance}
-                    onChange={(e) => handleChange('healthInsurance', parseYenInput(e.target.value))}
                     placeholder="例: 22724"
+                    onValue={(next) => handleChange('healthInsurance', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>厚生年金（月額）</label>
-                  <input
-                    type="text"
-                    inputMode="numeric"
+                  <ClearableNumberInput
                     value={form.welfarePension}
-                    onChange={(e) => handleChange('welfarePension', parseYenInput(e.target.value))}
                     placeholder="例: 34770"
+                    onValue={(next) => handleChange('welfarePension', next ?? 0)}
                   />
                 </div>
               </div>
@@ -685,38 +651,30 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
               <div className={styles.fieldGrid}>
                 <div className={styles.field}>
                   <label>住民税</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.residentTax}
-                    onChange={(e) => handleChange('residentTax', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('residentTax', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>積立金</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.savingsDeduction}
-                    onChange={(e) => handleChange('savingsDeduction', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('savingsDeduction', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>貸付</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.loanDeduction}
-                    onChange={(e) => handleChange('loanDeduction', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('loanDeduction', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>
                   <label>扶養人数</label>
-                  <input
-                    type="number"
+                  <ClearableNumberInput
                     value={form.dependents}
-                    onChange={(e) => handleChange('dependents', Number(e.target.value))}
-                    min={0}
+                    onValue={(next) => handleChange('dependents', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>

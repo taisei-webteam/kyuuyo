@@ -43,13 +43,13 @@ export function PayslipBulkPrint({
   const handlePrint = useCallback(async (): Promise<void> => {
     const exportPdf = window.api?.export?.pdf
     if (typeof exportPdf !== 'function') {
-      triggerPrint({ orientation: 'portrait', mode: 'modal' })
+      triggerPrint({ orientation: 'portrait', mode: 'modal', size: 'B5' })
       return
     }
     setBusy(true)
     document.body.classList.add('is-printing-modal')
     try {
-      const result = await exportPdf({ fileName, pageSize: 'A4', landscape: false })
+      const result = await exportPdf({ fileName, pageSize: 'B5', landscape: false })
       if (!result.success) {
         alert(`PDF出力に失敗しました: ${result.error}`)
       }

@@ -9,6 +9,7 @@ import { ipcMain, BrowserWindow, dialog, shell, app } from 'electron';
 import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { IPC } from '../../shared/ipc-channels.js';
+import { toPrintToPdfPageSize, type PdfPaper } from '../../shared/print-page.js';
 import type { IpcResult } from '../../shared/types.js';
 
 function sanitizeFileName(name: string): string {
@@ -24,7 +25,7 @@ function sanitizeFileName(name: string): string {
  */
 async function renderWindowToPdf(
   event: Electron.IpcMainInvokeEvent,
-  params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
+  params: { fileName?: string; pageSize?: PdfPaper; landscape?: boolean },
 ): Promise<Buffer> {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) {
@@ -35,7 +36,7 @@ async function renderWindowToPdf(
   try {
     await win.webContents.executeJavaScript(`document.title = ${JSON.stringify(base)};`);
     return await win.webContents.printToPDF({
-      pageSize: params?.pageSize ?? 'A4',
+      pageSize: toPrintToPdfPageSize(params?.pageSize ?? 'A4'),
       landscape: params?.landscape ?? false,
       printBackground: true,
       margins: { top: 0, bottom: 0, left: 0, right: 0 },
@@ -50,7 +51,7 @@ export function registerExportHandlers(): void {
     IPC.EXPORT.PDF,
     async (
       event,
-      params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
+      params: { fileName?: string; pageSize?: PdfPaper; landscape?: boolean },
     ): Promise<IpcResult<{ path: string }>> => {
       try {
         const base = sanitizeFileName(params?.fileName ?? 'payslip');
@@ -80,7 +81,7 @@ export function registerExportHandlers(): void {
     IPC.EXPORT.PDF_BUFFER,
     async (
       event,
-      params: { fileName?: string; pageSize?: 'A4' | 'A3'; landscape?: boolean },
+      params: { fileName?: string; pageSize?: PdfPaper; landscape?: boolean },
     ): Promise<IpcResult<{ base64: string }>> => {
       try {
         const pdfData = await renderWindowToPdf(event, params);
