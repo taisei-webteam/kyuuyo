@@ -1225,7 +1225,7 @@ function PayslipDetail({
               控除
             </div>
             <div className={styles.sectionBody}>
-              <EditableRow label="所得税" value={payslip.incomeTax} onValue={setField('incomeTax')} fixed />
+              <EditableRow label="所得税" value={payslip.incomeTax} onValue={setField('incomeTax')} />
               <EditableRow
                 label="健康保険料"
                 value={payslip.healthInsurance + payslip.nursingInsurance}
