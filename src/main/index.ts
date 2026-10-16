@@ -147,10 +147,13 @@ if (!gotSingleInstanceLock) {
 
     // アプリの現在バージョン（画面表示用）
     ipcMain.handle(IPC.APP.GET_VERSION, () => app.getVersion());
-    // ウィンドウがすでに前面でも、ページへキー入力を戻す
+    // すでに前面だと webContents.focus() だけではキー入力が戻らない。
+    // 一度外してから前面に戻し、ページへキーボードを付け直す。
     ipcMain.handle(IPC.APP.FOCUS_PAGE, () => {
       const win = mainWindow;
       if (!win || win.isDestroyed()) return;
+      if (win.isFocused()) win.blur();
+      win.focus();
       win.webContents.focus();
     });
 

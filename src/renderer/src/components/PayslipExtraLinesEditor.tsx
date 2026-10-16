@@ -6,11 +6,13 @@ import styles from './PayslipExtraLinesEditor.module.css'
 function ExtraLineRow({
   line,
   syncKey,
+  chainEnter,
   onPatch,
   onRemove,
 }: {
   line: PayslipExtraLine
   syncKey: string
+  chainEnter: boolean
   onPatch: (patch: Partial<Pick<PayslipExtraLine, 'label' | 'amount'>>) => void
   onRemove: () => void
 }): ReactElement {
@@ -64,6 +66,7 @@ function ExtraLineRow({
         type="text"
         inputMode="numeric"
         className={styles.amountInput}
+        data-pay-cell={chainEnter ? 'amount' : undefined}
         value={amountText}
         onChange={handleAmountChange}
         onFocus={commitLabel}
@@ -87,10 +90,13 @@ export function ExtraLinesSection({
   lines,
   syncKey,
   onCommit,
+  chainEnter = false,
 }: {
   lines: PayslipExtraLine[]
   syncKey: string
   onCommit: (updater: (prev: PayslipExtraLine[]) => PayslipExtraLine[]) => void
+  /** true のとき金額欄を Enter で下へ移す対象にする */
+  chainEnter?: boolean
 }): ReactElement {
   return (
     <div className={styles.sectionExtra}>
@@ -99,6 +105,7 @@ export function ExtraLinesSection({
           key={line.id}
           line={line}
           syncKey={syncKey}
+          chainEnter={chainEnter}
           onPatch={(patch) => {
             onCommit((prev) => prev.map((item) => (item.id === line.id ? { ...item, ...patch } : item)))
           }}

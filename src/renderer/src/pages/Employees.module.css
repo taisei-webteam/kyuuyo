@@ -201,36 +201,51 @@
   text-align: right !important;
 }
 
-.thGrip {
-  width: 36px;
+.table .thGrip {
+  width: 48px;
+  padding: 0;
   text-align: center;
 }
 
-.tdGrip {
-  width: 36px;
-  text-align: center;
+.table .tdGrip {
+  position: relative;
+  width: 48px;
+  padding: 0;
   cursor: grab;
+}
+
+.grip,
+.gripDisabled {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 1;
+  user-select: none;
 }
 
 .grip {
-  display: inline-block;
-  color: #94a3b8;
-  font-weight: 700;
-  letter-spacing: -2px;
-  user-select: none;
+  color: #64748b;
   cursor: grab;
+}
+
+.grip:hover {
+  background: #e2e8f0;
+  color: #1e293b;
 }
 
 .grip:active {
   cursor: grabbing;
+  background: #cbd5e1;
 }
 
 .gripDisabled {
-  display: inline-block;
   color: #e2e8f0;
-  font-weight: 700;
-  letter-spacing: -2px;
-  user-select: none;
+  cursor: default;
 }
 
 .rowDragging {
@@ -275,6 +290,7 @@
   background: #f8fafc;
 }
 
+.row:hover .tdGrip,
 .row:hover .tdFixed {
   background: #f8fafc;
 }
@@ -303,6 +319,7 @@
   background: #eef2f7;
 }
 
+.rowRetired:hover .tdGrip,
 .rowRetired:hover .tdFixed {
   background: #eef2f7;
 }

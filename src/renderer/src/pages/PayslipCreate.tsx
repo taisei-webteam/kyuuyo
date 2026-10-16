@@ -1,6 +1,6 @@
 import type { Payslip } from '../../../shared/types'
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
-import type { ReactElement } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   getEmployees,
@@ -106,13 +106,9 @@ function readStoredPayslipCreatePeriod(): StoredPayslipCreatePeriod | null {
   }
 }
 
-/** OS の確認を閉じたあと、ページがキー入力を受け取れなくなるのを戻す。 */
+/** 確認を閉じたあと、ページがキー入力を受け取れるように戻す。body は外さない。 */
 function restorePageInput(): void {
-  const active = document.activeElement
-  if (active instanceof HTMLElement) active.blur()
   window.setTimeout(() => {
-    const current = document.activeElement
-    if (current instanceof HTMLElement) current.blur()
     const appApi = 'api' in window ? window.api.app : undefined
     if (appApi && typeof appApi.focusPage === 'function') void appApi.focusPage()
   }, 30)
@@ -1181,7 +1177,7 @@ function PayslipDetail({
 
       <div className={styles.columns}>
         <div className={styles.column}>
-          <div className={styles.sectionCard}>
+          <div className={styles.sectionCard} onKeyDown={moveToNextAmountCell}>
             <div className={styles.sectionHeader}>
               支給
               {isPartTime && <span className={styles.autoTag}>時給制</span>}
@@ -1206,6 +1202,7 @@ function PayslipDetail({
               lines={payslip.extraPaymentLines ?? []}
               syncKey={syncKey}
               onCommit={handlePaymentExtrasCommit}
+              chainEnter
             />
             <div className={styles.sectionTotal}>
               <span>総支給額</span>
@@ -1215,7 +1212,7 @@ function PayslipDetail({
         </div>
 
         <div className={styles.column}>
-          <div className={styles.sectionCard}>
+          <div className={styles.sectionCard} onKeyDown={moveToNextAmountCell}>
             <div className={styles.sectionHeader}>
               控除
             </div>
@@ -1234,6 +1231,7 @@ function PayslipDetail({
               lines={payslip.extraDeductionLines ?? []}
               syncKey={syncKey}
               onCommit={handleDeductionExtrasCommit}
+              chainEnter
             />
             <div className={styles.sectionTotal}>
               <span>控除合計</span>
@@ -1280,16 +1278,36 @@ function formatNumericInput(value: number): string {
   return String(value)
 }
 
+/** 支給・控除の金額欄で Enter を押したら、同じ列の次の金額欄へ移す。 */
+function moveToNextAmountCell(event: ReactKeyboardEvent<HTMLDivElement>): void {
+  if (event.key !== 'Enter' && event.key !== 'NumpadEnter') return
+  if (event.nativeEvent.isComposing) return
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) return
+  if (target.dataset.payCell !== 'amount') return
+  event.preventDefault()
+  const cells = Array.from(
+    event.currentTarget.querySelectorAll<HTMLInputElement>('input[data-pay-cell="amount"]'),
+  )
+  const index = cells.indexOf(target)
+  const next = index >= 0 ? cells[index + 1] : undefined
+  if (!next) return
+  next.focus()
+  next.select()
+}
+
 function NumericField({
   value,
   onValue,
   className,
   allowDecimal = false,
+  payCell = false,
 }: {
   value: number
   onValue: (value: number) => void
   className: string
   allowDecimal?: boolean
+  payCell?: boolean
 }): ReactElement {
   const [text, setText] = useState(() => formatNumericInput(value))
   const focusedRef = useRef(false)
@@ -1305,6 +1323,7 @@ function NumericField({
       autoComplete="off"
       spellCheck={false}
       className={className}
+      data-pay-cell={payCell ? 'amount' : undefined}
       value={text}
       onFocus={(e) => {
         focusedRef.current = true
@@ -1384,6 +1403,7 @@ function EditableRow({
       <NumericField
         value={value}
         onValue={onValue}
+        payCell
         className={`${styles.rowInput} ${fixed ? styles.rowInputFixed : ''}`}
       />
     </div>
