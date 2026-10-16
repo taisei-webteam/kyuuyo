@@ -13,6 +13,7 @@ import {
   resolveSalaryPaymentExtras,
   sumExtraLines,
   visibleExtraLines,
+  calcSalaryEmploymentInsurance,
   type MockPayslip,
   migrateRareDeductionsToFreeSlots,
   FREE_DEDUCTION_SLOTS,
@@ -110,8 +111,26 @@ const PAY_BASE_COLUMNS = PAY_COLUMNS.filter((c) => c.key !== 'totalPayment')
 const DEDUCT_BASE_COLUMNS = DEDUCT_COLUMNS
 const EXTRA_PAY_LABEL_DEFAULT = '追加支給'
 
+const EMPLOYMENT_INSURANCE_WAGE_FIELDS = new Set<PayField>([
+  'basicSalary',
+  'overtimePay',
+  'transportAllowance',
+  'positionAllowance',
+  'familyAllowance',
+  'specialAllowance',
+  'dangerAllowance',
+  'salesAllowance',
+])
+
 function extraPaymentAmount(row: MockPayslip): number {
   return sumExtraLines(resolveSalaryPaymentExtras(row))
+}
+
+function withRecalculatedEmploymentInsurance(row: EditablePayslip): EditablePayslip {
+  return {
+    ...row,
+    employmentInsurance: calcSalaryEmploymentInsurance(row, row.employeeType),
+  }
 }
 
 function extraDeductionAmount(row: MockPayslip): number {
@@ -235,10 +254,13 @@ export function PayslipHistory(): ReactElement {
     (idx: number, field: PayField, value: number): void => {
       setEditData((prev) => {
         const updated = [...prev]
-        const row = { ...updated[idx], [field]: value }
+        const edited = { ...updated[idx], [field]: value }
         if (field === 'healthInsurance') {
-          row.nursingInsurance = 0
+          edited.nursingInsurance = 0
         }
+        const row = EMPLOYMENT_INSURANCE_WAGE_FIELDS.has(field)
+          ? withRecalculatedEmploymentInsurance(edited)
+          : edited
         updated[idx] = recalcEditableRow(row)
         return updated
       })

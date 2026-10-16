@@ -20,6 +20,7 @@ import {
   loadEmailHistory,
   isPayrollTargetInMonth,
   hydrateInsuranceRatesFromDb,
+  calcSalaryEmploymentInsurance,
   type MockEmployee,
   type MockPayslip,
   type PayslipExtraLine,
@@ -112,6 +113,25 @@ function writeStoredPayslipCreatePeriod(period: StoredPayslipCreatePeriod): void
   }
 }
 
+const EMPLOYMENT_INSURANCE_WAGE_FIELDS = new Set<keyof MockPayslip>([
+  'basicSalary',
+  'overtimePay',
+  'transportAllowance',
+  'positionAllowance',
+  'familyAllowance',
+  'specialAllowance',
+  'dangerAllowance',
+  'salesAllowance',
+])
+
+function withRecalculatedEmploymentInsurance(ps: MockPayslip, employeeId: number): MockPayslip {
+  const employeeType = getEmployees().find((emp) => emp.id === employeeId)?.employeeType
+  return {
+    ...ps,
+    employmentInsurance: calcSalaryEmploymentInsurance(ps, employeeType),
+  }
+}
+
 function recalcTotals(ps: MockPayslip): MockPayslip {
   const extraPaymentTotal = sumExtraLines(ps.extraPaymentLines ?? [])
   const extraDeductionTotal = sumExtraLines(ps.extraDeductionLines ?? [])
@@ -168,6 +188,9 @@ export function PayslipCreate(): ReactElement {
   const [loadingMonth, setLoadingMonth] = useState(hasElectronApi)
   // ユーザー編集による変更のみ DB 保存するためのフラグ（DB ロード直後の保存を抑止）
   const dirtyRef = useRef(false)
+  // 再読込中に走っていた自動保存が、反映結果をあとから上書きしないようにする
+  const saveSeqRef = useRef(0)
+  const saveTailRef = useRef<Promise<void>>(Promise.resolve())
 
   const employees = useMemo(() => getEmployees(), [])
 
@@ -278,7 +301,22 @@ export function PayslipCreate(): ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employees, selectedYear, selectedMonth, emailRefresh])
 
-  /** 打刻を同期・丸めしてから、その月の勤怠集計を返す。 */
+  const enqueueSave = useCallback((task: () => Promise<void>): Promise<void> => {
+    const next = saveTailRef.current.then(task, task)
+    saveTailRef.current = next.then(
+      () => undefined,
+      () => undefined,
+    )
+    return next
+  }, [])
+
+  /** 進行中の自動保存を無効にする。再読込の結果より古い内容が残らないようにする。 */
+  const invalidatePendingSave = useCallback((): void => {
+    saveSeqRef.current += 1
+    dirtyRef.current = false
+  }, [])
+
+  /** 月の新規作成用。打刻を同期・丸めしてから勤怠集計を返す。 */
   const loadAttendanceForMonth = useCallback(async (): Promise<
     ReturnType<typeof aggregateAttendanceRecords> | undefined
   > => {
@@ -295,17 +333,39 @@ export function PayslipCreate(): ReactElement {
     return undefined
   }, [selectedYear, selectedMonth])
 
+  /**
+   * 再読込・一人の作り直し用。
+   * 打刻の再同期はしない。同期と再丸めはメインプロセスを止め、その間入力できなくなる。
+   */
+  const loadSavedAttendance = useCallback(async (): Promise<
+    ReturnType<typeof aggregateAttendanceRecords> | undefined
+  > => {
+    if (!hasElectronApi) return undefined
+    const result = await window.api.attendance.list(selectedYear, selectedMonth)
+    if (result.success && result.data.length > 0) {
+      return aggregateAttendanceRecords(result.data)
+    }
+    return undefined
+  }, [selectedYear, selectedMonth])
+
   const persistPayslips = useCallback(
     async (data: MockPayslip[]): Promise<boolean> => {
       if (data.length === 0) return false
-      setPayslips(selectedYear, selectedMonth, data)
-      const saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
+      saveSeqRef.current += 1
+      const seq = saveSeqRef.current
       dirtyRef.current = false
-      if (saved) await loadPayslipsFromDb(selectedYear, selectedMonth)
-      setRefreshKey((k) => k + 1)
+      let saved = false
+      await enqueueSave(async () => {
+        if (saveSeqRef.current !== seq) return
+        setPayslips(selectedYear, selectedMonth, data)
+        saved = await savePayslipsToDb(selectedYear, selectedMonth, data)
+        if (!saved || saveSeqRef.current !== seq) return
+        await loadPayslipsFromDb(selectedYear, selectedMonth)
+      })
+      if (saveSeqRef.current === seq) setRefreshKey((k) => k + 1)
       return saved
     },
-    [selectedYear, selectedMonth],
+    [enqueueSave, selectedYear, selectedMonth],
   )
 
   const handleCreate = useCallback(async (): Promise<void> => {
@@ -360,6 +420,7 @@ export function PayslipCreate(): ReactElement {
         '健康保険料・厚生年金・住民税と、追加の支給・控除は残します。\nよろしいですか？',
     )
     if (!ok) return
+    invalidatePendingSave()
     setCreating(true)
     setCreateMessage(null)
     try {
@@ -370,7 +431,7 @@ export function PayslipCreate(): ReactElement {
         setCreateMessage('この月の給与が見つからないため、更新しませんでした。先に作成してください。')
         return
       }
-      const realAttendance = await loadAttendanceForMonth()
+      const realAttendance = await loadSavedAttendance()
       if (!realAttendance || realAttendance.size === 0) {
         setCreateMessage('この月の勤怠データが無いため、更新しませんでした。既存の明細はそのままです。')
         return
@@ -396,8 +457,9 @@ export function PayslipCreate(): ReactElement {
       setCreateMessage(`更新に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
       setCreating(false)
+      window.setTimeout(() => window.focus(), 0)
     }
-  }, [selectedYear, selectedMonth, editPayslips, employees, loadAttendanceForMonth, persistPayslips])
+  }, [selectedYear, selectedMonth, editPayslips, employees, loadSavedAttendance, persistPayslips, invalidatePendingSave])
 
   /** 選択中の一人だけ、マスタと勤怠から明細を作り直す。 */
   const handleRebuildOne = useCallback(async (): Promise<void> => {
@@ -408,13 +470,14 @@ export function PayslipCreate(): ReactElement {
         'この人の手入力は消えます。他の人は変わりません。よろしいですか？',
     )
     if (!ok) return
+    invalidatePendingSave()
     setCreating(true)
     setCreateMessage(null)
     try {
       await hydrateInsuranceRatesFromDb(selectedYear)
       const loaded = await loadPayslipsFromDb(selectedYear, selectedMonth)
       const existing = loaded ? getPayslips(selectedYear, selectedMonth) : editPayslips
-      const realAttendance = await loadAttendanceForMonth()
+      const realAttendance = await loadSavedAttendance()
       const generated = buildPayslipsFromMaster(selectedYear, selectedMonth, realAttendance)
       const data = replaceOnePayslip(existing, generated, selectedEmployeeId)
       if (!data) {
@@ -431,6 +494,7 @@ export function PayslipCreate(): ReactElement {
       setCreateMessage(`作り直しに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
     } finally {
       setCreating(false)
+      window.setTimeout(() => window.focus(), 0)
     }
   }, [
     employees,
@@ -438,8 +502,9 @@ export function PayslipCreate(): ReactElement {
     selectedYear,
     selectedMonth,
     editPayslips,
-    loadAttendanceForMonth,
+    loadSavedAttendance,
     persistPayslips,
+    invalidatePendingSave,
   ])
 
   const handleFieldChange = useCallback(
@@ -452,7 +517,10 @@ export function PayslipCreate(): ReactElement {
             field === 'healthInsurance'
               ? { ...ps, healthInsurance: value, nursingInsurance: 0 }
               : { ...ps, [field]: value }
-          return recalcTotals(next)
+          const priced = EMPLOYMENT_INSURANCE_WAGE_FIELDS.has(field)
+            ? withRecalculatedEmploymentInsurance(next, employeeId)
+            : next
+          return recalcTotals(priced)
         }),
       )
     },
@@ -478,7 +546,9 @@ export function PayslipCreate(): ReactElement {
             kind === 'payment'
               ? { ...ps, extraPaymentLines: nextLines }
               : { ...ps, extraDeductionLines: nextLines }
-          return recalcTotals(next)
+          const priced =
+            kind === 'payment' ? withRecalculatedEmploymentInsurance(next, employeeId) : next
+          return recalcTotals(priced)
         }),
       )
     },
@@ -486,19 +556,24 @@ export function PayslipCreate(): ReactElement {
   )
 
   // 編集内容を自動保存する（デバウンス）。DB ロード直後や未編集時は保存しない。
+  // 再読込が seq を進めたあとは、それより前の内容を書き戻さない。
   useEffect(() => {
     if (!dirtyRef.current || editPayslips.length === 0) return
+    const seq = saveSeqRef.current
+    const snapshot = editPayslips
+    const year = selectedYear
+    const month = selectedMonth
     const timer = setTimeout(() => {
-      void (async () => {
-        const ok = await savePayslipsToDb(selectedYear, selectedMonth, editPayslips)
-        if (ok) {
-          setPayslips(selectedYear, selectedMonth, editPayslips)
-          dirtyRef.current = false
-        }
-      })()
+      void enqueueSave(async () => {
+        if (saveSeqRef.current !== seq) return
+        const ok = await savePayslipsToDb(year, month, snapshot)
+        if (!ok || saveSeqRef.current !== seq) return
+        setPayslips(year, month, snapshot)
+        dirtyRef.current = false
+      })
     }, 800)
     return () => clearTimeout(timer)
-  }, [editPayslips, selectedYear, selectedMonth])
+  }, [editPayslips, selectedYear, selectedMonth, enqueueSave])
 
   const buildMailItem = useCallback(
     (emp: MockEmployee): MailDocItem | null => {

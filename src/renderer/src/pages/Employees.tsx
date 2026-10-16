@@ -44,9 +44,13 @@ export function Employees(): ReactElement {
   const [deleting, setDeleting] = useState(false)
   const [dragId, setDragId] = useState<number | null>(null)
   const [dropId, setDropId] = useState<number | null>(null)
+  // Chromium は同じ DOM の2回目以降の dragstart を出さないことがある。世代を上げて持ち手を作り直す。
+  const [gripGeneration, setGripGeneration] = useState(0)
   const [csvBusy, setCsvBusy] = useState(false)
   const [csvDragOver, setCsvDragOver] = useState(false)
   const dragIdRef = useRef<number | null>(null)
+  const pendingDropIdRef = useRef<number | null>(null)
+  const dragFrameRef = useRef<number | null>(null)
   const csvInputRef = useRef<HTMLInputElement>(null)
   const csvDragDepth = useRef(0)
 
@@ -122,12 +126,19 @@ export function Employees(): ReactElement {
     setRefreshKey((k) => k + 1)
   }
 
-  function handleDropOn(targetId: number): void {
+  function finishReorderDrag(): void {
+    if (dragFrameRef.current != null) {
+      cancelAnimationFrame(dragFrameRef.current)
+      dragFrameRef.current = null
+    }
     const sourceId = dragIdRef.current
+    const targetId = pendingDropIdRef.current
     dragIdRef.current = null
+    pendingDropIdRef.current = null
     setDragId(null)
     setDropId(null)
-    if (!canReorder || sourceId == null || sourceId === targetId) return
+    setGripGeneration((n) => n + 1)
+    if (!canReorder || sourceId == null || targetId == null || sourceId === targetId) return
     const list = [...filtered]
     const from = list.findIndex((emp) => emp.id === sourceId)
     const to = list.findIndex((emp) => emp.id === targetId)
@@ -582,31 +593,40 @@ export function Employees(): ReactElement {
                   key={emp.id}
                   className={`${styles.row} ${retired ? styles.rowRetired : ''} ${dragging ? styles.rowDragging : ''} ${dropTarget ? styles.rowDrop : ''}`}
                   onDragOver={(e) => {
-                    if (!canReorder || dragId == null) return
+                    if (!canReorder || dragIdRef.current == null) return
                     e.preventDefault()
-                    setDropId(emp.id)
+                    e.dataTransfer.dropEffect = 'move'
+                    if (dropId !== emp.id) setDropId(emp.id)
                   }}
                   onDrop={(e) => {
                     e.preventDefault()
-                    handleDropOn(emp.id)
+                    e.stopPropagation()
+                    if (!canReorder || dragIdRef.current == null) return
+                    pendingDropIdRef.current = emp.id
                   }}
                 >
                   <td className={styles.tdGrip}>
                     {canReorder ? (
                       <span
+                        key={gripGeneration}
                         className={styles.grip}
                         draggable
                         title="ドラッグして並び順を変える"
                         onDragStart={(e) => {
+                          e.stopPropagation()
                           e.dataTransfer.setData('text/plain', String(emp.id))
                           e.dataTransfer.effectAllowed = 'move'
                           dragIdRef.current = emp.id
-                          setDragId(emp.id)
+                          pendingDropIdRef.current = null
+                          const id = emp.id
+                          if (dragFrameRef.current != null) cancelAnimationFrame(dragFrameRef.current)
+                          // ドラッグ確定前に再描画すると、Chromium がこの持ち手を以後つかめなくなる。
+                          dragFrameRef.current = requestAnimationFrame(() => {
+                            dragFrameRef.current = null
+                            if (dragIdRef.current === id) setDragId(id)
+                          })
                         }}
-                        onDragEnd={() => {
-                          setDragId(null)
-                          setDropId(null)
-                        }}
+                        onDragEnd={finishReorderDrag}
                       >
                         ⋮⋮
                       </span>

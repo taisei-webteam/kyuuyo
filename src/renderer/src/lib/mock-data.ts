@@ -314,9 +314,54 @@ export function resolveSalaryPaymentExtras(
 ): PayslipExtraLine[] {
   if (ps.extraPaymentLines?.length) return visibleExtraLines(ps.extraPaymentLines)
   if (ps.otherAllowance > 0) {
-    return [{ id: 'legacy-payment', label: '雇用保険料超過分', amount: ps.otherAllowance }]
+    return [{ id: 'legacy-payment', label: EMPLOYMENT_INSURANCE_OVERAGE_LABEL, amount: ps.otherAllowance }]
   }
   return []
+}
+
+/** 雇用保険の算定基礎に含めない支給項目（総支給には残す）。 */
+export const EMPLOYMENT_INSURANCE_OVERAGE_LABEL = '雇用保険料超過分'
+
+export interface EmploymentInsuranceWageInput {
+  basicSalary: number
+  overtimePay: number
+  transportAllowance: number
+  positionAllowance: number
+  familyAllowance: number
+  specialAllowance: number
+  dangerAllowance: number
+  salesAllowance: number
+  extraPaymentLines?: PayslipExtraLine[]
+}
+
+/** 月次給与の雇用保険算定基礎。総支給から雇用保険料超過分だけを除く。 */
+export function employmentInsuranceWageBase(ps: EmploymentInsuranceWageInput): number {
+  const includedExtras = (ps.extraPaymentLines ?? [])
+    .filter((line) => line.label.trim() !== EMPLOYMENT_INSURANCE_OVERAGE_LABEL)
+    .reduce((sum, line) => sum + (line.amount ?? 0), 0)
+  return (
+    ps.basicSalary +
+    ps.overtimePay +
+    ps.transportAllowance +
+    ps.positionAllowance +
+    ps.familyAllowance +
+    ps.specialAllowance +
+    ps.dangerAllowance +
+    ps.salesAllowance +
+    includedExtras
+  )
+}
+
+/**
+ * 月次給与の雇用保険料。
+ * 役員は適用除外で 0。それ以外は算定基礎 × 料率の円未満切捨て。残業手当を含む。
+ */
+export function calcSalaryEmploymentInsurance(
+  ps: EmploymentInsuranceWageInput,
+  employeeType: string | undefined,
+): number {
+  if (employeeType === '役員') return 0
+  return Math.floor(employmentInsuranceWageBase(ps) * INSURANCE_RATES.employmentRate)
 }
 
 export function newExtraLine(label = '', amount = 0): PayslipExtraLine {
@@ -1195,9 +1240,60 @@ function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefine
   )
 }
 
+function clockHm(time: string): string {
+  return time.slice(0, 5)
+}
+
+/**
+ * 社員の1日の残業分。勤怠画面と同じく打刻から計算する。
+ * 手修正した日は再丸めで overtime_minutes が更新されないため、保存値は使わない。
+ */
+function regularOvertimeMinutes(r: AttendanceRecord, emp: MockEmployee): number {
+  if (!r.clockIn || !r.clockOut) return r.overtimeMinutes
+  if (r.isHoliday || emp.overtimeAllowed === false) return 0
+  const settings = getSettings()
+  const outMin = toMinutes(clockHm(r.clockOut))
+  if (emp.overtimeStart) {
+    const effectiveEnd = emp.overtimeEnd
+      ? Math.min(outMin, toMinutes(emp.overtimeEnd))
+      : outMin
+    return Math.max(0, effectiveEnd - toMinutes(emp.overtimeStart))
+  }
+  const clockIn = clockHm(r.clockIn)
+  const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
+  const spanMinutes = Math.max(0, outMin - toMinutes(clockIn) - goOutMinutes)
+  const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
+  const early = calcEarlyOvertime(
+    clockIn,
+    emp.earlyWorkStart,
+    emp.earlyWorkEnd,
+    settings.earlyRoundingUnit,
+  )
+  const workMinutes = Math.max(0, spanMinutes - breakMinutes - early)
+  const scheduled = scheduledWorkMinutes(
+    emp.scheduledStart,
+    emp.scheduledEnd,
+    settings.defaultBreakMinutes,
+  )
+  return Math.max(0, workMinutes - scheduled)
+}
+
+/** 社員の早出分。打刻が無い日だけ保存値を使う。 */
+function earlyOvertimeForRecord(r: AttendanceRecord, emp: MockEmployee | undefined): number {
+  if (!emp || emp.employeeType === 'パート') return 0
+  if (!r.clockIn) return r.earlyOvertimeMinutes
+  const settings = getSettings()
+  return calcEarlyOvertime(
+    clockHm(r.clockIn),
+    emp.earlyWorkStart,
+    emp.earlyWorkEnd,
+    settings.earlyRoundingUnit,
+  )
+}
+
 /**
  * SQLite (attendance_records) から取得した実勤怠レコードを従業員ごとに集計する。
- * Supabase 同期 → 丸め済みの勤怠を給与計算に反映するための入口。
+ * 給与へ反映するときの入口。残業は保存値ではなく打刻から計算する。
  */
 export function aggregateAttendanceRecords(
   records: AttendanceRecord[],
@@ -1206,11 +1302,11 @@ export function aggregateAttendanceRecords(
   const acc = new Map<number, { workDays: number; totalWork: number; totalOvertime: number; holidayWorkDays: number; paidLeaveDays: number }>()
   for (const r of records) {
     const cur = acc.get(r.employeeId) ?? { workDays: 0, totalWork: 0, totalOvertime: 0, holidayWorkDays: 0, paidLeaveDays: 0 }
-    const workMinutes = workMinutesForPayslip(r, empById.get(r.employeeId))
+    const emp = empById.get(r.employeeId)
+    const workMinutes = workMinutesForPayslip(r, emp)
     if (workMinutes > 0) cur.workDays++
     cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
     cur.totalWork += workMinutes
-    const emp = empById.get(r.employeeId)
     // パートは定時の外（前・後、休日も含む）を時間外にする。保存値の早出と重ねない。
     if (emp?.employeeType === 'パート' && r.clockIn && r.clockOut) {
       cur.totalOvertime += partTimeLaborMinutes(
@@ -1226,10 +1322,11 @@ export function aggregateAttendanceRecords(
       if (r.isHolidayWork) cur.holidayWorkDays++
     } else if (r.isHolidayWork) {
       // 社員の休日出勤: 実働は基本給。早出だけ時間外。
-      cur.totalOvertime += r.earlyOvertimeMinutes
+      cur.totalOvertime += earlyOvertimeForRecord(r, emp)
       cur.holidayWorkDays++
     } else {
-      cur.totalOvertime += r.overtimeMinutes + r.earlyOvertimeMinutes
+      const overtime = emp ? regularOvertimeMinutes(r, emp) : r.overtimeMinutes
+      cur.totalOvertime += overtime + earlyOvertimeForRecord(r, emp)
     }
     acc.set(r.employeeId, cur)
   }
@@ -1391,7 +1488,7 @@ function generatePayslips(
 
     const employmentInsuranceOverage = isOfficer ? 0 : (emp.employmentInsuranceOverage ?? 0)
     const extraPaymentLines: PayslipExtraLine[] = employmentInsuranceOverage > 0
-      ? [{ id: `ei-overage-${emp.id}`, label: '雇用保険料超過分', amount: employmentInsuranceOverage }]
+      ? [{ id: `ei-overage-${emp.id}`, label: EMPLOYMENT_INSURANCE_OVERAGE_LABEL, amount: employmentInsuranceOverage }]
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
@@ -1400,10 +1497,21 @@ function generatePayslips(
     const healthInsurance = employment.socialInsuranceApplies ? emp.healthInsurance : 0
     const nursingInsurance = 0
     const welfarePension = employment.socialInsuranceApplies ? emp.welfarePension : 0
-    // 雇用保険: 役員は適用除外で0。それ以外は支給合計 × 料率（円未満切捨て）。残業代も含む。
-    const employmentInsurance = isOfficer
-      ? 0
-      : Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
+    // 雇用保険: 役員は適用除外で0。それ以外は総支給（超過分を除く）× 料率（円未満切捨て）。残業代も含む。
+    const employmentInsurance = calcSalaryEmploymentInsurance(
+      {
+        basicSalary,
+        overtimePay,
+        transportAllowance,
+        positionAllowance,
+        familyAllowance,
+        specialAllowance,
+        dangerAllowance,
+        salesAllowance,
+        extraPaymentLines,
+      },
+      emp.employeeType,
+    )
 
     // その月の社会保険料等控除後の給与等の金額（課税支給 − 社会保険料）。
     // 通勤手当は非課税限度額まで非課税。課税対象額(taxableTransport)のみ課税支給に残す。
@@ -1956,8 +2064,7 @@ function finalizePayslipAfterAttendance(
     ps.specialAllowance +
     ps.dangerAllowance +
     ps.salesAllowance
-  const employmentInsurance =
-    emp?.employeeType === '役員' ? 0 : Math.floor(subtotalPayment * INSURANCE_RATES.employmentRate)
+  const employmentInsurance = calcSalaryEmploymentInsurance(ps, emp?.employeeType)
   const totalPayment = subtotalPayment + extraPaymentTotal
   const socialInsuranceTotal =
     ps.healthInsurance + ps.nursingInsurance + ps.welfarePension + employmentInsurance
@@ -2062,7 +2169,7 @@ function payslipToMock(p: Payslip): MockPayslip {
   let extraPaymentLines = parseExtraLines(p.extraPaymentLines)
   const extraDeductionLines = parseExtraLines(p.extraDeductionLines)
   if (extraPaymentLines.length === 0 && p.otherAllowance > 0 && p.payslipType === 'salary') {
-    extraPaymentLines = [{ id: 'legacy-payment', label: '雇用保険料超過分', amount: p.otherAllowance }]
+    extraPaymentLines = [{ id: 'legacy-payment', label: EMPLOYMENT_INSURANCE_OVERAGE_LABEL, amount: p.otherAllowance }]
   }
   return {
     id: p.id,
