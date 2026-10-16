@@ -1523,6 +1523,14 @@ function generatePayslips(
 
     const isPartTime = emp.employeeType === 'パート'
     const isOfficer = emp.employeeType === '役員'
+    // 役員の勤怠欄は初期値 0。打刻があっても出勤・時間・残業・休出・有給は入れない。
+    if (isOfficer) {
+      workDays = 0
+      workHours = 0
+      overtimeHours = 0
+      holidayWorkDays = 0
+      paidLeaveDays = 0
+    }
 
     let basicSalary: number
     if (isPartTime) {
