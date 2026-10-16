@@ -1460,11 +1460,23 @@ function getMonthlyEmployment(
 }
 
 /**
+ * 円未満を切り上げる。ちょうど整数のときはそのまま。
+ * 浮動小数のノイズで整数が1円増えないよう、小数6桁で揃えてから判定する。
+ */
+function roundUpYen(amount: number): number {
+  if (!Number.isFinite(amount) || amount <= 0) return 0
+  const nearest = Math.round(amount * 1_000_000) / 1_000_000
+  const integer = Math.floor(nearest + 1e-9)
+  if (nearest - integer < 1e-6) return integer
+  return integer + 1
+}
+
+/**
  * 残業手当。役員は 0。固定残業代がある人はその金額。
  * パートは登録時給 × 1.25 × 残業時間（円未満切捨て）。
  * 社員は（基本給 ÷ 月平均所定労働時間）× 1.25 × 残業時間。
- * 時給は基本給÷173.5（設定の月平均所定労働時間。既定 173.5）の端数を残したまま割増し、
- * 合計だけ円未満四捨五入する。基本給は日割り前のマスタ金額。
+ * 時給の端数は残し、合計の円未満は切り上げる。四捨五入だと0.5円未満が落ちて明細より1円少なくなる。
+ * 基本給は日割り前のマスタ金額。
  */
 export function calcOvertimePay(
   emp: Pick<MockEmployee, 'employeeType' | 'basicSalary' | 'hourlyRate' | 'fixedOvertimePay'>,
@@ -1478,7 +1490,7 @@ export function calcOvertimePay(
   }
   const monthlyHours = getSettings().monthlyWorkHours || 173.5
   const raw = (emp.basicSalary / monthlyHours) * 1.25 * overtimeHours
-  return Math.round(raw)
+  return roundUpYen(raw)
 }
 
 function generatePayslips(
