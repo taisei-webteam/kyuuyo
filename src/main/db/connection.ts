@@ -378,6 +378,7 @@ function runMigrations(raw: Database.Database): void {
   // 子育て支援金: いったん 0 にしたあと、7月明細どおり 0.115% を入れる
   clearChildSupportRateOnce(raw);
   applyChildSupportRateOnce(raw);
+  setEmployeesOvertimeOffOnce(raw);
 
   raw.exec(`
     CREATE TABLE IF NOT EXISTS app_meta (
@@ -456,6 +457,25 @@ function applyChildSupportRateOnce(raw: Database.Database): void {
     // カラムが無い環境では何もしない
   }
   raw.pragma('user_version = 7');
+}
+
+/**
+ * 既存の社員を残業不可（チェック済み）にする。以後は画面で外せる。
+ * 役員・パートは対象外。PRAGMA user_version=8 で一度きり。
+ */
+function setEmployeesOvertimeOffOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 8) return;
+
+  raw.prepare(
+    `UPDATE employees
+     SET overtime_allowed = 0,
+         overtime_start = NULL,
+         overtime_end = NULL,
+         updated_at = datetime('now', 'localtime')
+     WHERE employee_type = '社員'`,
+  ).run();
+  raw.pragma('user_version = 8');
 }
 
 /**

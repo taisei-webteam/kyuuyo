@@ -383,7 +383,7 @@ function defaultEmployee(id: number, displayOrder: number): MockEmployee {
     holidayMode: 'calendar',
     earlyWorkStart: null,
     earlyWorkEnd: null,
-    overtimeAllowed: true,
+    overtimeAllowed: false,
     overtimeStart: null,
     overtimeEnd: null,
     bonusEligible: false,
