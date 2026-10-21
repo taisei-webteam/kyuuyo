@@ -77,6 +77,17 @@ interface PayrollReportModalProps {
 
 /** 固定3列 + 支払10列 + 控除10列（健康保険〜貸付、空欄、控除額合計） */
 const PAYROLL_TABLE_COLS = 23
+/** 1枚あたりの人数。合計行は人数に含めず最終ページだけに出す */
+const ROWS_PER_PAGE = 29
+
+function paginate<T>(items: readonly T[]): T[][] {
+  if (items.length === 0) return [[]]
+  const pages: T[][] = []
+  for (let i = 0; i < items.length; i += ROWS_PER_PAGE) {
+    pages.push(items.slice(i, i + ROWS_PER_PAGE))
+  }
+  return pages
+}
 
 export function PayrollReportModal({
   payslips,
@@ -152,6 +163,7 @@ export function PayrollReportModal({
   }, [rows])
 
   const overlay = useOverlayDismiss(onClose)
+  const sheets = paginate(rows)
 
   async function handlePrint(): Promise<void> {
     const exportPdf = window.api?.export?.pdf
@@ -201,7 +213,11 @@ export function PayrollReportModal({
         </div>
 
         <div className={styles.previewArea} id="payroll-report">
-          <div className={styles.page}>
+          {sheets.map((pageRows, pageIndex) => (
+          <div
+            key={pageIndex}
+            className={pageIndex < sheets.length - 1 ? `${styles.page} ${styles.pageBreak}` : styles.page}
+          >
             <table className={styles.table}>
               <thead>
                 <tr className={styles.reportHeaderRow}>
@@ -250,7 +266,7 @@ export function PayrollReportModal({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {pageRows.map((r) => (
                   <tr key={r.name}>
                     <td className={styles.tdName}>{r.name}</td>
                     <td className={styles.tdNum}>{r.workDays}</td>
@@ -278,6 +294,7 @@ export function PayrollReportModal({
                   </tr>
                 ))}
               </tbody>
+              {pageIndex === sheets.length - 1 && (
               <tfoot>
                 <tr className={styles.totalRow}>
                   <td className={styles.tdName}>合計</td>
@@ -305,8 +322,10 @@ export function PayrollReportModal({
                   <td className={styles.tdAmountTotal}>{num(totals.totalDeduction)}</td>
                 </tr>
               </tfoot>
+              )}
             </table>
           </div>
+          ))}
         </div>
       </div>
     </div>,
