@@ -1080,7 +1080,8 @@ function PayslipDetail({
   ) => void
 }): ReactElement {
   const isPartTime = employee.employeeType === 'パート'
-  const overtimeFromHours = employee.employeeType !== '役員' && (employee.fixedOvertimePay ?? 0) <= 0
+  const overtimeFromHours = employee.employeeType !== '役員'
+  const hasFixedOvertime = (employee.fixedOvertimePay ?? 0) > 0
   const settings = getSettings()
   const emailPreview = buildPayslipEmail({
     employeeName: employee.name,
@@ -1164,11 +1165,11 @@ function PayslipDetail({
           onValue={setField('overtimeHours')}
           allowDecimal
           title={
-            overtimeFromHours
-              ? 'この時間から残業手当と雇用保険を計算し直します'
-              : (employee.fixedOvertimePay ?? 0) > 0
-                ? '固定残業代のため、時間を変えても残業手当は変わりません'
-                : '役員は残業手当を計算しません'
+            employee.employeeType === '役員'
+              ? '役員は残業手当を計算しません'
+              : hasFixedOvertime
+                ? 'この時間の残業手当に、固定時間外手当を足します'
+                : 'この時間から残業手当と雇用保険を計算し直します'
           }
         />
         <AttendanceInput label="休日出勤" value={payslip.holidayWorkDays} unit="日" onValue={setField('holidayWorkDays')} />
@@ -1189,7 +1190,7 @@ function PayslipDetail({
                 value={payslip.overtimePay}
                 onValue={setField('overtimePay')}
                 auto={overtimeFromHours}
-                fixed={(employee.fixedOvertimePay ?? 0) > 0}
+                fixed={hasFixedOvertime}
               />
               <EditableRow label="通勤手当" value={payslip.transportAllowance} onValue={setField('transportAllowance')} />
               <EditableRow label="役職手当" value={payslip.positionAllowance} onValue={setField('positionAllowance')} />

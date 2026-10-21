@@ -1489,19 +1489,28 @@ function roundUpYen(amount: number): number {
 }
 
 /**
- * 残業手当。役員は 0。固定残業代がある人はその金額。
+ * 残業手当。役員は 0。
  * パートは登録時給 × 1.25 × 残業時間（円未満切捨て）。
  * 社員は（基本給 ÷ 月平均所定労働時間）× 1.25 × 残業時間。
  * 時給の端数は残し、合計の円未満は切り上げる。四捨五入だと0.5円未満が落ちて明細より1円少なくなる。
  * 基本給は日割り前のマスタ金額。
+ * 固定時間外手当がある人は、その金額を時間分の残業手当に足す。時間0なら固定額だけ。
  */
 export function calcOvertimePay(
   emp: Pick<MockEmployee, 'employeeType' | 'basicSalary' | 'hourlyRate' | 'fixedOvertimePay'>,
   overtimeHours: number,
 ): number {
   if (emp.employeeType === '役員') return 0
-  const fixed = emp.fixedOvertimePay ?? 0
-  if (fixed > 0) return fixed
+  const fixed = Math.max(0, emp.fixedOvertimePay ?? 0)
+  const fromHours = overtimePayFromHours(emp, overtimeHours)
+  return fromHours + fixed
+}
+
+function overtimePayFromHours(
+  emp: Pick<MockEmployee, 'employeeType' | 'basicSalary' | 'hourlyRate'>,
+  overtimeHours: number,
+): number {
+  if (overtimeHours <= 0) return 0
   if (emp.employeeType === 'パート') {
     return Math.floor(emp.hourlyRate * 1.25 * overtimeHours)
   }
@@ -1574,7 +1583,7 @@ function generatePayslips(
       basicSalary = Math.round(basicSalary * employment.prorationFactor)
     }
 
-    // 役員は 0。固定残業代がある人はその金額。それ以外は残業時間から計算する。
+    // 役員は 0。それ以外は残業時間から計算し、固定時間外手当があれば足す。
     const overtimePay = calcOvertimePay(emp, overtimeHours)
     const transportAllowance = isOfficer ? 0 : emp.transportAllowance
     const positionAllowance = isOfficer ? 0 : emp.positionAllowance

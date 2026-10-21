@@ -501,7 +501,6 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     value={form.fixedOvertimePay ?? 0}
                     onValue={(next) => handleChange('fixedOvertimePay', next ?? 0)}
                   />
-                  <p className={styles.fieldNote}>0 円のときは勤怠の残業時間から計算します。田中さんのように月額固定の場合は金額を入れます。</p>
                 </div>
                 <div className={styles.fieldWide}>
                   <label>休日設定</label>
