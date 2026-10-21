@@ -511,6 +511,9 @@ export function planEmployeeImport(existing: MockEmployee[], rows: ParsedEmploye
     }
 
     const created = applyPatch(defaultEmployee(nextId, nextId), row.patch)
+    if (row.patch.overtimeAllowed === undefined) {
+      created.overtimeAllowed = created.employeeType !== '社員'
+    }
     nextId += 1
     pool.push({ origin: 'new', employee: created })
     dirty.add(created)

@@ -1183,7 +1183,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const scheduledMinutes = timeToMinutes(scheduledEnd) - timeToMinutes(scheduledStart) - settings.defaultBreakMinutes
 
     let overtime = 0
-    if (emp?.employeeType === 'パート') {
+    if (emp?.employeeType === 'パート' && effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)) {
       const labor = partTimeLaborMinutes(
         clockIn,
         clockOut,
@@ -1278,7 +1278,7 @@ export function dayLaborFromClocks(
   const earlyOn = earlyWorkApplies(emp.employeeType, emp.overtimeAllowed)
   const inHm = clockIn.slice(0, 5)
   const outHm = clockOut.slice(0, 5)
-  if (emp.employeeType === 'パート') {
+  if (emp.employeeType === 'パート' && effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)) {
     const labor = partTimeLaborMinutes(
       inHm,
       outHm,
@@ -1385,7 +1385,7 @@ export function aggregateAttendanceRecords(
     cur.paidLeaveDays += confirmedPaidLeaveDays(r.paidLeaveUsage, r.paidLeaveStatus)
     cur.totalWork += workMinutes
     // パートは定時の外（前・後、休日も含む）を時間外にする。保存値の早出と重ねない。
-    if (emp?.employeeType === 'パート' && r.clockIn && r.clockOut) {
+    if (emp?.employeeType === 'パート' && effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed) && r.clockIn && r.clockOut) {
       cur.totalOvertime += partTimeLaborMinutes(
         r.clockIn,
         r.clockOut,

@@ -98,7 +98,7 @@ export function registerEmployeeHandlers(): void {
         const { id, ...data } = params;
         const patch: Partial<typeof employees.$inferInsert> = { ...data };
 
-        if (data.employeeType !== undefined && data.employeeType !== '社員') {
+        if (data.employeeType === '役員') {
           patch.overtimeAllowed = true;
         } else if (data.overtimeAllowed !== undefined) {
           const currentType = data.employeeType ?? db
@@ -109,6 +109,8 @@ export function registerEmployeeHandlers(): void {
           patch.overtimeAllowed = effectiveOvertimeAllowed(currentType ?? '', data.overtimeAllowed);
         } else if (data.employeeType === '社員') {
           patch.overtimeAllowed = false;
+        } else if (data.employeeType === 'パート') {
+          patch.overtimeAllowed = true;
         }
 
         // メールアドレスを変更したら到達確認はやり直し（旧アドレスの確認済みを引き継がない）

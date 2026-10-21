@@ -379,6 +379,7 @@ function runMigrations(raw: Database.Database): void {
   clearChildSupportRateOnce(raw);
   applyChildSupportRateOnce(raw);
   setEmployeesOvertimeOffOnce(raw);
+  setPartTimeOvertimeOnOnce(raw);
 
   raw.exec(`
     CREATE TABLE IF NOT EXISTS app_meta (
@@ -476,6 +477,23 @@ function setEmployeesOvertimeOffOnce(raw: Database.Database): void {
      WHERE employee_type = '社員'`,
   ).run();
   raw.pragma('user_version = 8');
+}
+
+/**
+ * 既存のパートを残業可（チェックなし）にする。以後は画面で残業不可にできる。
+ * PRAGMA user_version=9 で一度きり。
+ */
+function setPartTimeOvertimeOnOnce(raw: Database.Database): void {
+  const version = raw.pragma('user_version', { simple: true }) as number;
+  if (version >= 9) return;
+
+  raw.prepare(
+    `UPDATE employees
+     SET overtime_allowed = 1,
+         updated_at = datetime('now', 'localtime')
+     WHERE employee_type = 'パート'`,
+  ).run();
+  raw.pragma('user_version = 9');
 }
 
 /**

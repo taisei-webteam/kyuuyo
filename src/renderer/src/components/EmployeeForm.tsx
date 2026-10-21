@@ -62,7 +62,7 @@ const emptyEmployee: MockEmployee = {
   incomeTaxExempt: false,
 }
 
-/** 画面上は役員・パートの残業不可を外す。社員のチェックはそのまま残す。 */
+/** 画面上は役員の残業不可を外す。社員とパートのチェックはそのまま残す。 */
 function presentEmployee(emp: MockEmployee): MockEmployee {
   const overtimeAllowed = effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)
   if (overtimeAllowed === emp.overtimeAllowed) return emp
@@ -444,15 +444,12 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     />
                   </div>
                 </div>
-                <p className={styles.fieldNote}>
-                  早出はパートだけです。開始より前の打刻は開始時刻に切り上げ、定時より前も定時より後も時間外（時給の1.25倍）です。社員と役員は早出を計算しません。
-                </p>
                 <div className={styles.field}>
-                  <label className={`${styles.checkboxLabel} ${form.employeeType === '社員' ? '' : styles.checkboxLabelDisabled}`}>
+                  <label className={`${styles.checkboxLabel} ${form.employeeType === '役員' ? styles.checkboxLabelDisabled : ''}`}>
                     <input
                       type="checkbox"
-                      checked={form.employeeType === '社員' && !form.overtimeAllowed}
-                      disabled={form.employeeType !== '社員'}
+                      checked={form.employeeType !== '役員' && !form.overtimeAllowed}
+                      disabled={form.employeeType === '役員'}
                       onChange={(e) =>
                         setForm((prev) => ({
                           ...prev,
@@ -464,9 +461,6 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     />
                     残業不可
                   </label>
-                  <p className={styles.fieldNote}>
-                    残業不可は社員だけ選べます。新規の社員はチェック済みです。チェックを外すと定時終了より後を残業時間にします。チェックしたままのときは、定時より後の打刻は労働時間に入れません。残業代が必要なときは残業日報を見て、給与作成画面の残業手当に手入力してください。
-                  </p>
                 </div>
                 <div className={styles.timePair}>
                   <div className={styles.field}>

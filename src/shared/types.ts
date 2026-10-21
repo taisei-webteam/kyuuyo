@@ -13,11 +13,11 @@ export type IpcResult<T> =
 export type EmployeeType = '社員' | '役員' | 'パート';
 
 /**
- * 残業不可にできるのは社員だけ。役員・パートは常に残業可。
- * 社員は保存値を使う。未指定の初期値は呼び出し側で残業不可（false）にする。
+ * 残業不可にできるのは社員とパート。役員は常に残業可。
+ * 社員の初期値は残業不可、パートの初期値は残業可。未指定時の初期値は呼び出し側で決める。
  */
 export function effectiveOvertimeAllowed(employeeType: string, overtimeAllowed: boolean): boolean {
-  if (employeeType !== '社員') return true;
+  if (employeeType === '役員') return true;
   return overtimeAllowed;
 }
 
@@ -69,7 +69,7 @@ export interface Employee {
   holidayMode: HolidayMode;
   earlyWorkStart: string | null;
   earlyWorkEnd: string | null;
-  /** false は残業不可。社員だけ false にでき、初期値は false。役員・パートは true として扱う。 */
+  /** false は残業不可。社員とパートが false にできる。社員の初期値は false、パートの初期値は true。役員は true。 */
   overtimeAllowed: boolean;
   overtimeStart: string | null;
   overtimeEnd: string | null;

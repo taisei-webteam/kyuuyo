@@ -243,8 +243,8 @@ function roundAndUpsertOne(
   );
   let isHolidayWork = false;
 
-  if (clockOut && emp.employee_type === 'パート') {
-    // パートは定時の外を時間外にする。残業不可でも休日でも同じ。
+  if (clockOut && emp.employee_type === 'パート' && effectiveOvertimeAllowed(emp.employee_type, !!emp.overtime_allowed)) {
+    // 残業可のパートは定時の外を時間外にする。休日も同じ。残業不可は定時の中だけ。
     const labor = partTimeLaborMinutes(
       clockIn,
       clockOut,

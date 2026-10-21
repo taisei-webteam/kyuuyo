@@ -234,7 +234,7 @@ function pairToAttendanceDay(
       toMinutes(employee.scheduledEnd) - toMinutes(employee.scheduledStart) - settings.defaultBreakMinutes
     workMinutes = Math.max(0, spanMinutes - breakMinutes)
     workMinutes = Math.max(0, workMinutes - earlyOvertimeMinutes)
-    if (employee.employeeType === 'パート') {
+    if (employee.employeeType === 'パート' && effectiveOvertimeAllowed(employee.employeeType, employee.overtimeAllowed)) {
       const labor = partTimeLaborMinutes(
         clockIn,
         clockOut,
