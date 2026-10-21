@@ -155,7 +155,7 @@ function deriveStandardRemuneration(pension: number, health: number): number {
 function buildSeedEmployees(): SeedEmployee[] {
   return RAW_SEED.map((r, index): SeedEmployee => {
     const isHourly = r.type === 'パート';
-    const overtimeAllowed = r.type === '社員';
+    const overtimeAllowed = r.type !== '社員';
     return {
       id: index + 1,
       name: r.name,

@@ -7,6 +7,7 @@
 import { supabase, isSupabaseConfigured } from './supabase'
 import type { MockAttendanceDay, MockEmployee, StampInType, StampOutType } from './mock-data'
 import { roundClockIn, roundClockOut, roundHolidayClockIn, calcEarlyOvertime, calcBreakMinutes, partTimeLaborMinutes } from './time-rounding'
+import { earlyWorkApplies, effectiveOvertimeAllowed } from '../../../shared/types'
 import type { ClockInConfig } from './time-rounding'
 import { getSettings } from './settings-store'
 
@@ -172,10 +173,13 @@ function pairToAttendanceDay(
   }
 
   const settings = getSettings()
+  const earlyOn = earlyWorkApplies(employee.employeeType, employee.overtimeAllowed)
+  const earlyStart = earlyOn ? employee.earlyWorkStart : null
+  const earlyEnd = earlyOn ? employee.earlyWorkEnd : null
   const clockInConfig: ClockInConfig = {
     scheduledStart: employee.scheduledStart,
-    earlyWorkStart: employee.earlyWorkStart,
-    earlyWorkEnd: employee.earlyWorkEnd,
+    earlyWorkStart: earlyStart,
+    earlyWorkEnd: earlyEnd,
     roundingUnit: settings.roundingUnit,
     gracePeriod: settings.gracePeriod,
   }
@@ -189,12 +193,12 @@ function pairToAttendanceDay(
 
   if (rawIn) {
     if (isHoliday) {
-      clockIn = roundHolidayClockIn(rawIn, settings.roundingUnit, settings.gracePeriod, employee.earlyWorkStart)
+      clockIn = roundHolidayClockIn(rawIn, settings.roundingUnit, settings.gracePeriod, earlyStart)
       stampIn = '出勤'
       earlyOvertimeMinutes = calcEarlyOvertime(
         clockIn,
-        employee.earlyWorkStart,
-        employee.earlyWorkEnd,
+        earlyStart,
+        earlyEnd,
         settings.earlyRoundingUnit,
       )
     } else {
@@ -203,8 +207,8 @@ function pairToAttendanceDay(
       stampIn = clockInTypeToStampIn(result.type)
       earlyOvertimeMinutes = calcEarlyOvertime(
         clockIn,
-        employee.earlyWorkStart,
-        employee.earlyWorkEnd,
+        earlyStart,
+        earlyEnd,
         settings.earlyRoundingUnit,
       )
     }
@@ -236,7 +240,7 @@ function pairToAttendanceDay(
         clockOut,
         employee.scheduledStart,
         employee.scheduledEnd,
-        employee.earlyWorkStart,
+        earlyStart,
         settings.earlyRoundingUnit,
         0,
         settings.defaultBreakMinutes,
@@ -244,6 +248,14 @@ function pairToAttendanceDay(
       workMinutes = labor.workMinutes
       overtimeMinutes = labor.overtimeMinutes
       earlyOvertimeMinutes = labor.earlyOvertimeMinutes
+    } else if (!isHoliday && !effectiveOvertimeAllowed(employee.employeeType, employee.overtimeAllowed)) {
+      const startMin = Math.max(inMin, toMinutes(employee.scheduledStart))
+      const endMin = Math.min(outMin, toMinutes(employee.scheduledEnd))
+      const clippedSpan = Math.max(0, endMin - startMin)
+      const clippedBreak = calcBreakMinutes(clippedSpan, settings.defaultBreakMinutes)
+      workMinutes = Math.max(0, clippedSpan - clippedBreak)
+      overtimeMinutes = 0
+      earlyOvertimeMinutes = 0
     } else {
       overtimeMinutes = isHoliday ? 0 : Math.max(0, workMinutes - scheduledMinutes)
     }

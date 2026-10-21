@@ -88,7 +88,7 @@ export function EmailVerifyBulkModal({
       setResults(new Map(res.data.items.map((item) => [item.employeeId, item])))
       setMessage(
         res.data.failed === 0
-          ? `${res.data.ok} 名へ確認メールを送信しました。相手がメール内のボタンを押すと「確認済み」になります。`
+          ? `${res.data.ok} 名へ案内メールを送信しました。相手がメールに書かれたページを開いて操作すると「確認済み」になります。`
           : `${res.data.ok} 名へ送信しました（${res.data.failed} 名は失敗）。失敗した理由は一覧の「結果」列を確認してください。`,
       )
       await reloadEmployeesFromDb()
@@ -124,8 +124,8 @@ export function EmailVerifyBulkModal({
         </div>
 
         <p className={styles.desc}>
-          給与明細メールが届くかどうかを確かめる確認メールを、選んだ従業員へまとめて送ります。
-          受け取った方がメール内のボタンを押すと「確認済み」になります。
+          給与明細の送付先を記録する案内メールを、選んだ従業員へまとめて送ります。
+          受け取った方がメールに書かれたページを開いて操作すると「確認済み」になります。
         </p>
 
         <div className={styles.note}>

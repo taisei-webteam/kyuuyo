@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { IPC } from '../../shared/ipc-channels.js';
 import { getDb } from '../db/connection.js';
 import { employees } from '../db/schema.js';
-import type { IpcResult, Employee, EmployeeCreate, EmployeeUpdate } from '../../shared/types.js';
+import { effectiveOvertimeAllowed, type IpcResult, type Employee, type EmployeeCreate, type EmployeeUpdate } from '../../shared/types.js';
 
 export function registerEmployeeHandlers(): void {
   ipcMain.handle(
@@ -73,7 +73,7 @@ export function registerEmployeeHandlers(): void {
           holidayMode: params.holidayMode,
           earlyWorkStart: params.earlyWorkStart,
           earlyWorkEnd: params.earlyWorkEnd,
-          overtimeAllowed: params.overtimeAllowed,
+          overtimeAllowed: effectiveOvertimeAllowed(params.employeeType, params.overtimeAllowed),
           overtimeStart: params.overtimeStart,
           overtimeEnd: params.overtimeEnd,
           bonusEligible: params.bonusEligible,
@@ -97,6 +97,19 @@ export function registerEmployeeHandlers(): void {
         const db = getDb();
         const { id, ...data } = params;
         const patch: Partial<typeof employees.$inferInsert> = { ...data };
+
+        if (data.employeeType === '社員') {
+          patch.overtimeAllowed = false;
+        } else if (data.employeeType !== undefined) {
+          patch.overtimeAllowed = true;
+        } else if (data.overtimeAllowed !== undefined) {
+          const currentType = data.employeeType ?? db
+            .select({ employeeType: employees.employeeType })
+            .from(employees)
+            .where(eq(employees.id, id))
+            .get()?.employeeType;
+          patch.overtimeAllowed = effectiveOvertimeAllowed(currentType ?? '', data.overtimeAllowed);
+        }
 
         // メールアドレスを変更したら到達確認はやり直し（旧アドレスの確認済みを引き継がない）
         if (typeof data.email === 'string') {

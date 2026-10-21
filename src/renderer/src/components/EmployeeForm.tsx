@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import type { EmailVerifyStatus } from '../../../shared/types'
+import { earlyWorkApplies, effectiveOvertimeAllowed, type EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calcAge, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
@@ -62,6 +62,13 @@ const emptyEmployee: MockEmployee = {
   incomeTaxExempt: false,
 }
 
+/** 画面上の残業可否を計算ルールに合わせる。社員は残業不可。 */
+function presentEmployee(emp: MockEmployee): MockEmployee {
+  const overtimeAllowed = effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)
+  if (overtimeAllowed === emp.overtimeAllowed) return emp
+  return { ...emp, overtimeAllowed }
+}
+
 const VERIFY_LABEL: Record<EmailVerifyStatus, string> = {
   unverified: '未確認',
   pending: '受信確認中',
@@ -81,12 +88,12 @@ function shortDateTime(value: string | null | undefined): string {
 }
 
 export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): ReactElement {
-  const [form, setForm] = useState<MockEmployee>(
-    employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() },
+  const [form, setForm] = useState<MockEmployee>(() =>
+    presentEmployee(employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() }),
   )
 
   useEffect(() => {
-    setForm(employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() })
+    setForm(presentEmployee(employee ?? { ...emptyEmployee, id: nextEmployeeId(), displayOrder: nextEmployeeId() }))
   }, [employee])
 
   const isNew = !employee
@@ -142,9 +149,9 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
       return `${shortDateTime(verifiedAt)} に受信が確認されました。`
     }
     if (verifyStatus === 'pending') {
-      return `${shortDateTime(verifySentAt)} に確認メールを送信しました。相手がメール内のボタンを押すと自動で反映されます。すぐに反映されない場合は「状態を更新」を押してください。`
+      return `${shortDateTime(verifySentAt)} に案内メールを送信しました。相手がメールに書かれたページを開いて操作すると自動で反映されます。すぐに反映されない場合は「状態を更新」を押してください。`
     }
-    return '確認メールを送り、相手がメール内のボタンを押すと「確認済み」になります。'
+    return '案内メールを送り、相手がメールに書かれたページを開いて操作すると「確認済み」になります。'
   }
 
   async function handleSendVerification(): Promise<void> {
@@ -192,7 +199,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
       setVerifyMessage(
         res.data.status === 'verified'
           ? '受信が確認されました。'
-          : 'まだ確認されていません。相手がメール内のボタンを押すまでお待ちください。',
+          : 'まだ記録されていません。相手がメールに書かれたページを開いて操作するまでお待ちください。',
       )
     } else {
       setVerifyMessage(`確認状態の取得に失敗しました: ${res.error}`)
@@ -209,9 +216,34 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  function handleEmployeeTypeChange(value: string): void {
+    const nextType: MockEmployee['employeeType'] =
+      value === '役員' || value === 'パート' ? value : '社員'
+    setForm((prev) => {
+      if (nextType === '社員') {
+        return {
+          ...prev,
+          employeeType: nextType,
+          overtimeAllowed: false,
+          overtimeStart: null,
+          overtimeEnd: null,
+        }
+      }
+      const clearingNoOvertime = prev.overtimeAllowed === false
+      return {
+        ...prev,
+        employeeType: nextType,
+        overtimeAllowed: true,
+        overtimeStart: clearingNoOvertime ? (prev.overtimeStart ?? prev.scheduledEnd) : prev.overtimeStart,
+        overtimeEnd: clearingNoOvertime ? (prev.overtimeEnd ?? '22:00') : prev.overtimeEnd,
+      }
+    })
+  }
+
   function handleSubmit(e: React.FormEvent): void {
     e.preventDefault()
-    onSave({ ...form, healthInsuranceManual: true })
+    const overtimeAllowed = effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)
+    onSave({ ...form, healthInsuranceManual: true, overtimeAllowed })
   }
 
   const overlay = useOverlayDismiss(onClose)
@@ -304,7 +336,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   <label>社員区分</label>
                   <select
                     value={form.employeeType}
-                    onChange={(e) => handleChange('employeeType', e.target.value)}
+                    onChange={(e) => handleEmployeeTypeChange(e.target.value)}
                   >
                     <option value="社員">社員</option>
                     <option value="役員">役員</option>
@@ -393,6 +425,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         }))
                       }
                       placeholder="未設定"
+                      disabled={!earlyWorkApplies(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                   <div className={styles.field}>
@@ -407,30 +440,24 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         }))
                       }
                       placeholder="未設定"
+                      disabled={!earlyWorkApplies(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                 </div>
                 <p className={styles.fieldNote}>
-                  開始より前の打刻は開始時刻に切り上げます。社員の早出は時給の1.25倍で、定時開始以降は通常の時給です。休日の社員も、定時開始より前だけ割増です。パートは定時より前も定時より後も時間外（時給の1.25倍）で、残業不可にしていても同じです。
+                  早出はパートだけです。開始より前の打刻は開始時刻に切り上げ、定時より前も定時より後も時間外（時給の1.25倍）です。社員と役員は早出を計算しません。
                 </p>
                 <div className={styles.field}>
-                  <label className={styles.checkboxLabel}>
+                  <label className={`${styles.checkboxLabel} ${styles.checkboxLabelDisabled}`}>
                     <input
                       type="checkbox"
-                      checked={!form.overtimeAllowed}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          overtimeAllowed: !e.target.checked,
-                          overtimeStart: e.target.checked ? null : (prev.overtimeStart ?? prev.scheduledEnd),
-                          overtimeEnd: e.target.checked ? null : (prev.overtimeEnd ?? '22:00'),
-                        }))
-                      }
+                      checked={form.employeeType === '社員'}
+                      disabled
                     />
                     残業不可
                   </label>
                   <p className={styles.fieldNote}>
-                    残業不可は社員のみ有効です。チェックすると打刻から残業時間を自動で計算せず、定時終了より後の打刻は労働時間に入れません。残業は残業日報を見て、給与作成画面の残業手当に手入力してください。パートには効きません。
+                    社員は全員残業不可です。残業不可のときは早出もありません。定時より前の打刻は定時開始、定時より後の打刻は定時終了までにし、労働時間に入れません。残業代が必要なときは残業日報を見て、給与作成画面の残業手当に手入力してください。
                   </p>
                 </div>
                 <div className={styles.timePair}>
@@ -445,7 +472,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                           overtimeStart: e.target.value || null,
                         }))
                       }
-                      disabled={!form.overtimeAllowed}
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                       placeholder="未設定"
                     />
                   </div>
@@ -460,7 +487,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                           overtimeEnd: e.target.value || null,
                         }))
                       }
-                      disabled={!form.overtimeAllowed}
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                       placeholder="未設定"
                     />
                   </div>

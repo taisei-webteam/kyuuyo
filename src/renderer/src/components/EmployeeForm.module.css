@@ -328,6 +328,15 @@
   height: 16px;
 }
 
+.checkboxLabelDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.checkboxLabelDisabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
 .field input:disabled {
   opacity: 0.4;
   cursor: not-allowed;

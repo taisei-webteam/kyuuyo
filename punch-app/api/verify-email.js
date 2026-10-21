@@ -3,7 +3,7 @@ import { getSql, ensureEmailVerificationTable } from './_db.js';
 /**
  * メール到達確認エンドポイント（公開リンク）
  *
- * GET  /api/verify-email?token=... → 確認ページを表示（「確認する」ボタン）
+ * GET  /api/verify-email?token=... → 案内ページを表示（「記録する」ボタン）
  * POST /api/verify-email?token=... → 確認を確定し status を verified にする
  *
  * GET では確定しない。キャリアメールや迷惑メールフィルタのリンク先自動取得
@@ -43,7 +43,7 @@ function maskEmail(email) {
 function renderPage({ title, heading, message, badge, badgeColor, token }) {
   const form = token
     ? `<form method="post" action="/api/verify-email?token=${escapeHtml(token)}">
-        <button type="submit" class="btn">確認する</button>
+        <button type="submit" class="btn">記録する</button>
       </form>`
     : '';
 
@@ -91,7 +91,7 @@ function renderPage({ title, heading, message, badge, badgeColor, token }) {
     <h1>${escapeHtml(heading)}</h1>
     <p>${message}</p>
     ${form}
-    <p class="note">このページは給与明細メールが正しく届くかを確認するためのものです。</p>
+    <p class="note">給与担当からの連絡です。氏名や番号の入力はありません。</p>
   </div>
 </body>
 </html>`;
@@ -125,10 +125,10 @@ function sendVerified(res, email) {
     res,
     200,
     renderPage({
-      title: '確認が完了しました',
-      heading: '受信確認が完了しました',
-      message: `<strong>${escapeHtml(maskEmail(email))}</strong> でメールを受信できることを確認しました。<br>このページを閉じてください。`,
-      badge: '確認済み',
+      title: '記録しました',
+      heading: '記録しました',
+      message: `<strong>${escapeHtml(maskEmail(email))}</strong> へ給与明細を送れることを記録しました。<br>このページを閉じてください。`,
+      badge: '記録済み',
       badgeColor: '#16a34a',
       token: null,
     }),
@@ -154,10 +154,10 @@ async function handleGet(res, sql, token) {
     res,
     200,
     renderPage({
-      title: 'メール受信確認',
-      heading: 'メールが届きました',
-      message: `<strong>${escapeHtml(maskEmail(row.email))}</strong> にメールが届いていることを確認します。<br>下のボタンを押してください。`,
-      badge: '確認待ち',
+      title: '給与明細の送付先',
+      heading: '給与明細の送付先',
+      message: `<strong>${escapeHtml(maskEmail(row.email))}</strong> へ給与明細を送れることを記録します。<br>下の「記録する」を押してください。入力はありません。`,
+      badge: '記録前',
       badgeColor: '#2563eb',
       token: row.token,
     }),

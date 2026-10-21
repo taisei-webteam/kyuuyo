@@ -15,6 +15,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // stdout/stderr のパイプが閉じている際の EPIPE で落とさない（開発時にターミナル切断等で発生）
+/** 前面のウィンドウへキーボードを戻す。blur は使わない。 */
+function restoreWindowKeyboard(win: BrowserWindow | null): void {
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  const stick = win.isAlwaysOnTop();
+  if (process.platform === 'win32' && !stick) {
+    win.setAlwaysOnTop(true);
+    win.setAlwaysOnTop(false);
+  }
+  win.focus();
+  win.webContents.focus();
+}
+
 function ignoreEpipe(stream: NodeJS.WriteStream): void {
   stream.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EPIPE') return;
@@ -147,14 +160,10 @@ if (!gotSingleInstanceLock) {
 
     // アプリの現在バージョン（画面表示用）
     ipcMain.handle(IPC.APP.GET_VERSION, () => app.getVersion());
-    // すでに前面だと webContents.focus() だけではキー入力が戻らない。
-    // 一度外してから前面に戻し、ページへキーボードを付け直す。
+    // 確認ダイアログやファイル選択のあと、画面は前面でもキーがページに届かない。
+    // blur すると別ウィンドウへキーボードが移るので、前面のまま付け直す。
     ipcMain.handle(IPC.APP.FOCUS_PAGE, () => {
-      const win = mainWindow;
-      if (!win || win.isDestroyed()) return;
-      if (win.isFocused()) win.blur();
-      win.focus();
-      win.webContents.focus();
+      restoreWindowKeyboard(mainWindow);
     });
 
     // 起動時に1日1回の自動バックアップ（非同期・失敗は握りつぶす）

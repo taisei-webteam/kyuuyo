@@ -522,3 +522,41 @@ export function planEmployeeImport(existing: MockEmployee[], rows: ParsedEmploye
     skipped,
   }
 }
+
+function showCell(value: string): string {
+  return value === '' ? '（空）' : value
+}
+
+/**
+ * 取り込みで実際に値が変わる項目だけを「従業員名　項目 変更前→変更後」にする。
+ * 値が同じ更新は含めない。新規は「（なし）→新規登録」。
+ */
+export function describeEmployeeImport(
+  existing: MockEmployee[],
+  plan: EmployeeImportPlan,
+): { lines: string[]; updates: MockEmployee[]; creates: MockEmployee[] } {
+  const beforeById = new Map(existing.map((emp) => [emp.id, emp]))
+  const lines: string[] = []
+  const updates: MockEmployee[] = []
+
+  for (const after of plan.updates) {
+    const before = beforeById.get(after.id)
+    if (!before) continue
+    const changed: string[] = []
+    for (const col of COLUMNS) {
+      const prev = col.read(before)
+      const next = col.read(after)
+      if (prev === next) continue
+      changed.push(`${before.name}　${col.header} ${showCell(prev)}→${showCell(next)}`)
+    }
+    if (changed.length === 0) continue
+    updates.push(after)
+    lines.push(...changed)
+  }
+
+  for (const created of plan.creates) {
+    lines.push(`${created.name}　（なし）→新規登録`)
+  }
+
+  return { lines, updates, creates: plan.creates }
+}

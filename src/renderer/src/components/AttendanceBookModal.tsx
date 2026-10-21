@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import type { AttendanceRecord } from '../../../shared/types'
-import { getEmployees, mapDbEmployeeToMock, isEmployedInMonth, type MockEmployee } from '@/lib/mock-data'
+import { dayLaborFromClocks, getEmployees, mapDbEmployeeToMock, isEmployedInMonth, type MockEmployee } from '@/lib/mock-data'
 import { getSettings } from '@/lib/settings-store'
-import { scheduledWorkMinutes, paidLeaveSupplementMinutes, partTimeLaborMinutes, unpaidGoOutMinutes } from '@/lib/time-rounding'
+import { scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
+import { effectiveOvertimeAllowed } from '../../../shared/types'
 import { triggerPrint } from '@/lib/print'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import styles from './AttendanceBookModal.module.css'
@@ -41,24 +42,16 @@ function regularWorkMinutes(workMinutes: number, overtimeMinutes: number): numbe
   return Math.max(0, workMinutes - overtimeMinutes)
 }
 
-/** パートは打刻から定時外を時間外として引き直す。保存値が古くても出勤簿と給与を揃える。 */
-function partTimeSplit(
+function laborFromRecord(
   r: AttendanceRecord,
-  emp: MockEmployee,
+  emp: MockEmployee | undefined,
 ): { workMinutes: number; overtimeMinutes: number } | null {
-  if (!r.clockIn || !r.clockOut) return null
-  const settings = getSettings()
-  const labor = partTimeLaborMinutes(
-    r.clockIn,
-    r.clockOut,
-    emp.scheduledStart,
-    emp.scheduledEnd,
-    emp.earlyWorkStart,
-    settings.earlyRoundingUnit,
-    unpaidGoOutMinutes(r.goOut, r.goReturn),
-    settings.defaultBreakMinutes,
-  )
-  return { workMinutes: labor.workMinutes, overtimeMinutes: labor.overtimeMinutes }
+  if (!emp || !r.clockIn || !r.clockOut) return null
+  const labor = dayLaborFromClocks(r.clockIn, r.clockOut, r.isHoliday, emp, r.goOut, r.goReturn)
+  return {
+    workMinutes: labor.workMinutes,
+    overtimeMinutes: labor.overtimeMinutes + labor.earlyOvertimeMinutes,
+  }
 }
 
 /** タイムカード実働に確定有給の不足分を足した労働時間（分）。残業は含めない。 */
@@ -69,22 +62,22 @@ function laborMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined)
     emp?.scheduledEnd ?? '17:30',
     settings.defaultBreakMinutes,
   )
-  const part = emp?.employeeType === 'パート' ? partTimeSplit(r, emp) : null
-  const timecard = part?.workMinutes ?? r.workMinutes
+  const labor = laborFromRecord(r, emp)
+  const timecard = labor?.workMinutes ?? r.workMinutes
   const withLeave = timecard + paidLeaveSupplementMinutes(
     r.paidLeaveUsage,
     r.paidLeaveStatus,
     timecard,
     scheduled,
   )
-  if (part) return withLeave
-  return regularWorkMinutes(withLeave, r.overtimeMinutes)
+  if (emp?.employeeType === 'パート') return withLeave
+  return regularWorkMinutes(withLeave, labor?.overtimeMinutes ?? r.overtimeMinutes)
 }
 
 function overtimeMinutesForBook(r: AttendanceRecord, emp: MockEmployee | undefined): number {
-  if (emp?.employeeType === 'パート') {
-    return partTimeSplit(r, emp)?.overtimeMinutes ?? r.overtimeMinutes
-  }
+  const labor = laborFromRecord(r, emp)
+  if (labor) return labor.overtimeMinutes
+  if (emp && !effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)) return 0
   return r.overtimeMinutes
 }
 

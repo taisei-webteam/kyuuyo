@@ -17,7 +17,7 @@ import { EmailVerifyBulkModal } from '@/components/EmailVerifyBulkModal'
 import { ResidentTaxBulkModal } from '@/components/ResidentTaxBulkModal'
 import { SocialInsuranceBulkModal } from '@/components/SocialInsuranceBulkModal'
 import { HourlyRateBulkModal } from '@/components/HourlyRateBulkModal'
-import { employeesToCsv, parseEmployeeCsv, planEmployeeImport } from '@/lib/employee-csv'
+import { describeEmployeeImport, employeesToCsv, parseEmployeeCsv, planEmployeeImport } from '@/lib/employee-csv'
 import styles from './Employees.module.css'
 
 function yen(amount: number): string {
@@ -48,6 +48,12 @@ export function Employees(): ReactElement {
   const [gripGeneration, setGripGeneration] = useState(0)
   const [csvBusy, setCsvBusy] = useState(false)
   const [csvDragOver, setCsvDragOver] = useState(false)
+  const [csvPreview, setCsvPreview] = useState<{
+    updates: MockEmployee[]
+    creates: MockEmployee[]
+    lines: string[]
+    notes: string[]
+  } | null>(null)
   const dragIdRef = useRef<number | null>(null)
   const pendingDropIdRef = useRef<number | null>(null)
   const dragFrameRef = useRef<number | null>(null)
@@ -266,36 +272,52 @@ export function Employees(): ReactElement {
       const parsed = parseEmployeeCsv(text)
       const plan = planEmployeeImport(getEmployees(), parsed.rows)
       const notes = [...parsed.errors, ...plan.skipped]
-      if (plan.updates.length === 0 && plan.creates.length === 0) {
-        setSyncMessage(notes[0] ?? '取り込める従業員がありません')
+      const described = describeEmployeeImport(getEmployees(), plan)
+      if (described.lines.length === 0) {
+        const skipText = notes.length > 0 ? `（${notes.length}行はスキップ）` : ''
+        setSyncMessage(notes[0] ?? `変更箇所はありません${skipText}`)
         return
       }
-      const noteText = notes.length > 0 ? `\n取り込みできない行: ${notes.length}件` : ''
-      const ok = window.confirm(
-        `従業員CSVを反映します。\n\n更新 ${plan.updates.length}名（値がある項目だけ上書きします。空欄は今の値を残します）\n新規 ${plan.creates.length}名${noteText}\n\nこの内容で保存しますか？`,
-      )
-      if (!ok) return
+      setCsvPreview({
+        updates: described.updates,
+        creates: described.creates,
+        lines: described.lines,
+        notes,
+      })
+    } catch (err) {
+      setSyncMessage(`CSVの読み込みに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+    } finally {
+      setCsvBusy(false)
+    }
+  }
 
-      for (const emp of plan.updates) {
+  async function applyCsvPreview(): Promise<void> {
+    const preview = csvPreview
+    if (!preview || csvBusy) return
+    setCsvBusy(true)
+    try {
+      for (const emp of preview.updates) {
         if (hasElectronApi) {
           const res = await window.api.employees.update({ id: emp.id, ...mockToEmployeeInput(emp) })
           if (!res.success) {
             setSyncMessage(`更新に失敗しました（${emp.name}）: ${res.error}`)
             await reloadEmployeesFromDb()
             setRefreshKey((k) => k + 1)
+            setCsvPreview(null)
             return
           }
         } else {
           updateEmployee(emp)
         }
       }
-      for (const emp of plan.creates) {
+      for (const emp of preview.creates) {
         if (hasElectronApi) {
           const res = await window.api.employees.create(mockToEmployeeInput(emp))
           if (!res.success) {
             setSyncMessage(`新規登録に失敗しました（${emp.name}）: ${res.error}`)
             await reloadEmployeesFromDb()
             setRefreshKey((k) => k + 1)
+            setCsvPreview(null)
             return
           }
         } else {
@@ -304,10 +326,9 @@ export function Employees(): ReactElement {
       }
       if (hasElectronApi) await reloadEmployeesFromDb()
       setRefreshKey((k) => k + 1)
-      const skipText = notes.length > 0 ? `（${notes.length}行はスキップ）` : ''
-      setSyncMessage(`更新 ${plan.updates.length}名、新規 ${plan.creates.length}名を保存しました${skipText}`)
-    } catch (err) {
-      setSyncMessage(`CSVの読み込みに失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
+      const skipText = preview.notes.length > 0 ? `（${preview.notes.length}行はスキップ）` : ''
+      setSyncMessage(`更新 ${preview.updates.length}名、新規 ${preview.creates.length}名を保存しました${skipText}`)
+      setCsvPreview(null)
     } finally {
       setCsvBusy(false)
     }
@@ -524,7 +545,7 @@ export function Employees(): ReactElement {
               },
               {
                 label: verifyRefreshing ? '確認状態を取得中...' : '確認状態を最新にする',
-                description: '従業員が確認ボタンを押したかどうかを取得して反映します',
+                description: '従業員が案内ページを操作したかどうかを取得して反映します',
                 disabled: verifyRefreshing,
                 onSelect: () => void handleRefreshVerifications(),
               },
@@ -758,6 +779,62 @@ export function Employees(): ReactElement {
           onClose={() => setIsHourlyRateOpen(false)}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
+      )}
+
+      {csvPreview && (
+        <div
+          className={styles.overlay}
+          onClick={() => {
+            if (!csvBusy) setCsvPreview(null)
+          }}
+        >
+          <div
+            className={`${styles.confirmModal} ${styles.csvConfirmModal}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="csv-import-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.confirmHeader}>
+              <h2 id="csv-import-title" className={styles.confirmTitle}>
+                CSVの反映
+              </h2>
+            </div>
+            <div className={styles.confirmBody}>
+              <p className={styles.confirmText}>この内容を反映しますか？</p>
+              <ul className={styles.csvChangeList}>
+                {csvPreview.lines.map((line, index) => (
+                  <li key={`${index}-${line}`} className={styles.csvChangeItem}>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              {csvPreview.notes.length > 0 && (
+                <p className={styles.csvChangeNote}>
+                  取り込みできない行が {csvPreview.notes.length} 件あります。反映する一覧には入っていません。
+                </p>
+              )}
+            </div>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.btnSecondary}
+                type="button"
+                onClick={() => setCsvPreview(null)}
+                disabled={csvBusy}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnPrimary}
+                type="button"
+                onClick={() => void applyCsvPreview()}
+                disabled={csvBusy}
+              >
+                {csvBusy ? '反映中...' : '反映する'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {deleteTarget && (

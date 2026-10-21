@@ -6,7 +6,7 @@
  *
  *   1. 送信確認: トークンを発行して Neon に status='pending' で登録し、
  *      確認URL付きのメールを Gmail API で送信する
- *   2. 従業員が確認URLを開き、ページの「確認する」ボタンを押すと
+ *   2. 従業員がメールに書かれたページを開き、「記録する」を押すと
  *      Vercel の /api/verify-email が status='verified' に更新する
  *   3. 状態更新: Neon を照会して結果を返す（ローカル DB への反映は IPC 側）
  *
@@ -72,13 +72,12 @@ function buildVerifyUrl(baseUrl: string, token: string): string {
 /**
  * 到達確認メールの文面を組み立てる。
  *
- * 「知らないドメインのリンクを押させる確認メール」はフィッシングの典型形のため、
- * 迷惑メール判定を避けるよう次の点に配慮している。
- *   - 件名に煽り表現（【要確認】等）を入れず、会社名を含めて事務連絡と分かるようにする
- *   - 迷惑メール関連の語句を本文に含めない（フィルタの減点要因になりうる）
- *   - 送信理由と問い合わせ先を明記する
- *   - ボタンの下に実URLも併記する。装飾が落ちる受信環境への保険を兼ねつつ、
- *     リンク先を隠さないことで警戒されにくくする
+ * キャリアメールは「確認のご案内＋色付きの確認ボタン＋見知らぬURL」を
+ * 詐欺メールとして落とす。次の形にする。
+ *   - 件名は給与担当からの事務連絡（確認・要対応・【】を使わない）
+ *   - 本文に押させるボタンを置かない。ページのURLは文章中の地の文として書く
+ *   - 「心当たりがない場合」など、詐欺メールで定番の結語を使わない
+ *   - 入力を求めないことと、返信先を書く
  */
 function buildMailBody(params: {
   employeeName: string;
@@ -88,41 +87,39 @@ function buildMailBody(params: {
 }): { subject: string; body: string; html: string } {
   const { employeeName, companyName, verifyUrl, senderAddress } = params;
   const company = companyName.trim().length > 0 ? companyName.trim() : '給与担当';
-  const subject = `給与明細メール配信の事前確認のご案内（${company}）`;
+  const subject = `${company} 給与明細の送付先についてのご連絡`;
 
-  const contactLine =
+  const replyLine =
     senderAddress.length > 0
-      ? `心当たりがない場合は ${senderAddress} までご連絡ください。`
-      : '心当たりがない場合は給与担当までご連絡ください。';
+      ? `このメールに覚えがないときは、${senderAddress} へ返信してください。`
+      : 'このメールに覚えがないときは、給与担当へ返信してください。';
 
   const body = [
     `${employeeName} 様`,
     '',
-    `${company} 給与担当です。`,
-    '給与明細をメールでお届けするため、このアドレスで受信できるかを確認しています。',
-    '',
-    '下記のページを開き、「確認する」を押してください。',
+    `${company}の給与担当です。`,
+    'これから給与明細を、このメールアドレスへお送りします。',
+    '届いたことを社内の記録に残すため、下のページを一度開き、表示に従って操作してください。',
+    '氏名や番号の入力はありません。',
     '',
     verifyUrl,
     '',
-    contactLine,
+    replyLine,
     '',
-    company,
+    `${company}`,
+    '給与担当',
   ].join('\n');
 
   const url = escapeHtml(verifyUrl);
   const html = `<div style="font-family:'Hiragino Sans','Yu Gothic',Meiryo,sans-serif;font-size:14px;color:#1f2937;line-height:1.8;">
   <p>${escapeHtml(employeeName)} 様</p>
-  <p>${escapeHtml(company)} 給与担当です。<br>
-  給与明細をメールでお届けするため、このアドレスで受信できるかを確認しています。</p>
-  <p>下記のボタンを押してください。</p>
-  <p style="margin:24px 0;">
-    <a href="${url}" style="display:inline-block;padding:13px 32px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">確認する</a>
-  </p>
-  <p style="font-size:13px;color:#6b7280;">ボタンが押せない場合は、下記のURLを開いてください。<br>
-  <a href="${url}" style="color:#2563eb;">${url}</a></p>
-  <p style="font-size:13px;color:#6b7280;">${escapeHtml(contactLine)}</p>
-  <p style="margin-top:24px;">${escapeHtml(company)}</p>
+  <p>${escapeHtml(company)}の給与担当です。<br>
+  これから給与明細を、このメールアドレスへお送りします。<br>
+  届いたことを社内の記録に残すため、下のページを一度開き、表示に従って操作してください。<br>
+  氏名や番号の入力はありません。</p>
+  <p style="word-break:break-all;"><a href="${url}" style="color:#1f2937;text-decoration:underline;">${url}</a></p>
+  <p>${escapeHtml(replyLine)}</p>
+  <p>${escapeHtml(company)}<br>給与担当</p>
 </div>`;
 
   return { subject, body, html };

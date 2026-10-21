@@ -33,13 +33,15 @@ import {
   type ClockInConfig,
 } from '../../shared/time-rounding.js';
 import { getNationalHolidaySet } from '../../shared/holidays-jp.js';
-import type {
-  IpcResult,
-  AttendanceRecord,
-  AttendanceUpsert,
-  AttendanceSyncResult,
-  AttendanceWarning,
-  RawPunch,
+import {
+  effectiveOvertimeAllowed,
+  earlyWorkApplies,
+  type IpcResult,
+  type AttendanceRecord,
+  type AttendanceUpsert,
+  type AttendanceSyncResult,
+  type AttendanceWarning,
+  type RawPunch,
 } from '../../shared/types.js';
 
 function getNeonConfig(): NeonConfig {
@@ -200,10 +202,13 @@ function roundAndUpsertOne(
   if (existing?.dataSource === 'manual') return;
   if (!rawIn) return;
 
+  const earlyOn = earlyWorkApplies(emp.employee_type, !!emp.overtime_allowed);
+  const earlyStart = earlyOn ? emp.early_work_start : null;
+  const earlyEnd = earlyOn ? emp.early_work_end : null;
   const clockInConfig: ClockInConfig = {
     scheduledStart: emp.scheduled_start,
-    earlyWorkStart: emp.early_work_start,
-    earlyWorkEnd: emp.early_work_end,
+    earlyWorkStart: earlyStart,
+    earlyWorkEnd: earlyEnd,
     roundingUnit: company.rounding_unit,
     gracePeriod: company.grace_period,
   };
@@ -211,7 +216,7 @@ function roundAndUpsertOne(
   const rawInHHMM = rawIn.slice(0, 5);
   // 休日は平日定時へ上げず、早出開始（未設定なら実打刻の切捨て）で丸める
   const clockIn = isHoliday
-    ? roundHolidayClockIn(rawInHHMM, company.rounding_unit, company.grace_period, emp.early_work_start)
+    ? roundHolidayClockIn(rawInHHMM, company.rounding_unit, company.grace_period, earlyStart)
     : roundClockIn(rawInHHMM, clockInConfig).time;
   // 実打刻に退勤が無い日は、手入力した退勤を消さない
   let clockOut = rawOut ? roundClockOut(rawOut.slice(0, 5), company.rounding_unit) : null;
@@ -232,8 +237,8 @@ function roundAndUpsertOne(
   // 早出は丸め後の出勤時刻から数える（07:40→08:00 なら 08:00〜早出終了）。実打刻は変更しない。
   let earlyOvertimeMinutes = calcEarlyOvertime(
     clockIn,
-    emp.early_work_start,
-    emp.early_work_end,
+    earlyStart,
+    earlyEnd,
     company.early_rounding_unit,
   );
   let isHolidayWork = false;
@@ -245,7 +250,7 @@ function roundAndUpsertOne(
       clockOut,
       emp.scheduled_start,
       emp.scheduled_end,
-      emp.early_work_start,
+      earlyStart,
       company.early_rounding_unit,
       goOutMinutes,
       company.default_break_minutes,
@@ -269,7 +274,7 @@ function roundAndUpsertOne(
     const workStartMin = toMinutes(clockIn);
     let workEndMin = toMinutes(clockOut);
     const scheduledEndMin = toMinutes(emp.scheduled_end);
-    const overtimeAllowed = !!emp.overtime_allowed;
+    const overtimeAllowed = effectiveOvertimeAllowed(emp.employee_type, !!emp.overtime_allowed);
 
     if (!overtimeAllowed) {
       workEndMin = Math.min(workEndMin, scheduledEndMin);

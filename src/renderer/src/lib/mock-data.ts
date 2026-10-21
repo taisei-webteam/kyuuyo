@@ -795,7 +795,7 @@ import { getSettings } from './settings-store'
 import { calcWithholdingTaxByTable } from '../../../shared/income-tax-jp'
 import type { AttendanceRecord, RawPunch, Employee, EmployeeCreate, EmailVerifyStatus, Payslip, PayslipCreate, PayslipExtraLine, PaidLeaveUsage, PaidLeaveStatus, InsuranceRate } from '../../../shared/types'
 import { loadDevSnapshot } from './dev-db-snapshot'
-import { confirmedPaidLeaveDays } from '../../../shared/types'
+import { confirmedPaidLeaveDays, earlyWorkApplies, effectiveOvertimeAllowed } from '../../../shared/types'
 
 export type { PayslipExtraLine } from '../../../shared/types'
 
@@ -1046,10 +1046,11 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
   const holidayMode = emp?.holidayMode ?? 'calendar'
   const settings = getSettings()
 
+  const earlyOn = emp ? earlyWorkApplies(emp.employeeType, emp.overtimeAllowed) : false
   const clockInConfig: ClockInConfig = {
     scheduledStart,
-    earlyWorkStart: emp?.earlyWorkStart ?? null,
-    earlyWorkEnd: emp?.earlyWorkEnd ?? null,
+    earlyWorkStart: earlyOn ? (emp?.earlyWorkStart ?? null) : null,
+    earlyWorkEnd: earlyOn ? (emp?.earlyWorkEnd ?? null) : null,
     roundingUnit: settings.roundingUnit,
     gracePeriod: settings.gracePeriod,
   }
@@ -1136,8 +1137,8 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
 
     const earlyOvertimeMinutes = calcEarlyOvertime(
       clockIn,
-      emp?.earlyWorkStart ?? null,
-      emp?.earlyWorkEnd ?? null,
+      earlyOn ? (emp?.earlyWorkStart ?? null) : null,
+      earlyOn ? (emp?.earlyWorkEnd ?? null) : null,
       settings.earlyRoundingUnit,
     )
 
@@ -1159,7 +1160,9 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
     const workStartMin = timeToMinutes(clockIn)
     let workEndMin = timeToMinutes(clockOut)
 
-    const overtimeAllowed = emp?.employeeType === 'パート' ? true : (emp?.overtimeAllowed ?? true)
+    const overtimeAllowed = emp
+      ? effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)
+      : true
     const overtimeStart = emp?.overtimeStart ?? null
     const overtimeEnd = emp?.overtimeEnd ?? null
 
@@ -1186,7 +1189,7 @@ function generateAttendance(employeeId: number, year: number, month: number): Mo
         clockOut,
         scheduledStart,
         scheduledEnd,
-        emp.earlyWorkStart,
+        earlyOn ? emp.earlyWorkStart : null,
         settings.earlyRoundingUnit,
         goOutMinutes,
         settings.defaultBreakMinutes,
@@ -1259,6 +1262,70 @@ export interface AttendanceAggregate {
 }
 
 /**
+ * 打刻から1日の労働・残業・早出を出す。
+ * 早出はパートだけ。社員は残業不可なので定時の外は労働時間に入れない。
+ */
+export function dayLaborFromClocks(
+  clockIn: string,
+  clockOut: string,
+  isHoliday: boolean,
+  emp: MockEmployee,
+  goOut: string | null,
+  goReturn: string | null,
+): { workMinutes: number; overtimeMinutes: number; earlyOvertimeMinutes: number; breakMinutes: number } {
+  const settings = getSettings()
+  const goOutMinutes = unpaidGoOutMinutes(goOut, goReturn)
+  const earlyOn = earlyWorkApplies(emp.employeeType, emp.overtimeAllowed)
+  const inHm = clockIn.slice(0, 5)
+  const outHm = clockOut.slice(0, 5)
+  if (emp.employeeType === 'パート') {
+    const labor = partTimeLaborMinutes(
+      inHm,
+      outHm,
+      emp.scheduledStart,
+      emp.scheduledEnd,
+      earlyOn ? emp.earlyWorkStart : null,
+      settings.earlyRoundingUnit,
+      goOutMinutes,
+      settings.defaultBreakMinutes,
+    )
+    return {
+      workMinutes: labor.workMinutes,
+      overtimeMinutes: labor.overtimeMinutes,
+      earlyOvertimeMinutes: 0,
+      breakMinutes: labor.breakMinutes,
+    }
+  }
+  let inMin = toMinutes(inHm)
+  let outMin = toMinutes(outHm)
+  if (!isHoliday && !earlyOn) inMin = Math.max(inMin, toMinutes(emp.scheduledStart))
+  const overtimeAllowed = effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)
+  if (!isHoliday && !overtimeAllowed) {
+    outMin = Math.min(outMin, toMinutes(emp.scheduledEnd))
+  } else if (!isHoliday && emp.overtimeEnd) {
+    outMin = Math.min(outMin, toMinutes(emp.overtimeEnd))
+  }
+  const spanMinutes = Math.max(0, outMin - inMin - goOutMinutes)
+  const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
+  const earlyOvertimeMinutes = earlyOn
+    ? calcEarlyOvertime(inHm, emp.earlyWorkStart, emp.earlyWorkEnd, settings.earlyRoundingUnit)
+    : 0
+  const workMinutes = Math.max(0, spanMinutes - breakMinutes - earlyOvertimeMinutes)
+  let overtimeMinutes = 0
+  if (!isHoliday && overtimeAllowed) {
+    if (emp.overtimeStart) {
+      const rawOut = toMinutes(outHm)
+      const effectiveEnd = emp.overtimeEnd ? Math.min(rawOut, toMinutes(emp.overtimeEnd)) : rawOut
+      overtimeMinutes = Math.max(0, effectiveEnd - toMinutes(emp.overtimeStart))
+    } else {
+      const scheduled = scheduledWorkMinutes(emp.scheduledStart, emp.scheduledEnd, settings.defaultBreakMinutes)
+      overtimeMinutes = Math.max(0, workMinutes - scheduled)
+    }
+  }
+  return { workMinutes, overtimeMinutes, earlyOvertimeMinutes, breakMinutes }
+}
+
+/**
  * 給与集計用の労働時間。
  * タイムカード実働に、確定有給の不足分（所定 − タイムカード）を足す。
  * 半休は打刻との差分、打刻のない全日休は所定労働時間まるごと。予定は含めない。
@@ -1266,25 +1333,8 @@ export interface AttendanceAggregate {
 function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefined): number {
   const settings = getSettings()
   let timecard = r.workMinutes
-  if (r.clockIn && r.clockOut && emp?.employeeType === 'パート') {
-    // 定時の外は時間外なので、基本給の時間には入れない
-    timecard = partTimeLaborMinutes(
-      r.clockIn,
-      r.clockOut,
-      emp.scheduledStart,
-      emp.scheduledEnd,
-      emp.earlyWorkStart,
-      settings.earlyRoundingUnit,
-      unpaidGoOutMinutes(r.goOut, r.goReturn),
-      settings.defaultBreakMinutes,
-    ).workMinutes
-  } else if (r.clockIn && r.clockOut) {
-    const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
-    const inMin = toMinutes(r.clockIn)
-    const outMin = toMinutes(r.clockOut)
-    const spanMinutes = Math.max(0, outMin - inMin - goOutMinutes)
-    const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
-    timecard = Math.max(0, spanMinutes - breakMinutes - (r.earlyOvertimeMinutes ?? 0))
+  if (r.clockIn && r.clockOut && emp) {
+    timecard = dayLaborFromClocks(r.clockIn, r.clockOut, r.isHoliday, emp, r.goOut, r.goReturn).workMinutes
   }
   const scheduled = scheduledWorkMinutes(
     emp?.scheduledStart ?? '09:00',
@@ -1299,56 +1349,23 @@ function workMinutesForPayslip(r: AttendanceRecord, emp: MockEmployee | undefine
   )
 }
 
-function clockHm(time: string): string {
-  return time.slice(0, 5)
-}
-
 /**
  * 社員の1日の残業分。勤怠画面と同じく打刻から計算する。
  * 手修正した日は再丸めで overtime_minutes が更新されないため、保存値は使わない。
  */
 function regularOvertimeMinutes(r: AttendanceRecord, emp: MockEmployee): number {
-  if (!r.clockIn || !r.clockOut) return r.overtimeMinutes
-  if (r.isHoliday || emp.overtimeAllowed === false) return 0
-  const settings = getSettings()
-  const outMin = toMinutes(clockHm(r.clockOut))
-  if (emp.overtimeStart) {
-    const effectiveEnd = emp.overtimeEnd
-      ? Math.min(outMin, toMinutes(emp.overtimeEnd))
-      : outMin
-    return Math.max(0, effectiveEnd - toMinutes(emp.overtimeStart))
+  if (!r.clockIn || !r.clockOut) {
+    return effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed) ? r.overtimeMinutes : 0
   }
-  const clockIn = clockHm(r.clockIn)
-  const goOutMinutes = unpaidGoOutMinutes(r.goOut, r.goReturn)
-  const spanMinutes = Math.max(0, outMin - toMinutes(clockIn) - goOutMinutes)
-  const breakMinutes = calcBreakMinutes(spanMinutes, settings.defaultBreakMinutes)
-  const early = calcEarlyOvertime(
-    clockIn,
-    emp.earlyWorkStart,
-    emp.earlyWorkEnd,
-    settings.earlyRoundingUnit,
-  )
-  const workMinutes = Math.max(0, spanMinutes - breakMinutes - early)
-  const scheduled = scheduledWorkMinutes(
-    emp.scheduledStart,
-    emp.scheduledEnd,
-    settings.defaultBreakMinutes,
-  )
-  return Math.max(0, workMinutes - scheduled)
+  if (r.isHoliday || !effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed)) return 0
+  return dayLaborFromClocks(r.clockIn, r.clockOut, r.isHoliday, emp, r.goOut, r.goReturn).overtimeMinutes
 }
 
-/** 社員の早出分。打刻が無い日だけ保存値を使う。 */
+/** 早出の割増分。パートの定時前は時間外に含まれる。社員・役員は 0。 */
 function earlyOvertimeForRecord(r: AttendanceRecord, emp: MockEmployee | undefined): number {
-  if (!emp) return r.earlyOvertimeMinutes
-  if (emp.employeeType === 'パート') return 0
-  if (!r.clockIn) return r.earlyOvertimeMinutes
-  const settings = getSettings()
-  return calcEarlyOvertime(
-    clockHm(r.clockIn),
-    emp.earlyWorkStart,
-    emp.earlyWorkEnd,
-    settings.earlyRoundingUnit,
-  )
+  if (!emp || !r.clockIn || !r.clockOut) return 0
+  if (!earlyWorkApplies(emp.employeeType, emp.overtimeAllowed)) return 0
+  return dayLaborFromClocks(r.clockIn, r.clockOut, r.isHoliday, emp, r.goOut, r.goReturn).earlyOvertimeMinutes
 }
 
 /**
@@ -1374,7 +1391,7 @@ export function aggregateAttendanceRecords(
         r.clockOut,
         emp.scheduledStart,
         emp.scheduledEnd,
-        emp.earlyWorkStart,
+        earlyWorkApplies(emp.employeeType, emp.overtimeAllowed) ? emp.earlyWorkStart : null,
         getSettings().earlyRoundingUnit,
         unpaidGoOutMinutes(r.goOut, r.goReturn),
         getSettings().defaultBreakMinutes,
@@ -1860,7 +1877,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     holidayMode: m.holidayMode,
     earlyWorkStart: m.earlyWorkStart,
     earlyWorkEnd: m.earlyWorkEnd,
-    overtimeAllowed: m.overtimeAllowed,
+    overtimeAllowed: effectiveOvertimeAllowed(m.employeeType, m.overtimeAllowed),
     overtimeStart: m.overtimeStart,
     overtimeEnd: m.overtimeEnd,
     bonusEligible: m.bonusEligible ?? false,
@@ -1999,6 +2016,9 @@ export function buildAttendanceDaysFromRecords(
       : holidayMode === 'calendar'
         ? isCalendarHoliday(dateStr, year)
         : holidayDays.includes(dow)
+    const labor = rec?.clockIn && rec.clockOut && emp
+      ? dayLaborFromClocks(rec.clockIn, rec.clockOut, isHoliday, emp, rec.goOut, rec.goReturn)
+      : null
 
     days.push({
       date: dateStr,
@@ -2010,9 +2030,11 @@ export function buildAttendanceDaysFromRecords(
       stampOut: null,
       goOut: toHm(rec?.goOut ?? raw?.rawGoOut ?? null),
       goReturn: toHm(rec?.goReturn ?? raw?.rawGoReturn ?? null),
-      workMinutes: rec?.workMinutes ?? 0,
-      overtimeMinutes: rec?.overtimeMinutes ?? 0,
-      earlyOvertimeMinutes: rec?.earlyOvertimeMinutes ?? 0,
+      workMinutes: labor?.workMinutes ?? rec?.workMinutes ?? 0,
+      overtimeMinutes: labor?.overtimeMinutes ?? (
+        emp && !effectiveOvertimeAllowed(emp.employeeType, emp.overtimeAllowed) ? 0 : (rec?.overtimeMinutes ?? 0)
+      ),
+      earlyOvertimeMinutes: labor?.earlyOvertimeMinutes ?? 0,
       isHoliday,
       isHolidayWork: rec ? !!rec.isHolidayWork : false,
       paidLeaveUsage: rec?.paidLeaveUsage ?? null,

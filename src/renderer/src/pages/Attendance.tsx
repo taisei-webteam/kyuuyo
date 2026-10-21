@@ -4,6 +4,7 @@ import {
   getEmployees,
   getAttendance,
   buildAttendanceDaysFromRecords,
+  dayLaborFromClocks,
   mapDbEmployeeToMock,
   reloadEmployeesFromDb,
   isEmployedInMonth,
@@ -15,11 +16,12 @@ import {
 import { buildYearSelectOptions } from '@/lib/year-options'
 import { AttendanceBookModal } from '@/components/AttendanceBookModal'
 import { getSettings } from '@/lib/settings-store'
-import { floorToUnit, calcBreakMinutes, calcEarlyOvertime, unpaidGoOutMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes, partTimeLaborMinutes } from '@/lib/time-rounding'
+import { floorToUnit, calcBreakMinutes, unpaidGoOutMinutes, scheduledWorkMinutes, paidLeaveSupplementMinutes } from '@/lib/time-rounding'
 import {
   paidLeaveUsageToDays,
   confirmedPaidLeaveDays,
   paidLeaveUsagesForEmployeeType,
+  earlyWorkApplies,
   PAID_LEAVE_USAGE_LABELS,
   type PaidLeaveUsage,
   type AttendanceRecord,
@@ -85,54 +87,17 @@ function recalcFromTimes(
   earlyOvertimeMinutes: number
   breakMinutes: number
 } {
+  if (employee) {
+    return dayLaborFromClocks(clockIn, clockOut, isHoliday, employee, goOut, goReturn)
+  }
   const settings = getSettings()
   const goOutMinutes = unpaidGoOutMinutes(goOut, goReturn)
-  // パートは残業不可でも、定時の前と後を時間外にする（休日も同じ）
-  if (employee?.employeeType === 'パート') {
-    return partTimeLaborMinutes(
-      clockIn,
-      clockOut,
-      employee.scheduledStart,
-      employee.scheduledEnd,
-      employee.earlyWorkStart,
-      settings.earlyRoundingUnit,
-      goOutMinutes,
-      settings.defaultBreakMinutes,
-    )
-  }
   const inMin = parseTimeToMinutes(clockIn)
   const outMin = parseTimeToMinutes(clockOut)
   const span = Math.max(0, outMin - inMin - goOutMinutes)
   const breakMinutes = calcBreakMinutes(span, settings.defaultBreakMinutes)
-  const earlyOvertimeMinutes = calcEarlyOvertime(
-    clockIn,
-    employee?.earlyWorkStart ?? null,
-    employee?.earlyWorkEnd ?? null,
-    settings.earlyRoundingUnit,
-  )
-  // iPad丸めと同じ: 早出は労働時間から分け、残業には入れない
-  let workMinutes = Math.max(0, span - breakMinutes)
-  workMinutes = Math.max(0, workMinutes - earlyOvertimeMinutes)
-
-  let overtimeMinutes = 0
-  if (!isHoliday) {
-    if (employee?.overtimeAllowed === false) {
-      overtimeMinutes = 0
-    } else if (employee?.overtimeStart) {
-      const otStartMin = parseTimeToMinutes(employee.overtimeStart)
-      const effectiveEnd = employee.overtimeEnd
-        ? Math.min(outMin, parseTimeToMinutes(employee.overtimeEnd))
-        : outMin
-      overtimeMinutes = Math.max(0, effectiveEnd - otStartMin)
-    } else {
-      const scheduledStart = parseTimeToMinutes(employee?.scheduledStart ?? '08:30')
-      const scheduledEnd = parseTimeToMinutes(employee?.scheduledEnd ?? '17:30')
-      const scheduledMinutes = scheduledEnd - scheduledStart - settings.defaultBreakMinutes
-      overtimeMinutes = Math.max(0, workMinutes - scheduledMinutes)
-    }
-  }
-
-  return { workMinutes, overtimeMinutes, earlyOvertimeMinutes, breakMinutes }
+  const workMinutes = Math.max(0, span - breakMinutes)
+  return { workMinutes, overtimeMinutes: 0, earlyOvertimeMinutes: 0, breakMinutes }
 }
 
 /** タイムカード労働時間に、確定有給の不足分を足した労働時間（分） */
@@ -809,7 +774,8 @@ export function Attendance(): ReactElement {
                 <span className={styles.scheduleBadge}>
                   定時 {selectedEmployee.scheduledStart}〜{selectedEmployee.scheduledEnd}
                 </span>
-                {selectedEmployee.earlyWorkStart && selectedEmployee.earlyWorkEnd && (
+                {earlyWorkApplies(selectedEmployee.employeeType, selectedEmployee.overtimeAllowed)
+                  && selectedEmployee.earlyWorkStart && selectedEmployee.earlyWorkEnd && (
                   <span className={styles.scheduleBadge}>
                     早出 {selectedEmployee.earlyWorkStart}〜{selectedEmployee.earlyWorkEnd}
                   </span>

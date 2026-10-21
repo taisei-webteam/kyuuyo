@@ -59,7 +59,7 @@ Vercel にデプロイし、iPad の Safari でデプロイ先 URL を開き「�
 
 給与明細メールが従業員（多くはキャリアアドレス）に届くかを確認する仕組み。
 Windows アプリの従業員編集画面「送信確認」から確認メールを送信し、
-従業員がメール内のURLを開いて「確認する」ボタンを押すと確認済みになります。
+従業員がメールに書かれたページを開いて「記録する」を押すと確認済みになります。
 
 - `GET /api/verify-email?token=...` — 確認ページを表示（この時点では確定しない）
 - `POST /api/verify-email?token=...` — 確認を確定（`email_verifications.status = 'verified'`）
