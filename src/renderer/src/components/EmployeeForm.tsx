@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
-import { earlyWorkApplies, effectiveOvertimeAllowed, type EmailVerifyStatus } from '../../../shared/types'
+import { effectiveOvertimeAllowed, type EmailVerifyStatus } from '../../../shared/types'
 import type { MockEmployee, HolidayMode } from '@/lib/mock-data'
 import { calcAge, nextEmployeeId } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
@@ -425,7 +425,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         }))
                       }
                       placeholder="未設定"
-                      disabled={!earlyWorkApplies(form.employeeType, form.overtimeAllowed)}
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                   <div className={styles.field}>
@@ -440,7 +440,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         }))
                       }
                       placeholder="未設定"
-                      disabled={!earlyWorkApplies(form.employeeType, form.overtimeAllowed)}
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                 </div>
@@ -454,13 +454,14 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                         setForm((prev) => ({
                           ...prev,
                           overtimeAllowed: !e.target.checked,
-                          overtimeStart: e.target.checked ? null : (prev.overtimeStart ?? prev.scheduledEnd),
-                          overtimeEnd: e.target.checked ? null : (prev.overtimeEnd ?? '22:00'),
                         }))
                       }
                     />
                     残業不可
                   </label>
+                  <p className={styles.fieldNote}>
+                    チェックすると、勤怠アプリの時間外は反映しません。残業は残業日報を見て、給与作成画面の残業時間に手入力してください。
+                  </p>
                 </div>
                 <div className={styles.timePair}>
                   <div className={styles.field}>
@@ -474,8 +475,8 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                           overtimeStart: e.target.value || null,
                         }))
                       }
-                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                       placeholder="未設定"
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                   <div className={styles.field}>
@@ -489,8 +490,8 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                           overtimeEnd: e.target.value || null,
                         }))
                       }
-                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                       placeholder="未設定"
+                      disabled={!effectiveOvertimeAllowed(form.employeeType, form.overtimeAllowed)}
                     />
                   </div>
                 </div>

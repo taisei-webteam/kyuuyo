@@ -21,9 +21,10 @@ export function effectiveOvertimeAllowed(employeeType: string, overtimeAllowed: 
   return overtimeAllowed;
 }
 
-/** 早出を勤怠計算に使うのはパートだけ。残業不可のときは使わない。 */
+/** 早出を勤怠に反映するのは、残業不可にしていない社員とパート。 */
 export function earlyWorkApplies(employeeType: string, overtimeAllowed: boolean): boolean {
-  return employeeType === 'パート' && effectiveOvertimeAllowed(employeeType, overtimeAllowed);
+  if (employeeType === '役員') return false;
+  return effectiveOvertimeAllowed(employeeType, overtimeAllowed);
 }
 export type HolidayMode = 'calendar' | 'individual';
 
