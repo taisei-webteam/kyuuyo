@@ -66,6 +66,8 @@ export const employees = sqliteTable('employees', {
   residentTax: integer('resident_tax').notNull().default(0),
   savingsDeduction: integer('savings_deduction').notNull().default(0),
   loanDeduction: integer('loan_deduction').notNull().default(0),
+  /** 共済掛金（月額・円）。給与作成の控除初期値 */
+  kyosaiDeduction: integer('kyosai_deduction').notNull().default(0),
   dependents: integer('dependents').notNull().default(0),
   scheduledStart: text('scheduled_start').notNull().default('09:00'),
   scheduledEnd: text('scheduled_end').notNull().default('18:00'),
@@ -171,6 +173,8 @@ export const payslips = sqliteTable('payslips', {
   residentTax: integer('resident_tax').notNull().default(0),
   savingsDeduction: integer('savings_deduction').notNull().default(0),
   loanDeduction: integer('loan_deduction').notNull().default(0),
+  /** 共済掛金（円）。明細の固定控除 */
+  kyosaiDeduction: integer('kyosai_deduction').notNull().default(0),
   otherDeduction: integer('other_deduction').notNull().default(0),
   totalDeduction: integer('total_deduction').notNull().default(0),
   netPayment: integer('net_payment').notNull().default(0),

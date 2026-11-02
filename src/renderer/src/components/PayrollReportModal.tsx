@@ -63,6 +63,7 @@ interface ReportRow {
   residentTax: number
   savingsDeduction: number
   loanDeduction: number
+  kyosaiDeduction: number
   otherDeduction: number
   extraDeduction: number
   totalDeduction: number
@@ -75,7 +76,7 @@ interface PayrollReportModalProps {
   onClose: () => void
 }
 
-/** 固定3列 + 支払10列 + 控除10列（健康保険〜貸付、空欄、控除額合計） */
+/** 固定3列 + 支払10列 + 控除10列（健康保険〜共済掛金、控除額合計） */
 const PAYROLL_TABLE_COLS = 23
 /** 1枚あたりの人数。合計行は人数に含めず最終ページだけに出す */
 const ROWS_PER_PAGE = 29
@@ -132,6 +133,7 @@ export function PayrollReportModal({
           residentTax: ps.residentTax,
           savingsDeduction: ps.savingsDeduction,
           loanDeduction: ps.loanDeduction,
+          kyosaiDeduction: ps.kyosaiDeduction ?? 0,
           otherDeduction: ps.otherDeduction,
           extraDeduction: sumExtraLines(deductionExtras),
           totalDeduction: ps.totalDeduction,
@@ -152,7 +154,7 @@ export function PayrollReportModal({
       transportAllowance: 0, salesAllowance: 0, dangerAllowance: 0, extraPayment: 0, totalPayment: 0,
       healthInsurance: 0, nursingInsurance: 0, welfarePension: 0,
       employmentInsurance: 0, incomeTax: 0, residentTax: 0,
-      savingsDeduction: 0, loanDeduction: 0, otherDeduction: 0, extraDeduction: 0, totalDeduction: 0,
+      savingsDeduction: 0, loanDeduction: 0, kyosaiDeduction: 0, otherDeduction: 0, extraDeduction: 0, totalDeduction: 0,
     }
     for (const r of rows) {
       for (const k of Object.keys(t) as (keyof typeof t)[]) {
@@ -261,7 +263,7 @@ export function PayrollReportModal({
                   <th className={styles.thAmount}>住民税</th>
                   <th className={styles.thAmount}>積立</th>
                   <th className={styles.thAmount}>貸付</th>
-                  <th className={styles.thAmount}></th>
+                  <th className={styles.thAmount}>共済掛金</th>
                   <th className={styles.thAmountTotal}>控除額<br />合計</th>
                 </tr>
               </thead>
@@ -289,7 +291,7 @@ export function PayrollReportModal({
                     <td className={styles.tdAmount}>{num(r.residentTax)}</td>
                     <td className={styles.tdAmount}>{num(r.savingsDeduction)}</td>
                     <td className={styles.tdAmount}>{num(r.loanDeduction)}</td>
-                    <td className={styles.tdAmount}></td>
+                    <td className={styles.tdAmount}>{num(r.kyosaiDeduction)}</td>
                     <td className={styles.tdAmountTotal}>{num(r.totalDeduction)}</td>
                   </tr>
                 ))}
@@ -318,7 +320,7 @@ export function PayrollReportModal({
                   <td className={styles.tdAmount}>{num(totals.residentTax)}</td>
                   <td className={styles.tdAmount}>{num(totals.savingsDeduction)}</td>
                   <td className={styles.tdAmount}>{num(totals.loanDeduction)}</td>
-                  <td className={styles.tdAmount}></td>
+                  <td className={styles.tdAmount}>{num(totals.kyosaiDeduction)}</td>
                   <td className={styles.tdAmountTotal}>{num(totals.totalDeduction)}</td>
                 </tr>
               </tfoot>

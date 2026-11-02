@@ -112,6 +112,7 @@ function initTables(): void {
       resident_tax INTEGER NOT NULL DEFAULT 0,
       savings_deduction INTEGER NOT NULL DEFAULT 0,
       loan_deduction INTEGER NOT NULL DEFAULT 0,
+      kyosai_deduction INTEGER NOT NULL DEFAULT 0,
       dependents INTEGER NOT NULL DEFAULT 0,
       scheduled_start TEXT NOT NULL DEFAULT '09:00',
       scheduled_end TEXT NOT NULL DEFAULT '18:00',
@@ -204,6 +205,7 @@ function initTables(): void {
       resident_tax INTEGER NOT NULL DEFAULT 0,
       savings_deduction INTEGER NOT NULL DEFAULT 0,
       loan_deduction INTEGER NOT NULL DEFAULT 0,
+      kyosai_deduction INTEGER NOT NULL DEFAULT 0,
       other_deduction INTEGER NOT NULL DEFAULT 0,
       total_deduction INTEGER NOT NULL DEFAULT 0,
       net_payment INTEGER NOT NULL DEFAULT 0,
@@ -315,6 +317,8 @@ function runMigrations(raw: Database.Database): void {
   addColumn('employees', 'fixed_overtime_pay', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('employees', 'income_tax_exempt', 'INTEGER NOT NULL DEFAULT 0');
   addColumn('employees', 'health_insurance_manual', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('employees', 'kyosai_deduction', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn('payslips', 'kyosai_deduction', 'INTEGER NOT NULL DEFAULT 0');
 
   // payslips: 追加支給・控除行（JSON 配列）
   addColumn('payslips', 'extra_payment_lines', "TEXT NOT NULL DEFAULT '[]'");

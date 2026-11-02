@@ -45,6 +45,7 @@ const emptyEmployee: MockEmployee = {
   residentTax: 0,
   savingsDeduction: 0,
   loanDeduction: 0,
+  kyosaiDeduction: 0,
   dependents: 0,
   isActive: true,
   scheduledStart: '09:00',
@@ -697,6 +698,13 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                   <ClearableNumberInput
                     value={form.loanDeduction}
                     onValue={(next) => handleChange('loanDeduction', next ?? 0)}
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label>共済掛金</label>
+                  <ClearableNumberInput
+                    value={form.kyosaiDeduction ?? 0}
+                    onValue={(next) => handleChange('kyosaiDeduction', next ?? 0)}
                   />
                 </div>
                 <div className={styles.field}>

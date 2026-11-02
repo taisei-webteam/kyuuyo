@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import type { MockEmployee, MockPayslip } from '@/lib/mock-data'
+import { anchorLoanAndKyosai, type MockEmployee, type MockPayslip } from '@/lib/mock-data'
 import { formatPaidLeaveDays } from '../../../shared/types'
 import { getSettings } from '@/lib/settings-store'
 import { manualDemoLogo } from '@/lib/manual-demo-flag'
@@ -83,13 +83,15 @@ function PayslipBlock({
   variant,
   paymentDate,
 }: BlockProps): ReactElement {
-  const payslip = forPrintPayslip(rawPayslip)
+  const payslip = variant === 'salary'
+    ? anchorLoanAndKyosai(forPrintPayslip(rawPayslip))
+    : forPrintPayslip(rawPayslip)
   const visiblePaymentExtras = visibleExtraLines(resolvePaymentExtras(payslip, variant))
   const visibleDeductionExtras = visibleExtraLines(payslip.extraDeductionLines)
   const firstPaymentExtra = visiblePaymentExtras[0]
   const morePaymentExtras = visiblePaymentExtras.slice(1)
   const firstDeductionExtra = visibleDeductionExtras[0]
-  const moreDeductionExtras = visibleDeductionExtras.slice(1)
+  const moreDeductionExtras = variant === 'bonus' ? visibleDeductionExtras.slice(1) : visibleDeductionExtras
   const paymentRowSpan = 2 + morePaymentExtras.length
   const deductionRowSpan = 2 + moreDeductionExtras.length
 
@@ -195,7 +197,7 @@ function PayslipBlock({
             <th className={styles.colHead}>{variant === 'bonus' ? '' : '積立'}</th>
             <th className={styles.colHead}>所得税</th>
             <th className={styles.colHead}>{variant === 'bonus' ? '' : '住民税'}</th>
-            <th className={styles.colHead}>{variant === 'bonus' ? '' : '未払'}</th>
+            <th className={styles.colHead}>{variant === 'bonus' ? '' : '貸付'}</th>
             <th className={styles.colHead}>
               {variant === 'bonus' ? (firstDeductionExtra?.label ?? '') : '共済掛金'}
             </th>
@@ -208,11 +210,11 @@ function PayslipBlock({
             <td className={styles.val}>{variant === 'bonus' ? '' : num(payslip.savingsDeduction)}</td>
             <td className={styles.val}>{num(payslip.incomeTax)}</td>
             <td className={styles.val}>{variant === 'bonus' ? '' : num(payslip.residentTax)}</td>
-            <td className={styles.val}>{variant === 'bonus' ? '' : num(payslip.otherDeduction)}</td>
+            <td className={styles.val}>{variant === 'bonus' ? '' : num(payslip.loanDeduction)}</td>
             <td className={styles.val}>
               {variant === 'bonus'
                 ? (firstDeductionExtra ? num(firstDeductionExtra.amount) : '')
-                : num(payslip.loanDeduction)}
+                : num(payslip.kyosaiDeduction ?? 0)}
             </td>
           </tr>
           {moreDeductionExtras.map((line) => (

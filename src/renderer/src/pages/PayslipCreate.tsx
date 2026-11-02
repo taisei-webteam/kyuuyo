@@ -57,7 +57,7 @@ function buildPayslipCsv(
     '氏名', 'フリガナ', '部署', '従業員区分',
     '勤務日数', '勤務時間', '残業時間', '休日出勤日数', '有給日数',
     '基本給', '時間外賃金', '交通費', '役職手当', '家族手当', '特別手当', '危険手当', '営業手当', 'その他手当', '総支給額',
-    '健康保険', '介護保険', '厚生年金', '雇用保険', '所得税', '住民税', '積立', '貸付', 'その他控除', '控除合計',
+    '健康保険', '介護保険', '厚生年金', '雇用保険', '所得税', '住民税', '積立', '貸付', '共済掛金', '控除合計',
     '差引支給額',
   ]
   const lines = [headers.join(',')]
@@ -68,7 +68,7 @@ function buildPayslipCsv(
       p.basicSalary, p.overtimePay, p.transportAllowance, p.positionAllowance, p.familyAllowance,
       p.specialAllowance, p.dangerAllowance, p.salesAllowance, p.otherAllowance, p.totalPayment,
       p.healthInsurance, p.nursingInsurance, p.welfarePension, p.employmentInsurance,
-      p.incomeTax, p.residentTax, p.savingsDeduction, p.loanDeduction, p.otherDeduction, p.totalDeduction,
+      p.incomeTax, p.residentTax, p.savingsDeduction, p.loanDeduction, p.kyosaiDeduction ?? 0, p.totalDeduction,
       p.netPayment,
     ]
     lines.push(row.map(csvCell).join(','))
@@ -177,6 +177,7 @@ function recalcTotals(ps: MockPayslip): MockPayslip {
     ps.residentTax +
     ps.savingsDeduction +
     ps.loanDeduction +
+    (ps.kyosaiDeduction ?? 0) +
     ps.otherDeduction +
     extraDeductionTotal
 
@@ -958,7 +959,7 @@ export function PayslipCreate(): ReactElement {
             <>
               <p className={styles.notCreatedDesc}>
                 まだ作成されていません。<br />
-                勤怠と支給項目から給与を作ります。控除は雇用保険以外、0 から始まります。
+                勤怠と支給項目から給与を作ります。控除は雇用保険以外 0 から始まり、貸付と共済掛金は従業員管理の金額が入ります。
               </p>
               <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
                 {creating ? '作成中...' : `${selectedMonth}月分を作成`}
@@ -1227,6 +1228,8 @@ function PayslipDetail({
               <EditableRow label="厚生年金" value={payslip.welfarePension} onValue={setField('welfarePension')} />
               <EditableRow label="雇用保険" value={payslip.employmentInsurance} onValue={setField('employmentInsurance')} auto />
               <EditableRow label="住民税" value={payslip.residentTax} onValue={setField('residentTax')} />
+              <EditableRow label="貸付" value={payslip.loanDeduction} onValue={setField('loanDeduction')} />
+              <EditableRow label="共済掛金" value={payslip.kyosaiDeduction ?? 0} onValue={setField('kyosaiDeduction')} />
             </div>
             <ExtraLinesSection
               lines={payslip.extraDeductionLines ?? []}

@@ -128,6 +128,7 @@ function bonusToPayslipShape(b: MockBonus): MockPayslip {
     residentTax: 0,
     savingsDeduction: 0,
     loanDeduction: 0,
+    kyosaiDeduction: 0,
     otherDeduction: 0,
     totalDeduction: b.totalDeduction,
     netPayment: b.netPayment,

@@ -33,6 +33,7 @@ export interface EmployeeCsvPatch {
   residentTax?: number
   savingsDeduction?: number
   loanDeduction?: number
+  kyosaiDeduction?: number
   dependents?: number
   scheduledStart?: string
   scheduledEnd?: string
@@ -183,7 +184,7 @@ function textColumn(header: string, key: 'name' | 'nameKana' | 'email' | 'depart
 
 function intColumn(
   header: string,
-  key: 'displayOrder' | 'basicSalary' | 'hourlyRate' | 'standardMonthlyRemuneration' | 'transportAllowance' | 'taxableTransport' | 'positionAllowance' | 'familyAllowance' | 'specialAllowance' | 'dangerAllowance' | 'salesAllowance' | 'healthInsurance' | 'welfarePension' | 'residentTax' | 'savingsDeduction' | 'loanDeduction' | 'dependents' | 'employmentInsuranceOverage' | 'fixedOvertimePay',
+  key: 'displayOrder' | 'basicSalary' | 'hourlyRate' | 'standardMonthlyRemuneration' | 'transportAllowance' | 'taxableTransport' | 'positionAllowance' | 'familyAllowance' | 'specialAllowance' | 'dangerAllowance' | 'salesAllowance' | 'healthInsurance' | 'welfarePension' | 'residentTax' | 'savingsDeduction' | 'loanDeduction' | 'kyosaiDeduction' | 'dependents' | 'employmentInsuranceOverage' | 'fixedOvertimePay',
 ): CsvColumn {
   return {
     header,
@@ -302,6 +303,7 @@ const COLUMNS: CsvColumn[] = [
   intColumn('住民税', 'residentTax'),
   intColumn('財形貯蓄', 'savingsDeduction'),
   intColumn('貸付金', 'loanDeduction'),
+  intColumn('共済掛金', 'kyosaiDeduction'),
   intColumn('扶養人数', 'dependents'),
   requiredTimeColumn('定時開始', 'scheduledStart'),
   requiredTimeColumn('定時終了', 'scheduledEnd'),
@@ -375,6 +377,7 @@ function defaultEmployee(id: number, displayOrder: number): MockEmployee {
     residentTax: 0,
     savingsDeduction: 0,
     loanDeduction: 0,
+    kyosaiDeduction: 0,
     dependents: 0,
     isActive: true,
     scheduledStart: '09:00',

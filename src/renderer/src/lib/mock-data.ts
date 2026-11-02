@@ -177,6 +177,8 @@ export interface MockEmployee {
   residentTax: number
   savingsDeduction: number
   loanDeduction: number
+  /** 共済掛金（月額・円）。未設定は 0 */
+  kyosaiDeduction?: number
   dependents: number
   isActive: boolean
   scheduledStart: string
@@ -260,6 +262,8 @@ export interface MockPayslip {
   residentTax: number
   savingsDeduction: number
   loanDeduction: number
+  /** 共済掛金（円） */
+  kyosaiDeduction: number
   otherDeduction: number
   totalDeduction: number
   netPayment: number
@@ -445,30 +449,56 @@ export function padExtraLines(
   return next
 }
 
+const LOAN_LINE_LABELS = new Set(['貸付', '貸付返済'])
+const KYOSAI_LINE_LABELS = new Set(['共済掛金', '共済'])
+
 /**
- * 積立金・貸付返済・共済掛金を自由枠（追加控除行）へ移す。
- * 専用カラムは 0 にし、給与作成では空白セルとして扱う。
+ * 追加行や旧「その他控除」に入っていた貸付・共済掛金を専用欄へ戻す。
+ * 明細と給与作成は、この2つを固定の控除項目として出す。
  */
-export function migrateRareDeductionsToFreeSlots(ps: MockPayslip): MockPayslip {
-  const extras = padExtraLines(ps.extraDeductionLines, FREE_DEDUCTION_SLOTS)
-  const put = (amount: number, label: string): void => {
-    if (amount <= 0) return
-    if (extras.some((line) => line.label === label && line.amount === amount)) return
-    const emptyIdx = extras.findIndex((line) => line.label.trim() === '' && line.amount === 0)
-    if (emptyIdx >= 0) {
-      extras[emptyIdx] = { ...extras[emptyIdx], label, amount }
-    } else {
-      extras.push(newExtraLine(label, amount))
+export function anchorLoanAndKyosai(ps: MockPayslip): MockPayslip {
+  let loan = ps.loanDeduction
+  let kyosai = ps.kyosaiDeduction ?? 0
+  const extras = (ps.extraDeductionLines ?? []).filter((line) => {
+    const label = line.label.trim()
+    if (LOAN_LINE_LABELS.has(label)) {
+      loan += line.amount
+      return false
     }
-  }
-  put(ps.savingsDeduction, '積立金')
-  put(ps.loanDeduction, '貸付返済')
-  put(ps.otherDeduction, '共済掛金')
+    if (KYOSAI_LINE_LABELS.has(label)) {
+      kyosai += line.amount
+      return false
+    }
+    return true
+  })
+  kyosai += ps.otherDeduction
   return {
     ...ps,
-    savingsDeduction: 0,
-    loanDeduction: 0,
+    loanDeduction: loan,
+    kyosaiDeduction: kyosai,
     otherDeduction: 0,
+    extraDeductionLines: extras,
+  }
+}
+
+/**
+ * 積立金だけ自由枠へ移す。貸付と共済掛金は専用欄に残す。
+ */
+export function migrateRareDeductionsToFreeSlots(ps: MockPayslip): MockPayslip {
+  const anchored = anchorLoanAndKyosai(ps)
+  const extras = padExtraLines(anchored.extraDeductionLines, FREE_DEDUCTION_SLOTS)
+  const amount = anchored.savingsDeduction
+  if (amount > 0 && !extras.some((line) => line.label === '積立金' && line.amount === amount)) {
+    const emptyIdx = extras.findIndex((line) => line.label.trim() === '' && line.amount === 0)
+    if (emptyIdx >= 0) {
+      extras[emptyIdx] = { ...extras[emptyIdx], label: '積立金', amount }
+    } else {
+      extras.push(newExtraLine('積立金', amount))
+    }
+  }
+  return {
+    ...anchored,
+    savingsDeduction: 0,
     extraDeductionLines: extras,
   }
 }
@@ -1609,8 +1639,9 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 控除の初期値は 0。雇用保険だけ総支給（雇用保険料超過分を除く）から自動計算する。
-    // 役員は適用除外で 0。料率は円未満切捨て。残業代を含む。
+    // 控除の初期値は 0。雇用保険は総支給（雇用保険料超過分を除く）から自動計算する。
+    // 貸付と共済掛金は従業員管理の金額を初期値にする。
+    // 役員の雇用保険は適用除外で 0。料率は円未満切捨て。残業代を含む。
     const healthInsurance = 0
     const nursingInsurance = 0
     const welfarePension = 0
@@ -1630,9 +1661,11 @@ function generatePayslips(
     )
     const incomeTax = 0
     const residentTax = 0
+    const loanDeduction = emp.loanDeduction ?? 0
+    const kyosaiDeduction = emp.kyosaiDeduction ?? 0
     const extraDeductionLines = padExtraLines([], FREE_DEDUCTION_SLOTS)
 
-    const totalDeduction = employmentInsurance
+    const totalDeduction = employmentInsurance + loanDeduction + kyosaiDeduction
 
     const netPayment = totalPayment - totalDeduction
 
@@ -1665,7 +1698,8 @@ function generatePayslips(
       incomeTax,
       residentTax,
       savingsDeduction: 0,
-      loanDeduction: 0,
+      loanDeduction,
+      kyosaiDeduction,
       otherDeduction: 0,
       totalDeduction,
       netPayment,
@@ -1880,6 +1914,7 @@ export function mockToEmployeeInput(m: MockEmployee): EmployeeCreate {
     residentTax: m.residentTax,
     savingsDeduction: m.savingsDeduction,
     loanDeduction: m.loanDeduction,
+    kyosaiDeduction: m.kyosaiDeduction ?? 0,
     dependents: m.dependents,
     scheduledStart: m.scheduledStart,
     scheduledEnd: m.scheduledEnd,
@@ -1931,6 +1966,7 @@ export function mapDbEmployeeToMock(e: Employee): MockEmployee {
     residentTax: e.residentTax,
     savingsDeduction: e.savingsDeduction,
     loanDeduction: e.loanDeduction,
+    kyosaiDeduction: e.kyosaiDeduction ?? 0,
     dependents: e.dependents,
     isActive: e.isActive,
     scheduledStart: e.scheduledStart,
@@ -2183,6 +2219,7 @@ function finalizePayslipAfterAttendance(
     ps.residentTax +
     ps.savingsDeduction +
     ps.loanDeduction +
+    (ps.kyosaiDeduction ?? 0) +
     ps.otherDeduction +
     extraDeductionTotal
   return {
@@ -2301,6 +2338,7 @@ function payslipToMock(p: Payslip): MockPayslip {
     residentTax: p.residentTax,
     savingsDeduction: p.savingsDeduction,
     loanDeduction: p.loanDeduction,
+    kyosaiDeduction: p.kyosaiDeduction ?? 0,
     otherDeduction: p.otherDeduction,
     totalDeduction: p.totalDeduction,
     netPayment: p.netPayment,
@@ -2350,6 +2388,7 @@ function mockToPayslipCreate(m: MockPayslip, type: 'salary' | 'bonus' = 'salary'
     residentTax: synced.residentTax,
     savingsDeduction: synced.savingsDeduction,
     loanDeduction: synced.loanDeduction,
+    kyosaiDeduction: synced.kyosaiDeduction ?? 0,
     otherDeduction: synced.otherDeduction,
     totalDeduction: synced.totalDeduction,
     netPayment: synced.netPayment,

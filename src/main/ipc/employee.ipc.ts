@@ -67,6 +67,7 @@ export function registerEmployeeHandlers(): void {
           residentTax: params.residentTax,
           savingsDeduction: params.savingsDeduction,
           loanDeduction: params.loanDeduction,
+          kyosaiDeduction: params.kyosaiDeduction,
           dependents: params.dependents,
           scheduledStart: params.scheduledStart,
           scheduledEnd: params.scheduledEnd,

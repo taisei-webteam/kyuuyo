@@ -64,6 +64,8 @@ export interface Employee {
   residentTax: number;
   savingsDeduction: number;
   loanDeduction: number;
+  /** 共済掛金（月額・円）。給与作成時の控除初期値 */
+  kyosaiDeduction: number;
   dependents: number;
   scheduledStart: string;
   scheduledEnd: string;
@@ -260,6 +262,8 @@ export interface Payslip {
   residentTax: number;
   savingsDeduction: number;
   loanDeduction: number;
+  /** 共済掛金（円） */
+  kyosaiDeduction: number;
   otherDeduction: number;
   totalDeduction: number;
   netPayment: number;

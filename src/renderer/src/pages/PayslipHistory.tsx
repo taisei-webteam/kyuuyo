@@ -71,6 +71,7 @@ const DEDUCT_COLUMNS: Column[] = [
 
 const SAVINGS_LABEL = '積立金'
 const LOAN_LABEL = '貸付返済'
+const KYOSAI_LABEL = '共済掛金'
 
 function labeledExtraAmount(row: MockPayslip, label: string): number {
   return (row.extraDeductionLines ?? [])
@@ -83,15 +84,11 @@ function savingsColumnAmount(row: MockPayslip): number {
 }
 
 function loanColumnAmount(row: MockPayslip): number {
-  return row.loanDeduction + labeledExtraAmount(row, LOAN_LABEL)
+  return row.loanDeduction + labeledExtraAmount(row, LOAN_LABEL) + labeledExtraAmount(row, '貸付')
 }
 
-/** 積立・貸付以外（共済など）。見出しは空欄。 */
-function blankColumnAmount(row: MockPayslip): number {
-  const extras = (row.extraDeductionLines ?? [])
-    .filter((line) => line.label !== SAVINGS_LABEL && line.label !== LOAN_LABEL)
-    .reduce((sum, line) => sum + line.amount, 0)
-  return row.otherDeduction + extras
+function kyosaiColumnAmount(row: MockPayslip): number {
+  return (row.kyosaiDeduction ?? 0) + labeledExtraAmount(row, KYOSAI_LABEL)
 }
 
 function setLabeledExtra(row: EditablePayslip, label: string, value: number): void {
@@ -159,6 +156,7 @@ function recalcEditableRow(row: EditablePayslip): EditablePayslip {
     next.residentTax +
     next.savingsDeduction +
     next.loanDeduction +
+    (next.kyosaiDeduction ?? 0) +
     next.otherDeduction +
     extraDeductionAmount(next)
   next.netPayment = next.totalPayment - next.totalDeduction
@@ -270,7 +268,7 @@ export function PayslipHistory(): ReactElement {
   )
 
   const handleNamedDeductChange = useCallback(
-    (idx: number, kind: 'savings' | 'loan' | 'blank', value: number): void => {
+    (idx: number, kind: 'savings' | 'loan' | 'kyosai', value: number): void => {
       setEditData((prev) => {
         const updated = [...prev]
         const row = { ...updated[idx] }
@@ -278,24 +276,16 @@ export function PayslipHistory(): ReactElement {
           row.savingsDeduction = 0
           setLabeledExtra(row, SAVINGS_LABEL, value)
         } else if (kind === 'loan') {
-          row.loanDeduction = 0
-          setLabeledExtra(row, LOAN_LABEL, value)
+          row.loanDeduction = value
+          row.extraDeductionLines = (row.extraDeductionLines ?? []).filter(
+            (line) => line.label !== LOAN_LABEL && line.label !== '貸付',
+          )
         } else {
+          row.kyosaiDeduction = value
           row.otherDeduction = 0
-          const lines = [...(row.extraDeductionLines ?? [])]
-          while (lines.length < FREE_DEDUCTION_SLOTS) lines.push(newExtraLine())
-          const slots = lines
-            .map((line, lineIdx) => ({ line, lineIdx }))
-            .filter(({ line }) => line.label !== SAVINGS_LABEL && line.label !== LOAN_LABEL)
-          if (slots.length === 0) {
-            lines.push(newExtraLine('', value))
-          } else {
-            lines[slots[0].lineIdx] = { ...slots[0].line, amount: value }
-            for (const slot of slots.slice(1)) {
-              lines[slot.lineIdx] = { ...lines[slot.lineIdx], amount: 0 }
-            }
-          }
-          row.extraDeductionLines = lines
+          row.extraDeductionLines = (row.extraDeductionLines ?? []).filter(
+            (line) => line.label !== KYOSAI_LABEL && line.label !== '共済',
+          )
         }
         updated[idx] = recalcEditableRow(row)
         return updated
@@ -346,7 +336,7 @@ export function PayslipHistory(): ReactElement {
       extraPayment: 0, totalPayment: 0,
       healthNursing: 0, welfarePension: 0, employmentInsurance: 0,
       incomeTax: 0, residentTax: 0,
-      savings: 0, loan: 0, blankDeduction: 0,
+      savings: 0, loan: 0, kyosai: 0,
       totalDeduction: 0,
     }
     for (const r of editData) {
@@ -369,7 +359,7 @@ export function PayslipHistory(): ReactElement {
       t.residentTax += r.residentTax
       t.savings += savingsColumnAmount(r)
       t.loan += loanColumnAmount(r)
-      t.blankDeduction += blankColumnAmount(r)
+      t.kyosai += kyosaiColumnAmount(r)
       t.totalDeduction += r.totalDeduction
     }
     return t
@@ -470,7 +460,7 @@ export function PayslipHistory(): ReactElement {
                 ))}
                 <th className={styles.th}>積立</th>
                 <th className={styles.th}>貸付</th>
-                <th className={styles.th}></th>
+                <th className={styles.th}>共済掛金</th>
                 <th className={`${styles.th} ${styles.thTotal}`}>控除額合計</th>
               </tr>
             </thead>
@@ -530,7 +520,7 @@ export function PayslipHistory(): ReactElement {
                   {([
                     ['savings', savingsColumnAmount(row)] as const,
                     ['loan', loanColumnAmount(row)] as const,
-                    ['blank', blankColumnAmount(row)] as const,
+                    ['kyosai', kyosaiColumnAmount(row)] as const,
                   ]).map(([kind, amount], slotIdx) => {
                     const dataCol = freeStartCol + slotIdx
                     return (
@@ -578,7 +568,7 @@ export function PayslipHistory(): ReactElement {
                 })}
                 <td className={styles.tdFoot}>{num(Math.round(totals.savings))}</td>
                 <td className={styles.tdFoot}>{num(Math.round(totals.loan))}</td>
-                <td className={styles.tdFoot}>{numOrBlank(totals.blankDeduction)}</td>
+                <td className={styles.tdFoot}>{num(Math.round(totals.kyosai))}</td>
                 <td className={`${styles.tdFoot} ${styles.tdFootTotal}`}>{num(Math.round(totals.totalDeduction))}</td>
               </tr>
             </tfoot>
