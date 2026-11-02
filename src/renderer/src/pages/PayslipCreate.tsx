@@ -959,7 +959,7 @@ export function PayslipCreate(): ReactElement {
             <>
               <p className={styles.notCreatedDesc}>
                 まだ作成されていません。<br />
-                勤怠と支給項目から給与を作ります。控除は雇用保険以外 0 から始まり、貸付と共済掛金は従業員管理の金額が入ります。
+                勤怠と支給項目から給与を作ります。健康保険料・厚生年金・貸付・共済掛金は従業員管理の金額が入り、雇用保険は自動計算します。
               </p>
               <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
                 {creating ? '作成中...' : `${selectedMonth}月分を作成`}

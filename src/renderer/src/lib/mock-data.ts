@@ -1639,12 +1639,12 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 控除の初期値は 0。雇用保険は総支給（雇用保険料超過分を除く）から自動計算する。
-    // 貸付と共済掛金は従業員管理の金額を初期値にする。
-    // 役員の雇用保険は適用除外で 0。料率は円未満切捨て。残業代を含む。
-    const healthInsurance = 0
+    // 健康保険料は従業員管理の固定額（健康保険計。介護を含むときは合算済み）。
+    // 厚生年金・貸付・共済掛金も従業員管理の金額を初期値にする。
+    // 雇用保険だけ総支給（雇用保険料超過分を除く）から自動計算する。役員は適用除外で 0。
+    const healthInsurance = emp.healthInsurance ?? 0
     const nursingInsurance = 0
-    const welfarePension = 0
+    const welfarePension = emp.welfarePension ?? 0
     const employmentInsurance = calcSalaryEmploymentInsurance(
       {
         basicSalary,
@@ -1665,7 +1665,8 @@ function generatePayslips(
     const kyosaiDeduction = emp.kyosaiDeduction ?? 0
     const extraDeductionLines = padExtraLines([], FREE_DEDUCTION_SLOTS)
 
-    const totalDeduction = employmentInsurance + loanDeduction + kyosaiDeduction
+    const totalDeduction =
+      healthInsurance + welfarePension + employmentInsurance + loanDeduction + kyosaiDeduction
 
     const netPayment = totalPayment - totalDeduction
 
