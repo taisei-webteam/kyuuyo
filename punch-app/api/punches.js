@@ -1,10 +1,37 @@
-import { getSql, sendError, setCorsHeaders, getDeviceFromRequest } from './_db.js';
+import {
+  getSql,
+  sendError,
+  setCorsHeaders,
+  getDeviceFromRequest,
+  ensurePunchClientId,
+} from './_db.js';
 
 const PUNCH_TYPES = new Set(['clock_in', 'clock_out', 'go_out', 'go_return']);
+
+/** 端末が再送してきた打刻時刻として受け付ける過去方向の上限（通信障害が長引いた場合を想定）。 */
+const MAX_PUNCHED_AT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** 端末時計の進みとして許容する未来方向の上限。これを超える場合はサーバー時刻にする。 */
+const MAX_PUNCHED_AT_SKEW_MS = 2 * 60 * 1000;
+const CLIENT_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
 function getQueryValue(value) {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
+}
+
+/**
+ * 端末が送ってきた打刻時刻を検証し、採用できれば ISO 文字列、できなければ null を返す。
+ * 端末は登録済み（デバイストークン認証）なので、通信失敗時に端末側で保持していた
+ * 「実際に押した時刻」を、過去7日以内・未来2分以内の範囲で受け付ける。
+ * これにより再送しても打刻時刻がずれない。範囲外・不正な値はサーバー時刻にする。
+ */
+function normalizePunchedAt(value, now = Date.now()) {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  if (ms > now + MAX_PUNCHED_AT_SKEW_MS) return null;
+  if (ms < now - MAX_PUNCHED_AT_AGE_MS) return null;
+  return new Date(ms).toISOString();
 }
 
 function parseCreateBody(body) {
@@ -19,11 +46,16 @@ function parseCreateBody(body) {
     return null;
   }
 
-  // 打刻時刻はサーバー側で確定する（クライアント送信の punchedAt は改ざん防止のため無視）。
   return {
     employeeId: parsed.employeeId,
     employeeName: parsed.employeeName,
     punchType: parsed.punchType,
+    // 端末が採番した再送重複防止キー（旧バージョンの端末は送ってこない）
+    clientId:
+      typeof parsed.clientId === 'string' && CLIENT_ID_PATTERN.test(parsed.clientId)
+        ? parsed.clientId
+        : null,
+    punchedAt: normalizePunchedAt(parsed.punchedAt),
   };
 }
 
@@ -39,9 +71,11 @@ async function handleGet(req, res, sql) {
 
   const employeeId = employeeIdRaw ? Number(employeeIdRaw) : null;
 
+  await ensurePunchClientId(sql);
+
   const punches = employeeId
     ? await sql`
-        select id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
+        select id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
         from punch_records
         where employee_id = ${employeeId}
           and punched_at >= ${start}::timestamptz
@@ -49,7 +83,7 @@ async function handleGet(req, res, sql) {
         order by punched_at asc
       `
     : await sql`
-        select id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
+        select id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
         from punch_records
         where punched_at >= ${start}::timestamptz
           and punched_at <= ${end}::timestamptz
@@ -66,14 +100,53 @@ async function handlePost(req, res, sql) {
     return;
   }
 
-  // punched_at はサーバー時刻(now())で確定する。
+  await ensurePunchClientId(sql);
+
+  // punched_at は原則サーバー時刻。端末が再送用に保持していた時刻は
+  // normalizePunchedAt で検証済みの場合のみ採用する。
+  if (body.clientId) {
+    // 同じ client_id の再送は新規行を作らず、既存行をそのまま返す（冪等）。
+    // 応答だけが端末に届かなかったケースで二重打刻になるのを防ぐ。
+    const inserted = await sql`
+      insert into punch_records (employee_id, employee_name, punch_type, punched_at, device, client_id)
+      values (
+        ${body.employeeId},
+        ${body.employeeName},
+        ${body.punchType},
+        coalesce(${body.punchedAt}::timestamptz, now()),
+        'ipad',
+        ${body.clientId}
+      )
+      on conflict (client_id) do nothing
+      returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
+    `;
+    if (inserted[0]) {
+      res.status(201).json({ punch: inserted[0], duplicate: false });
+      return;
+    }
+    const existing = await sql`
+      select id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
+      from punch_records
+      where client_id = ${body.clientId}
+      limit 1
+    `;
+    res.status(200).json({ punch: existing[0] ?? null, duplicate: true });
+    return;
+  }
+
   const rows = await sql`
     insert into punch_records (employee_id, employee_name, punch_type, punched_at, device)
-    values (${body.employeeId}, ${body.employeeName}, ${body.punchType}, now(), 'ipad')
-    returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at
+    values (
+      ${body.employeeId},
+      ${body.employeeName},
+      ${body.punchType},
+      coalesce(${body.punchedAt}::timestamptz, now()),
+      'ipad'
+    )
+    returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
   `;
 
-  res.status(201).json({ punch: rows[0] ?? null });
+  res.status(201).json({ punch: rows[0] ?? null, duplicate: false });
 }
 
 export default async function handler(req, res) {

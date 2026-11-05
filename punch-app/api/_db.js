@@ -56,6 +56,20 @@ export async function ensureDeviceTable(sql) {
   deviceTableReady = true;
 }
 
+let punchClientIdReady = false;
+
+/**
+ * punch_records に再送重複防止用の client_id 列と unique index を（無ければ）用意する。冪等。
+ * 正式には supabase/migrations/005_punch_client_id.sql で適用済みだが、
+ * 未適用の環境でも打刻が落ちないよう API 側でも保証する。
+ */
+export async function ensurePunchClientId(sql) {
+  if (punchClientIdReady) return;
+  await sql`alter table punch_records add column if not exists client_id text`;
+  await sql`create unique index if not exists punch_records_client_id_key on punch_records (client_id)`;
+  punchClientIdReady = true;
+}
+
 let emailVerificationTableReady = false;
 
 /**

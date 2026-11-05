@@ -204,6 +204,11 @@
     .log-cancelled .log-time { text-decoration: line-through; color: #94a3b8; }
     .log-cancelled .log-type { opacity: 0.5; text-decoration: line-through; }
     .log-reason { font-size: 0.7rem; color: #94a3b8; flex: 1; text-align: right; }
+    .log-pending {
+      font-size: 0.675rem; font-weight: 600; color: #b45309; background: #fef3c7;
+      padding: 2px 8px; border-radius: 9999px; flex-shrink: 0;
+    }
+    .status-pending { background: #fef3c7; color: #b45309; }
 
     .btn-cancel-punch {
       background: none; border: 1px solid var(--border); border-radius: 6px;
@@ -512,7 +517,24 @@
       { id: 8, name: '松田 浩二', dept: '倉庫部', type: 'パート', color: '#f97316' },
     ];
 
-    let EMPLOYEES = [...DEFAULT_EMPLOYEES];
+    // 本番では前回取得した名簿を端末に残し、起動直後に通信できなくても実在の名簿で表示する。
+    // （以前はサンプル名簿で描画していたため、通信断の直後にサンプルの人物を押せてしまい、
+    //  未送信キューの導入後はその打刻が実在の従業員IDとして送られてしまう恐れがある）
+    const EMPLOYEES_CACHE_KEY = 'punch_employees_cache_v1';
+    function loadEmployeesCache() {
+      try {
+        const raw = localStorage.getItem(EMPLOYEES_CACHE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (e) {
+        return [];
+      }
+    }
+    function saveEmployeesCache(list) {
+      try { localStorage.setItem(EMPLOYEES_CACHE_KEY, JSON.stringify(list)); } catch (e) {}
+    }
+
+    let EMPLOYEES = IS_DEMO ? [...DEFAULT_EMPLOYEES] : loadEmployeesCache();
     let EMP_MAP = {};
 
     function rebuildEmployeeMap() {
@@ -660,13 +682,221 @@
       return res.json();
     }
 
-    async function loadCloudData() {
+    // ── 未送信打刻キュー ──
+    // 打刻は押した瞬間に画面へ反映し、サーバー送信は背後で行う。送信に失敗しても
+    // 打刻を捨てず（以前はここで巻き戻して「未出勤」に戻っていた）、端末に保存して
+    // 通信が回復するまで再送し続ける。従業員はすでに離れているため、失敗を本人に
+    // 知らせても手遅れで、打刻そのものを失わないことが最優先。
+    // 送信時は端末で採番した clientId と押した時刻を添え、サーバー側で二重登録を防ぐ。
+    const PENDING_QUEUE_KEY = 'punch_pending_queue_v1';
+    const PENDING_RETRY_MIN_MS = 3000;
+    const PENDING_RETRY_MAX_MS = 60000;
+    let pendingQueue = loadPendingQueue();
+    let pendingFlushing = false;
+    let pendingRetryTimer = null;
+    let pendingRetryDelay = PENDING_RETRY_MIN_MS;
+    // 直近で送信が完了した時刻。定期再読込が古い一覧で上書きしないための判定に使う。
+    let lastSendCompletedAt = 0;
+
+    function loadPendingQueue() {
+      try {
+        const raw = localStorage.getItem(PENDING_QUEUE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed.filter(p => p && typeof p.clientId === 'string') : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function savePendingQueue() {
+      try { localStorage.setItem(PENDING_QUEUE_KEY, JSON.stringify(pendingQueue)); } catch (e) {}
+    }
+
+    function newClientId() {
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID();
+      }
+      return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    }
+
+    function enqueuePending(item) {
+      pendingQueue.push(item);
+      savePendingQueue();
+    }
+
+    function removePending(clientId) {
+      const before = pendingQueue.length;
+      pendingQueue = pendingQueue.filter(p => p.clientId !== clientId);
+      if (pendingQueue.length !== before) savePendingQueue();
+    }
+
+    function hasPendingFor(empId) {
+      return pendingQueue.some(p => p.employeeId === empId);
+    }
+
+    // 現在の punchRecords から clientId で打刻行を探す（再読込で配列が差し替わっても追従する）。
+    function findRecByClientId(empId, clientId) {
+      for (const [key, recs] of Object.entries(punchRecords)) {
+        if (!key.startsWith(`${empId}-`)) continue;
+        const rec = recs.find(r => r.clientId === clientId);
+        if (rec) return rec;
+      }
+      return null;
+    }
+
+    function pendingToRec(item) {
+      return {
+        remoteId: null,
+        clientId: item.clientId,
+        type: apiTypeToLocal(item.punchType),
+        time: formatApiTime(item.punchedAt),
+        cancelled: false,
+        cancelReason: '',
+        cancelTime: '',
+        pending: true,
+      };
+    }
+
+    // サーバーの打刻一覧で punchRecords を組み直し、まだ送れていない打刻を重ねる。
+    // サーバー側に同じ clientId が既にあれば（応答だけ落ちたケース）二重に出さない。
+    function applyServerPunches(punches) {
+      punchRecords = {};
+      const serverClientIds = new Set();
+      for (const punch of punches) {
+        if (punch.client_id) serverClientIds.add(punch.client_id);
+        const recDate = localDateKey(punch.punched_at);
+        const recs = getRecords(punch.employee_id, recDate);
+        recs.push({
+          remoteId: punch.id,
+          clientId: punch.client_id ?? null,
+          type: apiTypeToLocal(punch.punch_type),
+          time: formatApiTime(punch.punched_at),
+          cancelled: punch.cancelled,
+          cancelReason: punch.cancelled ? '取消済' : '',
+          cancelTime: '',
+        });
+      }
+      let queueChanged = false;
+      for (const item of [...pendingQueue]) {
+        if (serverClientIds.has(item.clientId)) {
+          // 既にサーバーへ届いていた。キューから外すだけでよい。
+          pendingQueue = pendingQueue.filter(p => p.clientId !== item.clientId);
+          queueChanged = true;
+          continue;
+        }
+        const recs = getRecords(item.employeeId, localDateKey(item.punchedAt));
+        recs.push(pendingToRec(item));
+        recs.sort((a, b) => a.time.localeCompare(b.time));
+      }
+      if (queueChanged) savePendingQueue();
+    }
+
+    async function sendPendingItem(item) {
+      const data = await apiJson('/api/punches', {
+        method: 'POST',
+        body: JSON.stringify({
+          employeeId: item.employeeId,
+          employeeName: item.employeeName,
+          punchType: item.punchType,
+          punchedAt: item.punchedAt,
+          clientId: item.clientId,
+        }),
+      });
+      return data.punch ?? null;
+    }
+
+    function scheduleNextFlush(delayMs) {
+      clearTimeout(pendingRetryTimer);
+      if (pendingQueue.length === 0) return;
+      pendingRetryTimer = setTimeout(() => flushPendingQueue(), delayMs);
+    }
+
+    function refreshViewForEmployee(empId) {
+      if (document.getElementById('cancelModal')) return;
+      if (selectedEmployee && selectedEmployee.id === empId) {
+        updatePunchButtons();
+        renderLog();
+      } else if (document.getElementById('screenList').classList.contains('active')) {
+        renderGrid();
+      }
+    }
+
+    // キューを先頭から順に送る。1件でも失敗したら中断し、間隔を広げながら再試行する。
+    async function flushPendingQueue() {
+      if (IS_DEMO || pendingFlushing || pendingQueue.length === 0) return;
+      pendingFlushing = true;
+      let failed = false;
+      try {
+        while (pendingQueue.length > 0) {
+          const item = pendingQueue[0];
+          try {
+            const remote = await sendPendingItem(item);
+            lastSendCompletedAt = Date.now();
+            removePending(item.clientId);
+            const rec = findRecByClientId(item.employeeId, item.clientId);
+            if (rec) {
+              rec.pending = false;
+              if (remote) {
+                rec.remoteId = remote.id;
+                rec.time = formatApiTime(remote.punched_at);
+                // 送信中に画面で取り消されていた場合は、サーバー側も取り消しておく
+                if (rec.cancelled) {
+                  await apiJson('/api/punches/cancel', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      punchId: remote.id,
+                      employeeId: item.employeeId,
+                      ...todayRange(),
+                    }),
+                  }).catch((e) => console.error('[pending] cancel after send failed', e));
+                }
+              }
+            }
+            refreshViewForEmployee(item.employeeId);
+          } catch (err) {
+            console.error('[pending] send failed', err);
+            if (err && err.status === 400) {
+              // 内容不正はいくら再送しても通らない。捨てて画面からも外す。
+              removePending(item.clientId);
+              const rec = findRecByClientId(item.employeeId, item.clientId);
+              if (rec) {
+                const recs = getRecords(item.employeeId, localDateKey(item.punchedAt));
+                const idx = recs.indexOf(rec);
+                if (idx !== -1) recs.splice(idx, 1);
+              }
+              showToast(`打刻を登録できませんでした: ${err.message}`);
+              refreshViewForEmployee(item.employeeId);
+              continue;
+            }
+            failed = true;
+            break;
+          }
+        }
+      } finally {
+        pendingFlushing = false;
+      }
+      if (failed) {
+        // 失敗が始まった最初の1回だけ知らせる（再試行のたびに出すと煩い）
+        if (pendingRetryDelay === PENDING_RETRY_MIN_MS) {
+          showToast(`通信できません。接続が戻り次第、自動で送信します（未送信 ${pendingQueue.length} 件）`);
+        }
+        scheduleNextFlush(pendingRetryDelay);
+        pendingRetryDelay = Math.min(pendingRetryDelay * 2, PENDING_RETRY_MAX_MS);
+      } else {
+        pendingRetryDelay = PENDING_RETRY_MIN_MS;
+      }
+    }
+
+    async function fetchCloudData() {
       const { start, end } = todayRange();
       const [empData, punchData] = await Promise.all([
         apiJson('/api/employees'),
         apiJson(`/api/punches?${new URLSearchParams({ start, end }).toString()}`),
       ]);
+      return { empData, punchData };
+    }
 
+    function applyCloudData({ empData, punchData }) {
       const colors = DEFAULT_EMPLOYEES.map(e => e.color);
       EMPLOYEES = empData.employees.map((emp, idx) => ({
         id: emp.id,
@@ -676,40 +906,86 @@
         color: colors[idx % colors.length],
       }));
       rebuildEmployeeMap();
+      saveEmployeesCache(EMPLOYEES);
 
-      punchRecords = {};
-      for (const punch of punchData.punches) {
-        const recDate = localDateKey(punch.punched_at);
-        const recs = getRecords(punch.employee_id, recDate);
-        recs.push({
-          remoteId: punch.id,
-          type: apiTypeToLocal(punch.punch_type),
-          time: formatApiTime(punch.punched_at),
-          cancelled: punch.cancelled,
-          cancelReason: punch.cancelled ? '取消済' : '',
-          cancelTime: '',
-        });
+      applyServerPunches(punchData.punches);
+    }
+
+    async function loadCloudData() {
+      applyCloudData(await fetchCloudData());
+    }
+
+    // ── 定期再読込 ──
+    // 以前は起動時に1回読むだけで、以後は端末内の記録だけで表示していた。
+    // そのため別の端末（事務所の iPad と別の端末）で打刻した人や、
+    // 画面を開きっぱなしにしていた端末では、実際は打刻済みでも「未出勤」のまま残った。
+    // 一覧画面にいる間は定期的にサーバーと突き合わせ、画面復帰・通信復帰時も読み直す。
+    const REFRESH_INTERVAL_MS = 30000;
+    let refreshTimer = null;
+    let refreshing = false;
+
+    function canRefreshNow() {
+      if (IS_DEMO || !getDeviceToken()) return false;
+      if (document.visibilityState !== 'visible') return false;
+      if (document.getElementById('cancelModal')) return false;
+      // 履歴画面は1ヶ月分を保持しているので、当日分で上書きしない
+      if (document.getElementById('screenHistory').classList.contains('active')) return false;
+      return true;
+    }
+
+    async function refreshCloudData() {
+      if (refreshing || !canRefreshNow()) return;
+      refreshing = true;
+      try {
+        const startedAt = Date.now();
+        const data = await fetchCloudData();
+        // 取得中に打刻の送信が完了していたら、その打刻を含まない古い一覧かもしれないので捨てる
+        // （適用すると送信済みの打刻が一瞬消えて「未出勤」に見える）。次回の再読込で反映される。
+        if (lastSendCompletedAt > startedAt) return;
+        if (!canRefreshNow()) return;
+        applyCloudData(data);
+        consecutive401 = 0;
+        if (selectedEmployee) {
+          updatePunchButtons();
+          renderLog();
+        } else {
+          renderGrid();
+        }
+      } catch (err) {
+        // 一時的な通信失敗は無視（次回の定期再読込で回復する）
+        console.warn('[refresh] failed', err);
+        if (err && err.status === 401) {
+          // 端末登録が取り消されていた場合は、起動時と同じ基準で再登録へ誘導する
+          consecutive401++;
+          if (consecutive401 >= MAX_401_BEFORE_RELOGIN) {
+            consecutive401 = 0;
+            clearDeviceToken();
+            showDeviceSetup();
+          }
+        } else {
+          consecutive401 = 0;
+        }
+      } finally {
+        refreshing = false;
       }
     }
+
+    function startPeriodicRefresh() {
+      if (refreshTimer || IS_DEMO) return;
+      refreshTimer = setInterval(refreshCloudData, REFRESH_INTERVAL_MS);
+    }
+
+    window.addEventListener('online', () => {
+      flushPendingQueue();
+      refreshCloudData();
+    });
 
     // 履歴画面用: 過去1ヶ月分の打刻を取得して punchRecords を差し替える。
     // 当日分も含むため、グリッドの出退勤ステータス（当日キー参照）も維持される。
     async function loadMonthData() {
       const { start, end } = monthRange();
       const punchData = await apiJson(`/api/punches?${new URLSearchParams({ start, end }).toString()}`);
-      punchRecords = {};
-      for (const punch of punchData.punches) {
-        const recDate = localDateKey(punch.punched_at);
-        const recs = getRecords(punch.employee_id, recDate);
-        recs.push({
-          remoteId: punch.id,
-          type: apiTypeToLocal(punch.punch_type),
-          time: formatApiTime(punch.punched_at),
-          cancelled: punch.cancelled,
-          cancelReason: punch.cancelled ? '取消済' : '',
-          cancelTime: '',
-        });
-      }
+      applyServerPunches(punchData.punches);
     }
 
     // デモモード用: 過去1ヶ月分（平日）のサンプル打刻を punchRecords に生成する。
@@ -736,24 +1012,15 @@
       }
     }
 
-    async function createRemotePunch(type, emp = selectedEmployee) {
-      if (IS_DEMO) return { id: `demo-${Date.now()}`, punched_at: new Date().toISOString() };
-      const apiType = localTypeToApi(type);
-      if (!apiType || !emp) return null;
-      const data = await apiJson('/api/punches', {
-        method: 'POST',
-        body: JSON.stringify({
-          employeeId: emp.id,
-          employeeName: emp.name,
-          punchType: apiType,
-        }),
-      });
-      return data.punch ?? null;
-    }
-
     async function cancelRemotePunch(rec) {
       if (IS_DEMO) return;
-      if (!selectedEmployee || !rec.remoteId) return;
+      if (!selectedEmployee) return;
+      // まだサーバーへ届いていない打刻は、送信キューから外すだけで取消になる
+      if (rec.pending || !rec.remoteId) {
+        if (rec.clientId) removePending(rec.clientId);
+        rec.pending = false;
+        return;
+      }
       const { start, end } = todayRange();
       await apiJson('/api/punches/cancel', {
         method: 'POST',
@@ -799,6 +1066,46 @@
     setInterval(updateClock, 1000);
     updateClock();
 
+    // ── 保険の自動リロード / 放置画面の自動復帰 ──
+    // 定期再読込や送信キューが何らかの理由で止まっても表示が古いまま残らないよう、
+    // 5分おきにページごとリロードする（PWA の更新取り込みも兼ねる）。
+    // 誰かが操作中・打刻画面を開いた直後・取消モーダル表示中・送信途中は避け、
+    // 条件が整った次の確認タイミングで行う。
+    // また、カードを開いたまま放置された打刻画面（出勤ボタンを押さずに離れた場合）は
+    // 60秒で一覧へ戻す。開きっぱなしだと次の人が戸惑い、本人も打刻したつもりになりやすい。
+    const AUTO_RELOAD_INTERVAL_MS = 5 * 60 * 1000;
+    const AUTO_RELOAD_IDLE_MS = 15 * 1000;
+    const PUNCH_SCREEN_IDLE_MS = 60 * 1000;
+    const pageLoadedAt = Date.now();
+    let lastInteractionAt = Date.now();
+    document.addEventListener('pointerdown', () => { lastInteractionAt = Date.now(); }, { passive: true, capture: true });
+    document.addEventListener('keydown', () => { lastInteractionAt = Date.now(); }, { passive: true, capture: true });
+
+    function isUserIdleFor(ms) {
+      return Date.now() - lastInteractionAt >= ms;
+    }
+
+    function watchdogTick() {
+      if (IS_DEMO) return;
+      const punchOpen = document.getElementById('screenPunch').classList.contains('active');
+      const modalOpen = !!document.getElementById('cancelModal');
+
+      // 打刻画面の放置 → 一覧へ戻す
+      if (punchOpen && !modalOpen && isUserIdleFor(PUNCH_SCREEN_IDLE_MS)) {
+        closePunch();
+        return;
+      }
+
+      if (Date.now() - pageLoadedAt < AUTO_RELOAD_INTERVAL_MS) return;
+      if (document.visibilityState !== 'visible') return;
+      if (punchOpen || modalOpen) return;
+      if (document.getElementById('screenHistory').classList.contains('active')) return;
+      if (!isUserIdleFor(AUTO_RELOAD_IDLE_MS)) return;
+      if (pendingFlushing) return; // 未送信キューは端末に保存済みなので、送信途中だけ避ければよい
+      location.reload();
+    }
+    setInterval(watchdogTick, 5000);
+
     // ── Toast ──
     let toastTimer = null;
     function showToast(msg) {
@@ -819,10 +1126,16 @@
     function renderGrid() {
       const grid = document.getElementById('employeeGrid');
       grid.innerHTML = '';
+      if (EMPLOYEES.length === 0) {
+        grid.innerHTML = '<div class="empty-state">従業員一覧を読み込んでいます。表示されない場合は通信状態を確認してください。</div>';
+        return;
+      }
       EMPLOYEES.forEach(emp => {
         const status = getStatus(emp.id);
-        const statusLabel = status === 'in' ? '出勤中' : status === 'goout' ? '外出中' : status === 'done' ? '退勤済' : '未出勤';
-        const statusClass = status === 'in' ? 'status-in' : status === 'goout' ? 'status-goout' : status === 'done' ? 'status-done' : 'status-out';
+        const pending = hasPendingFor(emp.id);
+        const baseLabel = status === 'in' ? '出勤中' : status === 'goout' ? '外出中' : status === 'done' ? '退勤済' : '未出勤';
+        const statusLabel = pending ? `${baseLabel}（送信待ち）` : baseLabel;
+        const statusClass = pending ? 'status-pending' : status === 'in' ? 'status-in' : status === 'goout' ? 'status-goout' : status === 'done' ? 'status-done' : 'status-out';
         const card = document.createElement('div');
         card.className = 'employee-card';
         card.innerHTML = `
@@ -854,6 +1167,8 @@
       selectedEmployee = null;
       showScreen('screenList');
       renderGrid();
+      // 一覧に戻るタイミングでサーバーと突き合わせる（打刻後に最新状態で一覧へ戻す）
+      refreshCloudData();
     }
 
     function updatePunchButtons() {
@@ -961,18 +1276,20 @@
       const emp = selectedEmployee;
       primePunchSound();
 
-      // 楽観的更新: 通信完了を待たず、押した瞬間にUIへ反映する
-      const recs = getRecords(emp.id);
-      const optimisticRec = {
-        remoteId: null,
-        type,
-        time: nowTimeStr(),
-        cancelled: false,
-        cancelReason: '',
-        cancelTime: '',
-        pending: true,
+      // 押した瞬間にUIへ反映し、同時に端末へ保存（未送信キュー）してから背後で送信する。
+      // 送信に失敗しても打刻は消さず、通信回復後に押した時刻のまま再送する。
+      const punchedAt = new Date();
+      const item = {
+        clientId: newClientId(),
+        employeeId: emp.id,
+        employeeName: emp.name,
+        punchType: localTypeToApi(type),
+        punchedAt: punchedAt.toISOString(),
       };
+      const recs = getRecords(emp.id);
+      const optimisticRec = pendingToRec(item);
       recs.push(optimisticRec);
+      if (!IS_DEMO) enqueuePending(item);
 
       showToast(`${PUNCH_TYPES[type].label} ${optimisticRec.time}`);
       showMessage(type);
@@ -984,27 +1301,14 @@
       clearTimeout(autoReturnTimer);
       autoReturnTimer = setTimeout(() => closePunch(), 3000);
 
-      // 背後でサーバへ送信し、結果で確定 or ロールバック
-      createRemotePunch(type, emp)
-        .then((remote) => {
-          optimisticRec.pending = false;
-          if (remote) {
-            optimisticRec.remoteId = remote.id;
-            optimisticRec.time = formatApiTime(remote.punched_at);
-          }
-          if (selectedEmployee?.id === emp.id) renderLog();
-        })
-        .catch((err) => {
-          const idx = recs.indexOf(optimisticRec);
-          if (idx !== -1) recs.splice(idx, 1);
-          showToast(`打刻に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`);
-          if (selectedEmployee?.id === emp.id) {
-            updatePunchButtons();
-            renderLog();
-          } else if (document.getElementById('screenList').classList.contains('active')) {
-            renderGrid();
-          }
-        });
+      if (IS_DEMO) {
+        optimisticRec.pending = false;
+        optimisticRec.remoteId = `demo-${Date.now()}`;
+        return;
+      }
+
+      // 背後でサーバへ送信。失敗時は flushPendingQueue が間隔を空けて再送する。
+      flushPendingQueue();
     }
 
     // ── Cancel Modal ──
@@ -1109,9 +1413,11 @@
         const cancelBtn = !r.cancelled
           ? `<button class="btn-cancel-punch" data-idx="${i}">取消</button>`
           : `<span class="log-reason">取消: ${r.cancelReason}</span>`;
+        const pendingMark = r.pending && !r.cancelled ? '<span class="log-pending">送信待ち</span>' : '';
         return `<li class="${cls}">
           <span class="${typeClass}">${PUNCH_TYPES[r.type].label}</span>
           <span class="log-time">${r.time}</span>
+          ${pendingMark}
           ${cancelBtn}
         </li>`;
       }).join('');
@@ -1214,6 +1520,18 @@
     // 新しいバージョンを出したら先頭に追記する（version は package.json と揃える）。
     const CHANGELOG = [
       {
+        version: '0.1.4',
+        date: '2026-11-05',
+        changes: [
+          '通信に失敗した打刻を端末に保存し、接続が戻り次第「押した時刻のまま」自動で送信するようにした（以前は失敗すると打刻が消えて「未出勤」に戻っていた）',
+          '送信できていない打刻は「送信待ち」と表示',
+          '一覧を30秒ごと・画面復帰時・一覧に戻った時に自動で読み直し、別の端末で打刻した人も反映されるようにした',
+          '保険として、操作が無いときに5分おきに画面を自動リロード',
+          'カードを開いたまま放置された打刻画面は60秒で一覧へ戻す',
+          '起動直後に通信できないときはサンプルの名簿ではなく前回の名簿を表示',
+        ],
+      },
+      {
         version: '0.1.3',
         date: '2026-10-02',
         changes: [
@@ -1293,7 +1611,11 @@
       if (todayKey() !== currentDayKey) {
         currentDayKey = todayKey();
         handleDayChange();
+        return;
       }
+      // スリープから戻ったら、未送信の打刻を送り、他端末の打刻も取り込む
+      flushPendingQueue();
+      refreshCloudData();
     });
 
     // 起動時のデータ読込。登録済み端末は通信失敗で登録画面に戻さず、その場で再試行する。
@@ -1308,6 +1630,9 @@
         await loadCloudData();
         consecutive401 = 0;
         renderGrid();
+        startPeriodicRefresh();
+        // 前回の起動時に送れずに残っていた打刻があれば送る
+        flushPendingQueue();
       } catch (err) {
         console.error(err);
 
