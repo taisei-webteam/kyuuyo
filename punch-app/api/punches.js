@@ -46,6 +46,14 @@ function parseCreateBody(body) {
     return null;
   }
 
+  // device: 'ipad'=ボタンを押した時刻、'manual'=打刻画面の長押しで時刻を指定した手動打刻
+  const device = parsed.device === 'manual' ? 'manual' : 'ipad';
+  const punchedAt = normalizePunchedAt(parsed.punchedAt);
+
+  // 手動打刻は指定時刻そのものが内容なので、時刻が不正・範囲外なら受け付けない
+  // （サーバー時刻で黙って置き換えると、意図しない時刻の打刻になる）
+  if (device === 'manual' && !punchedAt) return null;
+
   return {
     employeeId: parsed.employeeId,
     employeeName: parsed.employeeName,
@@ -55,7 +63,8 @@ function parseCreateBody(body) {
       typeof parsed.clientId === 'string' && CLIENT_ID_PATTERN.test(parsed.clientId)
         ? parsed.clientId
         : null,
-    punchedAt: normalizePunchedAt(parsed.punchedAt),
+    punchedAt,
+    device,
   };
 }
 
@@ -114,7 +123,7 @@ async function handlePost(req, res, sql) {
         ${body.employeeName},
         ${body.punchType},
         coalesce(${body.punchedAt}::timestamptz, now()),
-        'ipad',
+        ${body.device},
         ${body.clientId}
       )
       on conflict (client_id) do nothing
@@ -141,7 +150,7 @@ async function handlePost(req, res, sql) {
       ${body.employeeName},
       ${body.punchType},
       coalesce(${body.punchedAt}::timestamptz, now()),
-      'ipad'
+      ${body.device}
     )
     returning id, employee_id, employee_name, punch_type, punched_at, device, cancelled, created_at, client_id
   `;

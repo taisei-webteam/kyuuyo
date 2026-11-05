@@ -130,6 +130,36 @@
     }
     .punch-btn:active { transform: scale(0.95); }
     .punch-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    /* 長押し（手動打刻）: 2秒かけて下端のバーが伸び、満了で時刻入力を開く */
+    .punch-btn { position: relative; overflow: hidden; -webkit-touch-callout: none; touch-action: manipulation; }
+    .punch-btn::after {
+      content: ''; position: absolute; left: 0; bottom: 0; height: 6px; width: 0;
+      background: rgba(255,255,255,0.85); border-radius: 0 3px 3px 0;
+    }
+    .punch-btn.pressing::after { animation: longpress-fill 2s linear forwards; }
+    @keyframes longpress-fill { from { width: 0; } to { width: 100%; } }
+    .punch-hint { text-align: center; font-size: 0.75rem; color: var(--text-secondary); margin-top: 12px; }
+
+    /* 手動打刻モーダル */
+    .manual-time-input {
+      width: 100%; padding: 12px 14px; border: 2px solid var(--border); border-radius: 10px;
+      font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center;
+      outline: none; background: var(--surface); color: var(--text);
+    }
+    .manual-time-input:focus { border-color: var(--primary); }
+    .manual-note {
+      margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: #fef3c7; color: #92400e;
+      font-size: 0.8rem; line-height: 1.5;
+    }
+    .modal-error { color: var(--danger); font-size: 0.8rem; margin-top: 8px; display: none; }
+    .modal-error.show { display: block; }
+    .modal-btn-primary { background: var(--primary); color: #fff; }
+    .modal-btn-primary:hover { background: var(--primary-hover); }
+    .modal-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .log-manual {
+      font-size: 0.675rem; font-weight: 600; color: #92400e; background: #fef3c7;
+      padding: 2px 8px; border-radius: 9999px; flex-shrink: 0;
+    }
 
     .punch-btn-icon {
       width: 56px; height: 56px; border-radius: 50%; background: rgba(255,255,255,0.25);
@@ -400,6 +430,7 @@
           <span class="punch-btn-label">退勤</span>
         </button>
       </div>
+      <div class="punch-hint">ボタンを2秒以上長押しすると、時刻を指定した手動打刻ができます</div>
       <div class="today-log">
         <div class="today-log-title">本日の打刻履歴</div>
         <ul class="today-log-list" id="todayLog"></ul>
@@ -750,11 +781,23 @@
         clientId: item.clientId,
         type: apiTypeToLocal(item.punchType),
         time: formatApiTime(item.punchedAt),
+        manual: item.device === 'manual',
         cancelled: false,
         cancelReason: '',
         cancelTime: '',
         pending: true,
       };
+    }
+
+    // 打刻行を時刻順に並べ直す。手動打刻は過去の時刻を後から足すため、
+    // 追加順のままだと最後の行で判定する出勤状態（getStatus）が狂う。
+    function sortRecsByTime(recs) {
+      recs.sort((a, b) => a.time.localeCompare(b.time));
+    }
+
+    // モーダル（取消・手動打刻）が開いているか。開いている間は再描画・再読込・自動リロードを控える。
+    function isModalOpen() {
+      return !!(document.getElementById('cancelModal') || document.getElementById('manualModal'));
     }
 
     // サーバーの打刻一覧で punchRecords を組み直し、まだ送れていない打刻を重ねる。
@@ -771,6 +814,7 @@
           clientId: punch.client_id ?? null,
           type: apiTypeToLocal(punch.punch_type),
           time: formatApiTime(punch.punched_at),
+          manual: punch.device === 'manual',
           cancelled: punch.cancelled,
           cancelReason: punch.cancelled ? '取消済' : '',
           cancelTime: '',
@@ -786,7 +830,7 @@
         }
         const recs = getRecords(item.employeeId, localDateKey(item.punchedAt));
         recs.push(pendingToRec(item));
-        recs.sort((a, b) => a.time.localeCompare(b.time));
+        sortRecsByTime(recs);
       }
       if (queueChanged) savePendingQueue();
     }
@@ -800,6 +844,7 @@
           punchType: item.punchType,
           punchedAt: item.punchedAt,
           clientId: item.clientId,
+          device: item.device === 'manual' ? 'manual' : 'ipad',
         }),
       });
       return data.punch ?? null;
@@ -812,7 +857,7 @@
     }
 
     function refreshViewForEmployee(empId) {
-      if (document.getElementById('cancelModal')) return;
+      if (isModalOpen()) return;
       if (selectedEmployee && selectedEmployee.id === empId) {
         updatePunchButtons();
         renderLog();
@@ -927,7 +972,7 @@
     function canRefreshNow() {
       if (IS_DEMO || !getDeviceToken()) return false;
       if (document.visibilityState !== 'visible') return false;
-      if (document.getElementById('cancelModal')) return false;
+      if (isModalOpen()) return false;
       // 履歴画面は1ヶ月分を保持しているので、当日分で上書きしない
       if (document.getElementById('screenHistory').classList.contains('active')) return false;
       return true;
@@ -1088,7 +1133,7 @@
     function watchdogTick() {
       if (IS_DEMO) return;
       const punchOpen = document.getElementById('screenPunch').classList.contains('active');
-      const modalOpen = !!document.getElementById('cancelModal');
+      const modalOpen = isModalOpen();
 
       // 打刻画面の放置 → 一覧へ戻す
       if (punchOpen && !modalOpen && isUserIdleFor(PUNCH_SCREEN_IDLE_MS)) {
@@ -1271,28 +1316,35 @@
       setTimeout(() => overlay.remove(), 2600);
     }
 
-    function doPunch(type) {
+    // options.manual=true のときは options.punchedAt(Date) を打刻時刻にした「手動打刻」として記録する。
+    function doPunch(type, options = {}) {
       if (!selectedEmployee) return;
       const emp = selectedEmployee;
       primePunchSound();
+      const manual = options.manual === true;
 
       // 押した瞬間にUIへ反映し、同時に端末へ保存（未送信キュー）してから背後で送信する。
       // 送信に失敗しても打刻は消さず、通信回復後に押した時刻のまま再送する。
-      const punchedAt = new Date();
+      const punchedAt = manual && options.punchedAt instanceof Date ? options.punchedAt : new Date();
       const item = {
         clientId: newClientId(),
         employeeId: emp.id,
         employeeName: emp.name,
         punchType: localTypeToApi(type),
         punchedAt: punchedAt.toISOString(),
+        device: manual ? 'manual' : 'ipad',
       };
-      const recs = getRecords(emp.id);
+      const recs = getRecords(emp.id, localDateKey(item.punchedAt));
       const optimisticRec = pendingToRec(item);
       recs.push(optimisticRec);
+      // 手動打刻は過去時刻のことが多いので時刻順に並べ直す（出勤状態の判定を正しく保つ）
+      if (manual) sortRecsByTime(recs);
       if (!IS_DEMO) enqueuePending(item);
 
-      showToast(`${PUNCH_TYPES[type].label} ${optimisticRec.time}`);
-      showMessage(type);
+      showToast(manual
+        ? `${PUNCH_TYPES[type].label} ${optimisticRec.time}（※手動打刻）`
+        : `${PUNCH_TYPES[type].label} ${optimisticRec.time}`);
+      if (!manual) showMessage(type);
       playPunchSound(type);
       if (selectedEmployee?.id === emp.id) {
         updatePunchButtons();
@@ -1309,6 +1361,96 @@
 
       // 背後でサーバへ送信。失敗時は flushPendingQueue が間隔を空けて再送する。
       flushPendingQueue();
+    }
+
+    // ── 手動打刻（長押し） ──
+    // 打刻ボタンを2秒以上長押しすると、時刻を指定して打刻できる。
+    // 押し忘れを後から補うための機能で、記録は device='manual' となり履歴に「※手動打刻」と出る。
+    const LONG_PRESS_MS = 2000;
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    function showManualPunchModal(type) {
+      if (!selectedEmployee || isModalOpen()) return;
+      clearTimeout(autoReturnTimer);
+      const typeLabel = PUNCH_TYPES[type].label;
+      const now = new Date();
+
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.id = 'manualModal';
+      overlay.innerHTML = `
+        <div class="modal-box">
+          <div class="modal-title">手動打刻 — ${typeLabel}</div>
+          <div class="modal-subtitle">${selectedEmployee.name} さんの「${typeLabel}」を、指定した時刻で記録します（本日分のみ）。</div>
+          <input type="time" class="manual-time-input" id="manualTime" step="60" value="${pad2(now.getHours())}:${pad2(now.getMinutes())}" />
+          <div class="modal-error" id="manualError"></div>
+          <div class="manual-note">※ 手動打刻として記録され、履歴に「※手動打刻」と表示されます。実際にボタンを押した時刻ではありません。</div>
+          <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" id="manualModalClose">キャンセル</button>
+            <button class="modal-btn modal-btn-primary" id="manualModalConfirm">この時刻で${typeLabel}</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const input = overlay.querySelector('#manualTime');
+      const errEl = overlay.querySelector('#manualError');
+      const close = () => overlay.remove();
+      overlay.querySelector('#manualModalClose').onclick = close;
+      overlay.onclick = (e) => { if (e.target === overlay) close(); };
+
+      overlay.querySelector('#manualModalConfirm').onclick = () => {
+        errEl.classList.remove('show');
+        const m = /^(\d{2}):(\d{2})$/.exec(input.value || '');
+        if (!m) {
+          errEl.textContent = '時刻を入力してください';
+          errEl.classList.add('show');
+          return;
+        }
+        const t = new Date();
+        t.setHours(Number(m[1]), Number(m[2]), 0, 0);
+        if (t.getTime() > Date.now()) {
+          errEl.textContent = '現在時刻より後の時刻は指定できません';
+          errEl.classList.add('show');
+          return;
+        }
+        close();
+        doPunch(type, { manual: true, punchedAt: t });
+      };
+    }
+
+    // ボタンに長押し検出を付ける。2秒満了で手動打刻モーダルを開き、その後の click は無視する。
+    // 途中で指を離す／外れる／スクロールした場合は通常のタップ（click）として扱う。
+    function attachLongPress(btn, type) {
+      let timer = null;
+      let fired = false;
+
+      const cancel = () => {
+        clearTimeout(timer);
+        timer = null;
+        btn.classList.remove('pressing');
+      };
+
+      btn.addEventListener('pointerdown', (e) => {
+        if (btn.disabled || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        fired = false;
+        btn.classList.add('pressing');
+        timer = setTimeout(() => {
+          timer = null;
+          fired = true;
+          btn.classList.remove('pressing');
+          showManualPunchModal(type);
+        }, LONG_PRESS_MS);
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => btn.addEventListener(ev, cancel));
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      btn.addEventListener('click', () => {
+        if (fired) { fired = false; return; }
+        cancel();
+        doPunch(type);
+      });
     }
 
     // ── Cancel Modal ──
@@ -1414,9 +1556,11 @@
           ? `<button class="btn-cancel-punch" data-idx="${i}">取消</button>`
           : `<span class="log-reason">取消: ${r.cancelReason}</span>`;
         const pendingMark = r.pending && !r.cancelled ? '<span class="log-pending">送信待ち</span>' : '';
+        const manualMark = r.manual ? '<span class="log-manual">※手動打刻</span>' : '';
         return `<li class="${cls}">
           <span class="${typeClass}">${PUNCH_TYPES[r.type].label}</span>
           <span class="log-time">${r.time}</span>
+          ${manualMark}
           ${pendingMark}
           ${cancelBtn}
         </li>`;
@@ -1493,11 +1637,14 @@
         const emp = EMP_MAP[r.empId];
         const rowClass = r.cancelled ? 'history-cancelled' : '';
         const status = r.cancelled ? `<span class="log-type log-type-cancel">取消済</span>` : '<span style="color:#16a34a;font-weight:600;font-size:0.75rem">有効</span>';
-        const note = r.cancelled ? `${r.cancelReason}（${r.cancelTime}）` : '';
+        const notes = [];
+        if (r.manual) notes.push('※手動打刻');
+        if (r.cancelled) notes.push(`${r.cancelReason}${r.cancelTime ? `（${r.cancelTime}）` : ''}`);
+        const note = notes.join(' / ');
         return `<tr class="${rowClass}">
           <td style="white-space:nowrap">${fmtDate(r.date)}</td>
           <td>${emp?.name ?? '---'}</td>
-          <td><span class="log-type ${PUNCH_TYPES[r.type].cssClass}">${PUNCH_TYPES[r.type].label}</span></td>
+          <td><span class="log-type ${PUNCH_TYPES[r.type].cssClass}">${PUNCH_TYPES[r.type].label}</span>${r.manual ? ' <span class="log-manual">手動</span>' : ''}</td>
           <td class="log-time">${r.time}</td>
           <td>${status}</td>
           <td style="font-size:0.75rem;color:#64748b">${note}</td>
@@ -1507,10 +1654,11 @@
 
     // ── Events ──
     document.getElementById('btnBack').onclick = closePunch;
-    document.getElementById('btnClockIn').onclick = () => doPunch('clockin');
-    document.getElementById('btnGoOut').onclick = () => doPunch('goout');
-    document.getElementById('btnGoReturn').onclick = () => doPunch('goreturn');
-    document.getElementById('btnClockOut').onclick = () => doPunch('clockout');
+    // タップ=今の時刻で打刻、2秒以上の長押し=時刻を指定した手動打刻
+    attachLongPress(document.getElementById('btnClockIn'), 'clockin');
+    attachLongPress(document.getElementById('btnGoOut'), 'goout');
+    attachLongPress(document.getElementById('btnGoReturn'), 'goreturn');
+    attachLongPress(document.getElementById('btnClockOut'), 'clockout');
     document.getElementById('btnShowHistory').onclick = openHistory;
     document.getElementById('btnHistoryBack').onclick = () => { showScreen('screenList'); renderGrid(); };
     document.getElementById('historyEmployee').onchange = renderHistory;
@@ -1519,6 +1667,14 @@
     // ── バージョン履歴 ──
     // 新しいバージョンを出したら先頭に追記する（version は package.json と揃える）。
     const CHANGELOG = [
+      {
+        version: '0.1.5',
+        date: '2026-11-05',
+        changes: [
+          '打刻画面の4つのボタンを2秒以上長押しすると、時刻を指定した手動打刻ができるようにした（押し忘れの補完用・本日分のみ）',
+          '手動打刻は本日の打刻履歴・履歴画面に「※手動打刻」と表示',
+        ],
+      },
       {
         version: '0.1.4',
         date: '2026-11-05',
