@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
-import type { ReactElement, ChangeEvent } from 'react'
+import type { ReactElement, ChangeEvent, KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { updateEmployee, reloadEmployeesFromDb, type MockEmployee } from '@/lib/mock-data'
 import { keepZeroSelectionOnMouseUp, normalizeIntegerDraft, selectZeroOnFocus } from './ClearableNumberInput'
@@ -115,6 +115,7 @@ export function ResidentTaxBulkModal({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputRefs = useRef<Map<number, HTMLInputElement>>(new Map())
 
   const currentById = useMemo(() => {
     const m = new Map<number, number>()
@@ -139,6 +140,19 @@ export function ResidentTaxBulkModal({
     }
     return sum
   }, [drafts, employees])
+
+  const handleKeyDown = useCallback(
+    (index: number, ev: KeyboardEvent<HTMLInputElement>): void => {
+      if (ev.key !== 'Enter' || ev.nativeEvent.isComposing) return
+      ev.preventDefault()
+      const next = employees[index + 1]
+      if (!next) return
+      const el = inputRefs.current.get(next.id)
+      el?.focus()
+      el?.select()
+    },
+    [employees],
+  )
 
   const handleChange = useCallback((id: number, value: string): void => {
     setDrafts((prev) => ({ ...prev, [id]: normalizeIntegerDraft(value) }))
@@ -311,7 +325,7 @@ export function ResidentTaxBulkModal({
               </tr>
             </thead>
             <tbody>
-              {employees.map((e) => {
+              {employees.map((e, index) => {
                 const draftRaw = drafts[e.id] ?? ''
                 const draft = parseAmount(draftRaw)
                 const current = currentById.get(e.id) ?? 0
@@ -323,11 +337,17 @@ export function ResidentTaxBulkModal({
                     <td className={styles.tdRight}>{yen(current)}</td>
                     <td className={styles.tdRight}>
                       <input
+                        ref={(el) => {
+                          if (el) inputRefs.current.set(e.id, el)
+                          else inputRefs.current.delete(e.id)
+                        }}
                         type="text"
                         inputMode="numeric"
                         className={`${styles.input} ${changed ? styles.changed : ''}`}
                         value={draftRaw}
+                        aria-label={`${e.name}の住民税`}
                         onChange={(ev) => handleChange(e.id, ev.target.value)}
+                        onKeyDown={(ev) => handleKeyDown(index, ev)}
                         onFocus={selectZeroOnFocus}
                         onMouseUp={keepZeroSelectionOnMouseUp}
                       />

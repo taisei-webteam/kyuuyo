@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import type { ReactElement, ChangeEvent } from 'react'
+import type { ReactElement, ChangeEvent, KeyboardEvent } from 'react'
 import { updateEmployee, reloadEmployeesFromDb, type MockEmployee } from '@/lib/mock-data'
 import { keepZeroSelectionOnMouseUp, normalizeIntegerDraft, selectZeroOnFocus } from './ClearableNumberInput'
 import styles from './ResidentTaxBulkModal.module.css'
@@ -64,6 +64,10 @@ interface ImportResult {
 interface PremiumDraft {
   health: string
   pension: string
+}
+
+function cellKey(id: number, field: keyof PremiumDraft): string {
+  return `${id}:${field}`
 }
 
 interface PremiumAmounts {
@@ -138,6 +142,7 @@ export function SocialInsuranceBulkModal({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
 
   const changedCount = useMemo(() => {
     let n = 0
@@ -169,6 +174,19 @@ export function SocialInsuranceBulkModal({
       [id]: { health: prev[id]?.health ?? '', pension: prev[id]?.pension ?? '', [field]: next },
     }))
   }, [])
+
+  const handleKeyDown = useCallback(
+    (index: number, field: keyof PremiumDraft, ev: KeyboardEvent<HTMLInputElement>): void => {
+      if (ev.key !== 'Enter' || ev.nativeEvent.isComposing) return
+      ev.preventDefault()
+      const next = employees[index + 1]
+      if (!next) return
+      const el = inputRefs.current.get(cellKey(next.id, field))
+      el?.focus()
+      el?.select()
+    },
+    [employees],
+  )
 
   const handleExportTemplate = useCallback(async (): Promise<void> => {
     const header = ['ID', '氏名', '健康保険料', '厚生年金']
@@ -369,7 +387,7 @@ export function SocialInsuranceBulkModal({
               </tr>
             </thead>
             <tbody>
-              {employees.map((e) => {
+              {employees.map((e, index) => {
                 const draft = drafts[e.id] ?? { health: '', pension: '' }
                 const health = parseAmount(draft.health)
                 const pension = parseAmount(draft.pension)
@@ -381,24 +399,36 @@ export function SocialInsuranceBulkModal({
                     <td className={styles.muted}>{e.employeeType}</td>
                     <td className={styles.tdRight}>
                       <input
+                        ref={(el) => {
+                          const key = cellKey(e.id, 'health')
+                          if (el) inputRefs.current.set(key, el)
+                          else inputRefs.current.delete(key)
+                        }}
                         type="text"
                         inputMode="numeric"
                         className={`${styles.input} ${healthChanged ? styles.changed : ''}`}
                         value={draft.health}
                         aria-label={`${e.name}の健康保険料`}
                         onChange={(ev) => handleChange(e.id, 'health', ev.target.value)}
+                        onKeyDown={(ev) => handleKeyDown(index, 'health', ev)}
                         onFocus={selectZeroOnFocus}
                         onMouseUp={keepZeroSelectionOnMouseUp}
                       />
                     </td>
                     <td className={styles.tdRight}>
                       <input
+                        ref={(el) => {
+                          const key = cellKey(e.id, 'pension')
+                          if (el) inputRefs.current.set(key, el)
+                          else inputRefs.current.delete(key)
+                        }}
                         type="text"
                         inputMode="numeric"
                         className={`${styles.input} ${pensionChanged ? styles.changed : ''}`}
                         value={draft.pension}
                         aria-label={`${e.name}の厚生年金`}
                         onChange={(ev) => handleChange(e.id, 'pension', ev.target.value)}
+                        onKeyDown={(ev) => handleKeyDown(index, 'pension', ev)}
                         onFocus={selectZeroOnFocus}
                         onMouseUp={keepZeroSelectionOnMouseUp}
                       />
