@@ -1,6 +1,7 @@
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useEffect, useRef } from 'react'
 import type { ReactNode, ReactElement } from 'react'
+import type { UpdaterEvent } from '../../../shared/types'
 import styles from './Layout.module.css'
 import { getSettings, subscribe } from '../lib/settings-store'
 import { manualDemoLogo } from '../lib/manual-demo-flag'
@@ -49,6 +50,7 @@ export function Layout({ children }: LayoutProps): ReactElement {
   const pageTitle = pageTitles[location.pathname] ?? ''
   const [companyName, setCompanyName] = useState(getSettings().companyName)
   const [appVersion, setAppVersion] = useState('')
+  const [pendingVersion, setPendingVersion] = useState<string | null>(null)
   const historyRef = useRef<{ keys: string[]; index: number }>({
     keys: [location.key],
     index: 0,
@@ -63,6 +65,14 @@ export function Layout({ children }: LayoutProps): ReactElement {
   useEffect(() => {
     if (!hasElectronApi) return
     void window.api.app.getVersion().then(setAppVersion)
+    const apply = (e: UpdaterEvent): void => {
+      if (e.status === 'downloaded' && e.version) setPendingVersion(e.version)
+      if (e.status === 'not-available') setPendingVersion(null)
+    }
+    void window.api.updater.getState().then((s) => {
+      if (s) apply(s)
+    })
+    return window.api.updater.onEvent(apply)
   }, [])
 
   useEffect(() => {
@@ -103,6 +113,9 @@ export function Layout({ children }: LayoutProps): ReactElement {
         <div className={styles.sidebarFooter}>
           <span className={styles.version}>
             {appVersion ? `バージョン ${appVersion}` : ''}
+            {pendingVersion ? (
+              <span className={styles.versionPending}>終了すると v{pendingVersion} になります</span>
+            ) : null}
           </span>
         </div>
       </aside>

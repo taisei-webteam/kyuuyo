@@ -23,6 +23,8 @@ type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready';
 let lastEvent: UpdaterEvent | null = null;
 let phase: UpdatePhase = 'idle';
 let lastCheckAt = 0;
+/** ダウンロード済みで、終了時に適用する版。より新しい版が出たら差し替える。 */
+let downloadedVersion: string | null = null;
 /** 「今すぐ」を押したあと、ダウンロード完了で再起動する */
 let installWhenReady = false;
 
@@ -54,7 +56,8 @@ export function setupAutoUpdater(win: BrowserWindow): void {
 
   autoUpdater.on('error', (err) => {
     console.error('[updater] error:', err);
-    if (phase !== 'ready') phase = 'idle';
+    // 確認に失敗しても、取り込み済みの更新は終了時に適用する。
+    phase = downloadedVersion ? 'ready' : 'idle';
     notify({ status: 'error', message: err instanceof Error ? err.message : String(err) });
   });
   autoUpdater.on('checking-for-update', () => {
@@ -68,7 +71,7 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   });
   autoUpdater.on('update-not-available', () => {
     console.log('[updater] no update available');
-    phase = 'idle';
+    phase = downloadedVersion ? 'ready' : 'idle';
     notify({ status: 'not-available' });
   });
   autoUpdater.on('download-progress', (p) => {
@@ -77,6 +80,7 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   });
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[updater] downloaded:', info.version);
+    downloadedVersion = info.version;
     phase = 'ready';
     notify({ status: 'downloaded', version: info.version });
     if (installWhenReady) {
@@ -85,7 +89,8 @@ export function setupAutoUpdater(win: BrowserWindow): void {
   });
 
   const check = (): void => {
-    if (phase !== 'idle') return;
+    // 取り込み済みでも確認は続ける。起動中に次の版が出たら、古い取り込みを置き換える。
+    if (phase === 'checking' || phase === 'downloading') return;
     const now = Date.now();
     if (now - lastCheckAt < MIN_CHECK_GAP_MS) return;
     lastCheckAt = now;

@@ -11,7 +11,7 @@ const hasApi = typeof window !== 'undefined' && 'api' in window
  */
 export function UpdateIndicator(): ReactElement | null {
   const [event, setEvent] = useState<UpdaterEvent | null>(null)
-  const [dismissed, setDismissed] = useState(false)
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
@@ -26,6 +26,8 @@ export function UpdateIndicator(): ReactElement | null {
     return unsubscribe
   }, [])
 
+  const eventVersion = event?.version ?? ''
+  const dismissed = dismissedVersion !== null && dismissedVersion === eventVersion
   if (!event || dismissed) return null
   const { status } = event
   // 確認中・更新なし・エラーは表示しない（UIをうるさくしない）
@@ -47,7 +49,7 @@ export function UpdateIndicator(): ReactElement | null {
       <button
         type="button"
         className={styles.close}
-        onClick={() => setDismissed(true)}
+        onClick={() => setDismissedVersion(eventVersion)}
         aria-label="閉じる"
       >
         ×
@@ -84,7 +86,7 @@ export function UpdateIndicator(): ReactElement | null {
             >
               {restarting ? '更新を適用しています…' : '今すぐ更新'}
             </button>
-            <button type="button" className={styles.secondary} onClick={() => setDismissed(true)}>
+            <button type="button" className={styles.secondary} onClick={() => setDismissedVersion(eventVersion)}>
               あとで
             </button>
           </div>
