@@ -200,6 +200,8 @@ export function PayslipCreate(): ReactElement {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(storedPeriod?.employeeId ?? 1)
   const [searchQuery, setSearchQuery] = useState('')
   const [distributeMode, setDistributeMode] = useState<DistributeMode>('pdf')
+  const pdfTabRef = useRef<HTMLButtonElement>(null)
+  const emailTabRef = useRef<HTMLButtonElement>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [editPayslips, setEditPayslips] = useState<MockPayslip[]>([])
   const [mailMode, setMailMode] = useState<'bulk' | 'single' | null>(null)
@@ -754,6 +756,21 @@ export function PayslipCreate(): ReactElement {
     }
   }, [bulkPrintItems, selectedYear, selectedMonth])
 
+  const selectDistributeMode = useCallback((mode: DistributeMode, focusTab = false): void => {
+    setDistributeMode(mode)
+    if (!focusTab) return
+    requestAnimationFrame(() => {
+      const tab = mode === 'pdf' ? pdfTabRef.current : emailTabRef.current
+      tab?.focus()
+    })
+  }, [])
+
+  const handleDistributeTabKeyDown = useCallback((event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
+    event.preventDefault()
+    selectDistributeMode(distributeMode === 'pdf' ? 'email' : 'pdf', true)
+  }, [distributeMode, selectDistributeMode])
+
   const isFutureMonth =
     selectedYear > now.getFullYear() ||
     (selectedYear === now.getFullYear() && selectedMonth > now.getMonth() + 1)
@@ -795,72 +812,106 @@ export function PayslipCreate(): ReactElement {
         </div>
         {created && (
           <div className={styles.headerActions}>
-            <div className={styles.distributeToggle}>
+            <div className={styles.modeGroups} role="tablist" aria-label="明細の渡し方">
+              <div className={`${styles.modeGroup} ${distributeMode === 'pdf' ? styles.modeGroupActive : ''}`}>
+                <button
+                  ref={pdfTabRef}
+                  type="button"
+                  role="tab"
+                  id="distribute-tab-pdf"
+                  aria-selected={distributeMode === 'pdf'}
+                  aria-controls={distributeMode === 'pdf' ? 'distribute-panel-pdf' : undefined}
+                  className={styles.modeTab}
+                  onClick={() => selectDistributeMode('pdf')}
+                  onKeyDown={handleDistributeTabKeyDown}
+                >
+                  PDF印刷
+                </button>
+                {distributeMode === 'pdf' && (
+                  <div
+                    className={styles.modeActions}
+                    role="tabpanel"
+                    id="distribute-panel-pdf"
+                    aria-labelledby="distribute-tab-pdf"
+                  >
+                    <button
+                      type="button"
+                      className={styles.modeAction}
+                      onClick={handleExportCsv}
+                      disabled={exportingCsv}
+                      title="この月の給与明細一覧をCSVで書き出します"
+                    >
+                      {exportingCsv ? 'CSV出力中...' : 'CSV出力'}
+                    </button>
+                    <button type="button" className={styles.modeAction} onClick={handleBulkPrint}>一括印刷</button>
+                    <button type="button" className={`${styles.modeAction} ${styles.modeActionPrimary}`} onClick={handlePrint}>印刷</button>
+                  </div>
+                )}
+              </div>
+              <div className={`${styles.modeGroup} ${distributeMode === 'email' ? styles.modeGroupActive : ''}`}>
+                <button
+                  ref={emailTabRef}
+                  type="button"
+                  role="tab"
+                  id="distribute-tab-email"
+                  aria-selected={distributeMode === 'email'}
+                  aria-controls={distributeMode === 'email' ? 'distribute-panel-email' : undefined}
+                  className={styles.modeTab}
+                  onClick={() => selectDistributeMode('email')}
+                  onKeyDown={handleDistributeTabKeyDown}
+                >
+                  メール送信
+                </button>
+                {distributeMode === 'email' && (
+                  <div
+                    className={styles.modeActions}
+                    role="tabpanel"
+                    id="distribute-panel-email"
+                    aria-labelledby="distribute-tab-email"
+                  >
+                    <button type="button" className={styles.modeAction} onClick={() => setMailMode('bulk')}>一括送信</button>
+                    <button
+                      type="button"
+                      className={`${styles.modeAction} ${styles.modeActionPrimary}`}
+                      onClick={() => {
+                        if (selectedEmployee) setMailMode('single')
+                      }}
+                      disabled={!selectedEmployee}
+                    >
+                      個別送信
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className={styles.commonActions}>
               <button
-                className={`${styles.toggleBtn} ${distributeMode === 'pdf' ? styles.toggleBtnActive : ''}`}
-                onClick={() => setDistributeMode('pdf')}
+                type="button"
+                className={styles.iconButton}
+                onClick={() => { void handleUpdateAttendance() }}
+                disabled={creating}
+                title="勤怠を反映して更新"
+                aria-label="勤怠を反映して更新"
               >
-                PDF印刷
+                <svg className={styles.iconSvg} viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M21 12a9 9 0 1 1-2.2-5.8M21 4v5h-5"
+                  />
+                </svg>
               </button>
               <button
-                className={`${styles.toggleBtn} ${distributeMode === 'email' ? styles.toggleBtnActive : ''}`}
-                onClick={() => setDistributeMode('email')}
+                type="button"
+                className={styles.btnSecondary}
+                onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
               >
-                メール送信
+                一括編集
               </button>
             </div>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => { void handleUpdateAttendance() }}
-              disabled={creating}
-              title="勤怠を反映して更新"
-              aria-label="勤怠を反映して更新"
-            >
-              <svg className={styles.iconSvg} viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 12a9 9 0 1 1-2.2-5.8M21 4v5h-5"
-                />
-              </svg>
-            </button>
-            <button
-              className={styles.btnSecondary}
-              onClick={() => navigate('/history', { state: { year: selectedYear, month: selectedMonth } })}
-            >
-              一括編集
-            </button>
-            {distributeMode === 'pdf' ? (
-              <>
-                <button
-                  className={styles.btnSecondary}
-                  onClick={handleExportCsv}
-                  disabled={exportingCsv}
-                  title="この月の給与明細一覧をCSVで書き出します"
-                >
-                  {exportingCsv ? 'CSV出力中...' : 'CSV出力'}
-                </button>
-                <button className={styles.btnSecondary} onClick={handleBulkPrint}>一括印刷</button>
-                <button className={styles.btnPrimary} onClick={handlePrint}>印刷</button>
-              </>
-            ) : (
-              <>
-                <button className={styles.btnSecondary} onClick={() => setMailMode('bulk')}>一括送信</button>
-                <button
-                  className={styles.btnPrimary}
-                  onClick={() => {
-                    if (selectedEmployee) setMailMode('single')
-                  }}
-                  disabled={!selectedEmployee}
-                >
-                  個別送信
-                </button>
-              </>
-            )}
           </div>
         )}
       </div>
