@@ -10,6 +10,7 @@ import {
   type MailDocItem,
   type SendProgress,
 } from '@/lib/mail-client'
+import { ConfirmPrompt } from '@/components/ConfirmPrompt'
 import styles from './BulkEmailModal.module.css'
 
 interface BulkEmailModalProps {
@@ -37,6 +38,10 @@ export function BulkEmailModal({
   onClose,
   onSent,
 }: BulkEmailModalProps): ReactElement {
+  const [statusTick, setStatusTick] = useState(0)
+  const [confirming, setConfirming] = useState(false)
+  const [doneMessage, setDoneMessage] = useState<string | null>(null)
+  const [pendingSendAt, setPendingSendAt] = useState<string | null>(null)
   const targets = useMemo(
     () =>
       employees.map((emp) => ({
@@ -44,10 +49,15 @@ export function BulkEmailModal({
         sent: isEmailSent(emp.id, type, year, monthOrSeason),
         hasEmail: !!emp.email,
       })),
-    [employees, type, year, monthOrSeason],
+    [employees, type, year, monthOrSeason, statusTick],
   )
 
   const [selected, setSelected] = useState<Set<number>>(() => {
+    // 個別送信は開いた人を対象にする。アドレスが無くてもチェックは付け、送信時に理由を出す。
+    if (mode === 'single') {
+      const person = targets.find((t) => !t.sent)
+      return new Set(person ? [person.id] : [])
+    }
     const sendable = targets.filter((t) => t.hasEmail && !t.sent)
     return new Set(sendable.map((t) => t.id))
   })
@@ -109,19 +119,23 @@ export function BulkEmailModal({
   }, [])
 
   const toggleAll = useCallback((): void => {
-    const sendable = targets.filter((t) => t.hasEmail && !t.sent)
-    const allSelected = sendable.every((t) => selected.has(t.id))
+    const sendable = targets.filter((t) => !t.sent && (mode === 'single' || t.hasEmail))
+    const allSelected = sendable.length > 0 && sendable.every((t) => selected.has(t.id))
     if (allSelected) {
       setSelected(new Set())
     } else {
       setSelected(new Set(sendable.map((t) => t.id)))
     }
-  }, [targets, selected])
+  }, [targets, selected, mode])
 
-  const handleSend = useCallback(async (): Promise<void> => {
-    const ids = Array.from(selected)
-    if (ids.length === 0) return
-
+  const requestSend = useCallback((): void => {
+    if (selected.size === 0 || doneMessage) return
+    const missingEmail = targets.filter((t) => selected.has(t.id) && !t.hasEmail)
+    if (missingEmail.length > 0) {
+      const names = missingEmail.map((t) => t.name).join('、')
+      setErrors([`${names} さんのメールアドレスが未登録のため送信できません。従業員管理で登録してください。`])
+      return
+    }
     let sendAtIso: string | null = null
     if (sendAtLocal.trim()) {
       sendAtIso = japanLocalInputToUtcIso(sendAtLocal.trim())
@@ -133,17 +147,27 @@ export function BulkEmailModal({
         setErrors(['送信日時は現在の日本時間より後を指定してください。今すぐ送る場合は日時を空にしてください。'])
         return
       }
-      if (!electronMail) {
-        setErrors(['日時を指定した送信はデスクトップアプリ版でのみ利用できます'])
-        return
-      }
     }
+    setErrors([])
+    setPendingSendAt(sendAtIso)
+    setConfirming(true)
+  }, [selected, doneMessage, sendAtLocal, targets])
 
-    // デスクトップアプリ以外（ブラウザ単体プレビュー）はモック記録のみ
+  const handleSend = useCallback(async (sendAtIso: string | null): Promise<void> => {
+    const ids = Array.from(selected)
+    if (ids.length === 0) return
+
+    // ブラウザの開発サーバーでは Gmail を送らず、確認と完了メッセージだけ試せる
     if (!electronMail) {
-      sendEmailBulk(ids, type, year, monthOrSeason)
+      if (sendAtIso) {
+        for (const id of ids) rememberScheduledEmail(id, type, year, monthOrSeason, sendAtIso)
+        setDoneMessage('メールの予約が完了しました。')
+      } else {
+        sendEmailBulk(ids, type, year, monthOrSeason)
+        setDoneMessage('メールの送信が完了しました。')
+      }
       onSent()
-      onClose()
+      setStatusTick((n) => n + 1)
       return
     }
 
@@ -178,7 +202,8 @@ export function BulkEmailModal({
           }
         }
         onSent()
-        onClose()
+        setStatusTick((n) => n + 1)
+        setDoneMessage('メールの予約が完了しました。')
         return
       }
 
@@ -203,12 +228,11 @@ export function BulkEmailModal({
 
       if (successCount > 0) {
         onSent()
+        setStatusTick((n) => n + 1)
       }
-      // 全件成功なら自動で閉じる
       if (newErrors.length === 0) {
-        onClose()
+        setDoneMessage('メールの送信が完了しました。')
       } else {
-        // 失敗分だけ選択に残す
         setSelected(newFailed)
       }
     } catch (err) {
@@ -217,13 +241,13 @@ export function BulkEmailModal({
       setSending(false)
       setProgress(null)
     }
-  }, [selected, sendAtLocal, electronMail, type, year, monthOrSeason, periodKey, employees, makeItem, onSent, onClose])
+  }, [selected, electronMail, type, year, monthOrSeason, periodKey, employees, makeItem, onSent])
 
-  const sendableCount = targets.filter((t) => t.hasEmail && !t.sent).length
+  const sendableCount = targets.filter((t) => !t.sent && (mode === 'single' || t.hasEmail)).length
   const selectedCount = selected.size
   const sentCount = targets.filter((t) => t.sent).length
 
-  const overlay = useOverlayDismiss(sending ? () => {} : onClose)
+  const overlay = useOverlayDismiss(sending || confirming ? () => {} : onClose)
 
   const progressPct = progress
     ? progress.phase === 'sending'
@@ -240,11 +264,13 @@ export function BulkEmailModal({
           <button className={styles.closeButton} onClick={onClose} type="button" disabled={sending}>×</button>
         </div>
 
+        {doneMessage && <div className={styles.doneBanner}>{doneMessage}</div>}
+
         {mailReady === false && (
           <div className={styles.warnBanner}>
             {electronMail
               ? 'Googleとの連携が未完了です。「設定 > メール」からGmail連携を行ってください。'
-              : 'メール送信はデスクトップアプリ版でのみ利用できます（現在はプレビュー環境）。'}
+              : 'プレビューです。確認と完了メッセージは試せます。実際のGmail送信はデスクトップアプリで行います。'}
           </div>
         )}
 
@@ -279,7 +305,7 @@ export function BulkEmailModal({
                     <input
                       type="checkbox"
                       checked={selected.has(t.id)}
-                      disabled={!t.hasEmail || t.sent || sending}
+                      disabled={(mode !== 'single' && !t.hasEmail) || t.sent || sending}
                       onChange={() => toggleSelect(t.id)}
                     />
                   </td>
@@ -349,18 +375,35 @@ export function BulkEmailModal({
           </div>
           <div className={styles.footerButtons}>
             <button className={styles.cancelButton} onClick={onClose} type="button" disabled={sending}>
-              {errors.length > 0 ? '閉じる' : 'キャンセル'}
+              {doneMessage || errors.length > 0 ? '閉じる' : 'キャンセル'}
             </button>
-            <button
-              className={styles.sendButton}
-              onClick={handleSend}
-              disabled={selectedCount === 0 || sending || mailReady === false}
-              type="button"
-            >
-              {sending ? '処理中...' : sendAtLocal.trim() ? `${selectedCount}名を予約` : `${selectedCount}名に送信`}
-            </button>
+            {!doneMessage && (
+              <button
+                className={styles.sendButton}
+                onClick={requestSend}
+                disabled={selectedCount === 0 || sending || (electronMail && mailReady === false)}
+                type="button"
+              >
+                {sending ? '処理中...' : sendAtLocal.trim() ? `${selectedCount}名を予約` : `${selectedCount}名に送信`}
+              </button>
+            )}
           </div>
         </div>
+        {confirming && (
+          <ConfirmPrompt
+            message={
+              pendingSendAt
+                ? `日本時間 ${sendAtLocal.replace('T', ' ')} にメールを予約しますか？`
+                : 'メールを送りますか？'
+            }
+            confirmLabel={pendingSendAt ? '予約する' : '送信する'}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false)
+              void handleSend(pendingSendAt)
+            }}
+          />
+        )}
       </div>
     </div>
   )

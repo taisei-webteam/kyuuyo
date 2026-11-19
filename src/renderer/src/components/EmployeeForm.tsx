@@ -8,6 +8,7 @@ import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
 import { useVerifyAutoRefresh } from '@/hooks/useVerifyAutoRefresh'
 import { DateSelect } from './DateSelect'
 import { ClearableNumberInput } from './ClearableNumberInput'
+import { ConfirmPrompt } from '@/components/ConfirmPrompt'
 import styles from './EmployeeForm.module.css'
 
 interface EmployeeFormProps {
@@ -105,6 +106,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null)
   const [verifyBusy, setVerifyBusy] = useState<'idle' | 'sending' | 'refreshing'>('idle')
   const [verifyMessage, setVerifyMessage] = useState('')
+  const [confirmVerify, setConfirmVerify] = useState(false)
   const [verifyConfigured, setVerifyConfigured] = useState(false)
 
   const hasElectronApi = typeof window !== 'undefined' && typeof window.api !== 'undefined'
@@ -164,7 +166,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
       setVerifyStatus(res.data.status)
       setVerifySentAt(res.data.sentAt)
       setVerifiedAt(res.data.verifiedAt)
-      setVerifyMessage(`${form.email} に確認メールを送信しました。`)
+      setVerifyMessage('メールの送信が完了しました。')
     } else {
       setVerifyMessage(`送信に失敗しました: ${res.error}`)
     }
@@ -302,7 +304,7 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
                     <button
                       type="button"
                       className={styles.verifyButton}
-                      onClick={handleSendVerification}
+                      onClick={() => setConfirmVerify(true)}
                       disabled={!canSendVerification}
                       title="確認メールを送信して、相手が受信できるか確かめます"
                     >
@@ -737,6 +739,17 @@ export function EmployeeForm({ employee, onSave, onClose }: EmployeeFormProps): 
             </button>
           </div>
         </form>
+        {confirmVerify && (
+          <ConfirmPrompt
+            message="メールを送りますか？"
+            confirmLabel="送信する"
+            onCancel={() => setConfirmVerify(false)}
+            onConfirm={() => {
+              setConfirmVerify(false)
+              void handleSendVerification()
+            }}
+          />
+        )}
       </div>
     </div>,
     document.body,

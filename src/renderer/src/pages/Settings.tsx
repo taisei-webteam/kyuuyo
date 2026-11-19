@@ -6,6 +6,7 @@ import { renderEmailTemplate } from '../lib/email-template'
 import { hydrateInsuranceRatesFromDb } from '../lib/mock-data'
 import { CompanyCalendar } from './CompanyCalendar'
 import type { MailConfigStatus, BackupInfo, InsuranceRate, PunchSyncConfigStatus } from '../../../shared/types'
+import { ConfirmPrompt } from '@/components/ConfirmPrompt'
 import styles from './Settings.module.css'
 
 const DEFAULT_CLIENT_ID = '1086473446602-fkcvs3f5n0lsmlfnlnlcnon79723jsmb.apps.googleusercontent.com'
@@ -58,6 +59,7 @@ export default function Settings(): ReactElement {
   const [mailClientSecret, setMailClientSecret] = useState('')
   const [mailBusy, setMailBusy] = useState(false)
   const [mailMessage, setMailMessage] = useState<{ text: string; ok: boolean } | null>(null)
+  const [confirmMailTest, setConfirmMailTest] = useState(false)
 
   // データバックアップ
   const [backups, setBackups] = useState<BackupInfo[]>([])
@@ -281,7 +283,7 @@ export default function Settings(): ReactElement {
     try {
       const res = await window.api.mail.test()
       if (res.success && res.data.success) {
-        setMailMessage({ text: 'テストメールを送信しました。受信箱をご確認ください。', ok: true })
+        setMailMessage({ text: 'メールの送信が完了しました。受信箱をご確認ください。', ok: true })
       } else {
         const err = res.success ? res.data.error : res.error
         setMailMessage({ text: `テスト送信に失敗しました: ${err ?? '不明なエラー'}`, ok: false })
@@ -742,7 +744,7 @@ export default function Settings(): ReactElement {
                       </button>
                       <button
                         className={styles.btnSecondary}
-                        onClick={handleMailTest}
+                        onClick={() => setConfirmMailTest(true)}
                         disabled={mailBusy || !mailStatus?.authorized}
                       >
                         テスト送信
@@ -994,6 +996,17 @@ export default function Settings(): ReactElement {
 
       {/* 保険料率タブ */}
       {activeTab === 'insurance' && <InsuranceRatesSettings />}
+      {confirmMailTest && (
+        <ConfirmPrompt
+          message="メールを送りますか？"
+          confirmLabel="送信する"
+          onCancel={() => setConfirmMailTest(false)}
+          onConfirm={() => {
+            setConfirmMailTest(false)
+            void handleMailTest()
+          }}
+        />
+      )}
     </div>
   )
 }

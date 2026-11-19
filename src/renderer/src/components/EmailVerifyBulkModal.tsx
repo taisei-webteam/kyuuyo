@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import type { ReactElement } from 'react'
 import { reloadEmployeesFromDb, isEmployeeRetired, type MockEmployee } from '@/lib/mock-data'
 import type { EmailVerifyBulkItem } from '../../../shared/types'
+import { ConfirmPrompt } from '@/components/ConfirmPrompt'
 import styles from './EmailVerifyBulkModal.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -48,6 +49,7 @@ export function EmailVerifyBulkModal({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [results, setResults] = useState<Map<number, EmailVerifyBulkItem> | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   const allSelected = selected.size === candidates.length && candidates.length > 0
 
@@ -65,6 +67,15 @@ export function EmailVerifyBulkModal({
       prev.size === candidates.length ? new Set<number>() : new Set(candidates.map((e) => e.id)),
     )
   }, [candidates])
+
+  const requestSend = useCallback((): void => {
+    const ids = candidates.filter((e) => selected.has(e.id)).map((e) => e.id)
+    if (ids.length === 0) {
+      setMessage('送信対象が選択されていません。')
+      return
+    }
+    setConfirming(true)
+  }, [candidates, selected])
 
   const handleSend = useCallback(async (): Promise<void> => {
     if (!hasElectronApi) {
@@ -88,7 +99,7 @@ export function EmailVerifyBulkModal({
       setResults(new Map(res.data.items.map((item) => [item.employeeId, item])))
       setMessage(
         res.data.failed === 0
-          ? `${res.data.ok} 名へ案内メールを送信しました。相手がメールに書かれたページを開いて操作すると「確認済み」になります。`
+          ? 'メールの送信が完了しました。相手がメールに書かれたページを開いて操作すると「確認済み」になります。'
           : `${res.data.ok} 名へ送信しました（${res.data.failed} 名は失敗）。失敗した理由は一覧の「結果」列を確認してください。`,
       )
       await reloadEmployeesFromDb()
@@ -220,13 +231,24 @@ export function EmailVerifyBulkModal({
             </button>
             <button
               className={styles.btnPrimary}
-              onClick={() => void handleSend()}
+              onClick={requestSend}
               disabled={busy || selected.size === 0}
             >
               {busy ? '送信中...' : `${selected.size} 名へ送信`}
             </button>
           </div>
         </div>
+        {confirming && (
+          <ConfirmPrompt
+            message="メールを送りますか？"
+            confirmLabel="送信する"
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => {
+              setConfirming(false)
+              void handleSend()
+            }}
+          />
+        )}
       </div>
     </div>
   )
