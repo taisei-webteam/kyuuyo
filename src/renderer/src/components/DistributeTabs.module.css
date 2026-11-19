@@ -1,0 +1,124 @@
+/* 明細の渡し方: タブの下に、そのタブで使うボタンの枠がつながる */
+.area {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+.tab {
+  padding: 8px 22px 9px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: #e8edf3;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab:hover {
+  background: #dde4ec;
+  color: var(--color-text);
+}
+
+.tabActive,
+.tabActive:hover {
+  margin-bottom: -1px;
+  padding-bottom: 10px;
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  box-shadow: inset 0 3px 0 var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+.panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 0 12px 12px 12px;
+}
+
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scopeLabel {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.scopeLabel strong {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.scopeDivider {
+  align-self: stretch;
+  width: 1px;
+  margin: 0 8px;
+  background: var(--color-border);
+}
+
+.button {
+  padding: 8px 18px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-bg);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.buttonPrimary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.buttonPrimary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: #fff;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}

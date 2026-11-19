@@ -21,6 +21,7 @@ import { ClearableNumberInput } from '@/components/ClearableNumberInput'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { BulkEmailModal } from '@/components/BulkEmailModal'
+import { DistributeTabs, DistributeButton, type DistributeMode } from '@/components/DistributeTabs'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
 import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
@@ -299,6 +300,7 @@ export function BonusCreate(): React.ReactElement {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
   const [mailMode, setMailMode] = useState<'bulk' | 'single' | null>(null)
+  const [distributeMode, setDistributeMode] = useState<DistributeMode>('pdf')
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [showPdfPreview, setShowPdfPreview] = useState(false)
   const [bulkPrinting, setBulkPrinting] = useState(false)
@@ -723,22 +725,46 @@ export function BonusCreate(): React.ReactElement {
           {saveMessage && <span className={styles.detailBadge}>{saveMessage}</span>}
           <button className={styles.btnSecondary} onClick={() => setShowBulkEdit(true)}>一括編集</button>
           <button className={styles.btnDanger} onClick={() => void handleClear()}>削除</button>
-          <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
-          <button className={styles.btnSecondary} onClick={() => setMailMode('bulk')}>一括送信</button>
-          <button
-            className={styles.btnSecondary}
-            onClick={() => {
-              if (selectedEmployee) setMailMode('single')
-            }}
-            disabled={!selectedEmployee}
-          >
-            個別送信
-          </button>
           <button className={styles.btnSecondary} onClick={() => void handleSave()}>保存</button>
-          <button className={styles.btnSecondary} onClick={handleBulkPrint}>一括印刷</button>
-          <button className={styles.btnPrimary} onClick={() => setShowPdfPreview(true)}>PDFプレビュー</button>
         </div>
       </div>
+
+      <DistributeTabs
+        mode={distributeMode}
+        onModeChange={setDistributeMode}
+        personName={selectedEmployee?.name ?? null}
+        personActions={
+          distributeMode === 'pdf' ? (
+            <DistributeButton
+              primary
+              onClick={() => setShowPdfPreview(true)}
+              disabled={!selectedEmployee || !selectedBonus}
+            >
+              PDFプレビュー
+            </DistributeButton>
+          ) : (
+            <DistributeButton
+              primary
+              onClick={() => {
+                if (selectedEmployee) setMailMode('single')
+              }}
+              disabled={!selectedEmployee}
+            >
+              個別送信
+            </DistributeButton>
+          )
+        }
+        everyoneActions={
+          distributeMode === 'pdf' ? (
+            <>
+              <DistributeButton onClick={handleBulkPrint}>一括印刷</DistributeButton>
+              <DistributeButton onClick={() => setShowReport(true)}>賞与一覧表</DistributeButton>
+            </>
+          ) : (
+            <DistributeButton onClick={() => setMailMode('bulk')}>一括送信</DistributeButton>
+          )
+        }
+      />
 
       <div className={styles.body}>
         <aside className={styles.sidebar}>
