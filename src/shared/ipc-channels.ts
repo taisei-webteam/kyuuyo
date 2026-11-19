@@ -49,6 +49,8 @@ export const IPC = {
     SET_CONFIG: 'mail:set-config',
     AUTHORIZE: 'mail:authorize',
     SEND: 'mail:send',
+    SCHEDULE: 'mail:schedule',
+    SCHEDULE_LIST: 'mail:schedule-list',
     TEST: 'mail:test',
     LOG_LIST: 'mail:log-list',
     LOG_RECORD: 'mail:log-record',

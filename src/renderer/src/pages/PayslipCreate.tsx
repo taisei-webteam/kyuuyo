@@ -13,11 +13,12 @@ import {
   aggregateAttendanceRecords,
   isPayslipsCreated,
   isEmailSent,
-  sendEmail,
+  getScheduledSendAt,
   loadPayslipsFromDb,
   savePayslipsToDb,
   setPayslips,
   loadEmailHistory,
+  loadScheduledEmails,
   isPayrollTargetInMonth,
   hydrateInsuranceRatesFromDb,
   calcSalaryEmploymentInsurance,
@@ -35,7 +36,7 @@ import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPr
 import { ExtraLinesSection } from '@/components/PayslipExtraLinesEditor'
 import { buildPayslipEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
-import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
+import { formatJapanDateTime, type MailDocItem } from '@/lib/mail-client'
 import styles from './PayslipCreate.module.css'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
@@ -201,7 +202,7 @@ export function PayslipCreate(): ReactElement {
   const [distributeMode, setDistributeMode] = useState<DistributeMode>('pdf')
   const [refreshKey, setRefreshKey] = useState(0)
   const [editPayslips, setEditPayslips] = useState<MockPayslip[]>([])
-  const [showBulkEmail, setShowBulkEmail] = useState(false)
+  const [mailMode, setMailMode] = useState<'bulk' | 'single' | null>(null)
   const [printing, setPrinting] = useState(false)
   const [bulkPrinting, setBulkPrinting] = useState(false)
   const [exportingCsv, setExportingCsv] = useState(false)
@@ -240,6 +241,7 @@ export function PayslipCreate(): ReactElement {
       try {
         await loadPayslipsFromDb(selectedYear, selectedMonth)
         await loadEmailHistory('payslip', selectedYear, selectedMonth)
+        await loadScheduledEmails('payslip', selectedYear, selectedMonth)
       } finally {
         if (!cancelled) {
           setRefreshKey((k) => k + 1)
@@ -251,6 +253,19 @@ export function PayslipCreate(): ReactElement {
     return () => {
       cancelled = true
     }
+  }, [selectedYear, selectedMonth])
+
+  // 予約送信が済んだら「予約」を「送信済」に更新する
+  useEffect(() => {
+    if (!hasElectronApi) return
+    const timer = setInterval(() => {
+      void (async () => {
+        await loadEmailHistory('payslip', selectedYear, selectedMonth)
+        await loadScheduledEmails('payslip', selectedYear, selectedMonth)
+        setEmailRefresh((k) => k + 1)
+      })()
+    }, 20000)
+    return () => clearInterval(timer)
   }, [selectedYear, selectedMonth])
 
   const created = useMemo(
@@ -320,6 +335,16 @@ export function PayslipCreate(): ReactElement {
     const map = new Map<number, boolean>()
     for (const emp of employees) {
       map.set(emp.id, isEmailSent(emp.id, 'payslip', selectedYear, selectedMonth))
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, selectedYear, selectedMonth, emailRefresh])
+
+  const scheduledMap = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const emp of employees) {
+      const sendAt = getScheduledSendAt(emp.id, 'payslip', selectedYear, selectedMonth)
+      if (sendAt) map.set(emp.id, sendAt)
     }
     return map
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -658,38 +683,6 @@ export function PayslipCreate(): ReactElement {
     [editPayslips, selectedYear, selectedMonth],
   )
 
-  const handleEmailSend = useCallback(async (): Promise<void> => {
-    if (!selectedEmployee?.email) {
-      setCreateMessage('メールアドレスが登録されていません。従業員管理画面で登録してください。')
-      return
-    }
-    if (!isMailSendAvailable()) {
-      // ブラウザ単体プレビューではモック記録のみ
-      sendEmail(selectedEmployee.id, 'payslip', selectedYear, selectedMonth)
-      setEmailRefresh((k) => k + 1)
-      return
-    }
-    const item = buildMailItem(selectedEmployee)
-    if (!item) {
-      setCreateMessage('明細データが見つかりません。先に給与データを作成してください。')
-      return
-    }
-    setCreateMessage(`${selectedEmployee.name} さんへ送信中...`)
-    try {
-      const results = await sendDocsByEmail([item])
-      const r = results[0]
-      if (r?.success) {
-        sendEmail(selectedEmployee.id, 'payslip', selectedYear, selectedMonth)
-        setEmailRefresh((k) => k + 1)
-        setCreateMessage(`${selectedEmployee.name} さんへ送信しました`)
-      } else {
-        setCreateMessage(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
-      }
-    } catch (err) {
-      setCreateMessage(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
-    }
-  }, [selectedEmployee, selectedYear, selectedMonth, buildMailItem])
-
   const handleEmailSent = useCallback((): void => {
     setEmailRefresh((k) => k + 1)
   }, [])
@@ -856,8 +849,16 @@ export function PayslipCreate(): ReactElement {
               </>
             ) : (
               <>
-                <button className={styles.btnSecondary} onClick={() => setShowBulkEmail(true)}>一括送信</button>
-                <button className={styles.btnPrimary} onClick={handleEmailSend}>個別送信</button>
+                <button className={styles.btnSecondary} onClick={() => setMailMode('bulk')}>一括送信</button>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={() => {
+                    if (selectedEmployee) setMailMode('single')
+                  }}
+                  disabled={!selectedEmployee}
+                >
+                  個別送信
+                </button>
               </>
             )}
           </div>
@@ -906,6 +907,7 @@ export function PayslipCreate(): ReactElement {
               selectedId={selectedEmployeeId}
               onSelect={setSelectedEmployeeId}
               emailSentMap={emailSentMap}
+              scheduledMap={scheduledMap}
             />
           </aside>
 
@@ -970,15 +972,16 @@ export function PayslipCreate(): ReactElement {
         </div>
       )}
 
-      {showBulkEmail && (
+      {mailMode && (
         <BulkEmailModal
-          employees={employees}
+          employees={mailMode === 'single' && selectedEmployee ? [selectedEmployee] : employees}
           type="payslip"
           year={selectedYear}
           monthOrSeason={selectedMonth}
           periodLabel={`${selectedYear}年${selectedMonth}月 給与明細`}
           makeItem={buildMailItem}
-          onClose={() => setShowBulkEmail(false)}
+          mode={mailMode}
+          onClose={() => setMailMode(null)}
           onSent={handleEmailSent}
         />
       )}
@@ -1434,18 +1437,21 @@ function EmployeeList({
   selectedId,
   onSelect,
   emailSentMap,
+  scheduledMap,
 }: {
   employees: MockEmployee[]
   payslips: MockPayslip[]
   selectedId: number
   onSelect: (id: number) => void
   emailSentMap: Map<number, boolean>
+  scheduledMap: Map<number, string>
 }): ReactElement {
   return (
     <ul className={styles.employeeList}>
       {employees.map((emp) => {
         const ps = payslips.find((p) => p.employeeId === emp.id)
         const sent = emailSentMap.get(emp.id) ?? false
+        const scheduledAt = scheduledMap.get(emp.id)
         return (
           <li
             key={emp.id}
@@ -1456,6 +1462,11 @@ function EmployeeList({
               <div className={styles.employeeNameRow}>
                 <span className={styles.employeeName}>{emp.name}</span>
                 {sent && <span className={styles.sentBadge}>送信済</span>}
+                {!sent && scheduledAt && (
+                  <span className={styles.scheduledBadge} title={`${formatJapanDateTime(scheduledAt)}（日本時間）に送信`}>
+                    予約
+                  </span>
+                )}
               </div>
               <span className={styles.employeeMeta}>
                 {emp.employeeType} · {emp.departmentName}

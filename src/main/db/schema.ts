@@ -263,3 +263,22 @@ export const emailLogs = sqliteTable('email_logs', {
   toAddress: text('to_address'),
   sentAt: text('sent_at').notNull().default(sql`(datetime('now','localtime'))`),
 });
+
+// ========================================
+// メール送信予約（指定日時に Main プロセスが送信する）
+// ========================================
+
+export const scheduledMails = sqliteTable('scheduled_mails', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  employeeId: integer('employee_id').notNull().references(() => employees.id),
+  type: text('type').notNull(),
+  periodKey: text('period_key').notNull(),
+  toAddress: text('to_address').notNull(),
+  /** 送信時刻（UTC の ISO 8601） */
+  sendAt: text('send_at').notNull(),
+  /** MailMessageInput の JSON（PDF 添付を含む） */
+  payload: text('payload').notNull(),
+  status: text('status').notNull().default('pending'),
+  error: text('error'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now','localtime'))`),
+});

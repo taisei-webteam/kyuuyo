@@ -12,6 +12,9 @@ import {
   authorize,
   sendMail,
   sendTestMail,
+  scheduleMails,
+  listScheduledMails,
+  startScheduledMailWorker,
 } from '../services/mail.service.js';
 import {
   sendVerificationMail,
@@ -22,7 +25,9 @@ import type {
   MailConfigStatus,
   MailConfigUpdate,
   MailMessageInput,
+  MailScheduleRequest,
   MailSendResult,
+  ScheduledMail,
   EmailLog,
   EmailLogInput,
   EmailVerifyBulkItem,
@@ -362,6 +367,11 @@ export function registerMailHandlers(): void {
           VALUES (?, ?, ?, ?)
           ON CONFLICT(employee_id, type, period_key) DO NOTHING
         `).run(params.employeeId, params.type, params.periodKey, params.toAddress ?? null);
+        // 今すぐ送れた分の予約が残っていると、あとから二重送信になる
+        raw.prepare(`
+          DELETE FROM scheduled_mails
+          WHERE employee_id = ? AND type = ? AND period_key = ? AND status = 'pending'
+        `).run(params.employeeId, params.type, params.periodKey);
         return { success: true, data: { recorded: true } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'メール送信記録の保存に失敗しました' };
@@ -490,4 +500,48 @@ export function registerMailHandlers(): void {
       }
     },
   );
+
+  ipcMain.handle(
+    IPC.MAIL.SCHEDULE,
+    async (_event, params: unknown): Promise<IpcResult<ScheduledMail[]>> => {
+      try {
+        return { success: true, data: scheduleMails(validateSchedule(params)) };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'メールの予約に失敗しました' };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    IPC.MAIL.SCHEDULE_LIST,
+    async (_event, params: unknown): Promise<IpcResult<ScheduledMail[]>> => {
+      try {
+        const p = params as { type?: unknown; periodKey?: unknown } | null;
+        if (!p || (p.type !== 'payslip' && p.type !== 'bonus') || typeof p.periodKey !== 'string') {
+          throw new Error('予約一覧の条件が不正です');
+        }
+        return { success: true, data: listScheduledMails(p.type, p.periodKey) };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : '送信予約の取得に失敗しました' };
+      }
+    },
+  );
+
+  startScheduledMailWorker();
+}
+
+function validateSchedule(params: unknown): MailScheduleRequest {
+  const p = params as Partial<MailScheduleRequest> | null;
+  if (!p || typeof p.sendAt !== 'string' || typeof p.periodKey !== 'string') {
+    throw new Error('送信予約の入力値が不正です');
+  }
+  if (p.type !== 'payslip' && p.type !== 'bonus') {
+    throw new Error('送信種別が不正です');
+  }
+  return {
+    sendAt: p.sendAt,
+    type: p.type,
+    periodKey: p.periodKey,
+    messages: validateMessages({ messages: p.messages }),
+  };
 }

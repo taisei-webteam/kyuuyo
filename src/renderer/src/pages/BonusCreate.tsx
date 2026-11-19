@@ -2,32 +2,34 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import {
   getEmployees,
   isEmailSent,
-  sendEmail,
+  getScheduledSendAt,
   isBonusRecipient,
   defaultBonusBasicAmount,
   loadBonusFromDb,
   loadPreviousBonusFromDb,
   saveBonusToDb,
   loadEmailHistory,
+  loadScheduledEmails,
   reloadEmployeesFromDb,
   recalcBonusAmounts,
   type MockEmployee,
   type MockPayslip,
   type PayslipExtraLine,
 } from '@/lib/mock-data'
-import { buildYearSelectOptions } from '@/lib/year-options'
+import { buildBonusYearSelectOptions, defaultBonusYear } from '@/lib/year-options'
 import { ClearableNumberInput } from '@/components/ClearableNumberInput'
 
 const hasElectronApi = typeof window !== 'undefined' && 'api' in window
 import { BulkEmailModal } from '@/components/BulkEmailModal'
 import { PayslipDirectPrint } from '@/components/PayslipDirectPrint'
+import { PayslipBulkPrint, type BulkPrintItem } from '@/components/PayslipBulkPrint'
 import { BonusReportModal } from '@/components/BonusReportModal'
 import { BonusBulkEditModal } from '@/components/BonusBulkEditModal'
 import { BonusRecipientModal } from '@/components/BonusRecipientModal'
 import { ExtraLinesSection } from '@/components/PayslipExtraLinesEditor'
 import { buildBonusEmail } from '@/lib/email-template'
 import { getSettings } from '@/lib/settings-store'
-import { sendDocsByEmail, isMailSendAvailable, type MailDocItem } from '@/lib/mail-client'
+import { formatJapanDateTime, type MailDocItem } from '@/lib/mail-client'
 import styles from './BonusCreate.module.css'
 
 function yen(amount: number): string {
@@ -291,14 +293,15 @@ function buildInitialBonuses(
 }
 
 export function BonusCreate(): React.ReactElement {
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [selectedYear, setSelectedYear] = useState(defaultBonusYear)
   const [selectedSeason, setSelectedSeason] = useState<'夏季' | '冬季'>('夏季')
   const [paymentDate, setPaymentDate] = useState('')
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<number>(1)
   const [searchQuery, setSearchQuery] = useState('')
-  const [showBulkEmail, setShowBulkEmail] = useState(false)
+  const [mailMode, setMailMode] = useState<'bulk' | 'single' | null>(null)
   const [showBulkEdit, setShowBulkEdit] = useState(false)
   const [showPdfPreview, setShowPdfPreview] = useState(false)
+  const [bulkPrinting, setBulkPrinting] = useState(false)
   const [showReport, setShowReport] = useState(false)
   const [showRecipients, setShowRecipients] = useState(false)
   const [emailRefresh, setEmailRefresh] = useState(0)
@@ -353,7 +356,10 @@ export function BonusCreate(): React.ReactElement {
     let cancelled = false
     setSaveMessage(null)
     void (async () => {
-      if (hasElectronApi) await loadEmailHistory('bonus', selectedYear, selectedSeason)
+      if (hasElectronApi) {
+        await loadEmailHistory('bonus', selectedYear, selectedSeason)
+        await loadScheduledEmails('bonus', selectedYear, selectedSeason)
+      }
       const saved = (hasElectronApi || import.meta.env.DEV)
         ? await loadBonusFromDb(selectedYear, selectedSeason)
         : null
@@ -389,6 +395,19 @@ export function BonusCreate(): React.ReactElement {
       cancelled = true
     }
   }, [employees, selectedYear, selectedSeason])
+
+  // 予約送信が済んだら「予約」を「送信済」に更新する
+  useEffect(() => {
+    if (!hasElectronApi) return
+    const timer = setInterval(() => {
+      void (async () => {
+        await loadEmailHistory('bonus', selectedYear, selectedSeason)
+        await loadScheduledEmails('bonus', selectedYear, selectedSeason)
+        setEmailRefresh((k) => k + 1)
+      })()
+    }, 20000)
+    return () => clearInterval(timer)
+  }, [selectedYear, selectedSeason])
 
   // 支給日変更で自動判定の対象者が変わったとき、手動の追加・除外は保ったまま一覧・明細を同期する（DB再読込はしない）
   useEffect(() => {
@@ -595,6 +614,16 @@ export function BonusCreate(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipientEmployees, selectedYear, selectedSeason, emailRefresh])
 
+  const scheduledMap = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const emp of recipientEmployees) {
+      const sendAt = getScheduledSendAt(emp.id, 'bonus', selectedYear, selectedSeason)
+      if (sendAt) map.set(emp.id, sendAt)
+    }
+    return map
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientEmployees, selectedYear, selectedSeason, emailRefresh])
+
   const buildMailItem = useCallback(
     (emp: MockEmployee): MailDocItem | null => {
       if (!emp.email) return null
@@ -630,37 +659,30 @@ export function BonusCreate(): React.ReactElement {
     [bonuses, selectedYear, selectedSeason, paymentDate],
   )
 
-  const handleEmailSend = useCallback(async (): Promise<void> => {
-    if (!selectedEmployee?.email) {
-      alert('メールアドレスが登録されていません。')
-      return
-    }
-    if (!isMailSendAvailable()) {
-      sendEmail(selectedEmployee.id, 'bonus', selectedYear, selectedSeason)
-      setEmailRefresh((k) => k + 1)
-      return
-    }
-    const item = buildMailItem(selectedEmployee)
-    if (!item) {
-      alert('賞与データが見つかりません。')
-      return
-    }
-    try {
-      const results = await sendDocsByEmail([item])
-      const r = results[0]
-      if (r?.success) {
-        sendEmail(selectedEmployee.id, 'bonus', selectedYear, selectedSeason)
-        setEmailRefresh((k) => k + 1)
-      } else {
-        alert(`送信に失敗しました: ${r?.error ?? '不明なエラー'}`)
-      }
-    } catch (err) {
-      alert(`送信に失敗しました: ${err instanceof Error ? err.message : '不明なエラー'}`)
-    }
-  }, [selectedEmployee, selectedYear, selectedSeason, buildMailItem])
-
   const handleEmailSent = useCallback((): void => {
     setEmailRefresh((k) => k + 1)
+  }, [])
+
+  // 一括印刷対象（従業員マスタの並び順で、支給対象かつ明細がある全員）
+  const bulkPrintItems = useMemo<BulkPrintItem[]>(() => {
+    const items: BulkPrintItem[] = []
+    for (const emp of recipientEmployees) {
+      const bonus = bonuses.find((b) => b.employeeId === emp.id)
+      if (bonus) items.push({ employee: emp, payslip: bonusToPayslipShape(bonus) })
+    }
+    return items
+  }, [recipientEmployees, bonuses])
+
+  const handleBulkPrint = useCallback((): void => {
+    if (bulkPrintItems.length === 0) {
+      alert('印刷対象の明細がありません。先に賞与データを作成してください。')
+      return
+    }
+    setBulkPrinting(true)
+  }, [bulkPrintItems])
+
+  const handleBulkPrintDone = useCallback((): void => {
+    setBulkPrinting(false)
   }, [])
 
   return (
@@ -674,7 +696,7 @@ export function BonusCreate(): React.ReactElement {
               value={selectedYear}
               onChange={(e) => setSelectedYear(Number(e.target.value))}
             >
-              {buildYearSelectOptions().map((y) => (
+              {buildBonusYearSelectOptions().map((y) => (
                 <option key={y} value={y}>{y}年</option>
               ))}
             </select>
@@ -702,9 +724,18 @@ export function BonusCreate(): React.ReactElement {
           <button className={styles.btnSecondary} onClick={() => setShowBulkEdit(true)}>一括編集</button>
           <button className={styles.btnDanger} onClick={() => void handleClear()}>削除</button>
           <button className={styles.btnSecondary} onClick={() => setShowReport(true)}>賞与一覧表</button>
-          <button className={styles.btnSecondary} onClick={() => setShowBulkEmail(true)}>一括送信</button>
-          <button className={styles.btnSecondary} onClick={handleEmailSend}>個別送信</button>
+          <button className={styles.btnSecondary} onClick={() => setMailMode('bulk')}>一括送信</button>
+          <button
+            className={styles.btnSecondary}
+            onClick={() => {
+              if (selectedEmployee) setMailMode('single')
+            }}
+            disabled={!selectedEmployee}
+          >
+            個別送信
+          </button>
           <button className={styles.btnSecondary} onClick={() => void handleSave()}>保存</button>
+          <button className={styles.btnSecondary} onClick={handleBulkPrint}>一括印刷</button>
           <button className={styles.btnPrimary} onClick={() => setShowPdfPreview(true)}>PDFプレビュー</button>
         </div>
       </div>
@@ -734,6 +765,7 @@ export function BonusCreate(): React.ReactElement {
           <ul className={styles.employeeList}>
             {filteredEmployees.map((emp) => {
               const sent = emailSentMap.get(emp.id) ?? false
+              const scheduledAt = scheduledMap.get(emp.id)
               return (
                 <li
                   key={emp.id}
@@ -743,6 +775,11 @@ export function BonusCreate(): React.ReactElement {
                   <div>
                     <span className={styles.employeeName}>{emp.name}</span>
                     {sent && <span className={styles.sentBadge}>送信済</span>}
+                    {!sent && scheduledAt && (
+                      <span className={styles.scheduledBadge} title={`${formatJapanDateTime(scheduledAt)}（日本時間）に送信`}>
+                        予約
+                      </span>
+                    )}
                   </div>
                   <span className={styles.employeeType}>{emp.employeeType}</span>
                 </li>
@@ -786,15 +823,16 @@ export function BonusCreate(): React.ReactElement {
         />
       )}
 
-      {showBulkEmail && (
+      {mailMode && (
         <BulkEmailModal
-          employees={recipientEmployees}
+          employees={mailMode === 'single' && selectedEmployee ? [selectedEmployee] : recipientEmployees}
           type="bonus"
           year={selectedYear}
           monthOrSeason={selectedSeason}
           periodLabel={`${selectedYear}年 ${selectedSeason} 賞与明細`}
           makeItem={buildMailItem}
-          onClose={() => setShowBulkEmail(false)}
+          mode={mailMode}
+          onClose={() => setMailMode(null)}
           onSent={handleEmailSent}
         />
       )}
@@ -810,6 +848,20 @@ export function BonusCreate(): React.ReactElement {
           periodLabel={`${selectedYear}年 ${selectedSeason}賞与`}
           variant="bonus"
           onDone={() => setShowPdfPreview(false)}
+        />
+      )}
+
+      {bulkPrinting && (
+        <PayslipBulkPrint
+          items={bulkPrintItems}
+          year={selectedYear}
+          month={selectedSeason === '夏季' ? 7 : 12}
+          paymentDate={paymentDate}
+          fileName={`${selectedYear}_${selectedSeason}賞与明細_一括`}
+          titleLabel="賞 与 明 細 書"
+          periodLabel={`${selectedYear}年 ${selectedSeason}賞与`}
+          variant="bonus"
+          onDone={handleBulkPrintDone}
         />
       )}
 

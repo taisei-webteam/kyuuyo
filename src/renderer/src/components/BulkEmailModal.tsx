@@ -1,8 +1,15 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import type { ReactElement } from 'react'
-import { isEmailSent, sendEmail, sendEmailBulk, type MockEmployee } from '@/lib/mock-data'
+import { isEmailSent, rememberScheduledEmail, sendEmail, sendEmailBulk, makeEmailPeriodKey, getScheduledSendAt, loadScheduledEmails, type MockEmployee } from '@/lib/mock-data'
 import { useOverlayDismiss } from '@/hooks/useOverlayDismiss'
-import { sendDocsByEmail, isMailSendAvailable, type MailDocItem, type SendProgress } from '@/lib/mail-client'
+import {
+  sendDocsByEmail,
+  isMailSendAvailable,
+  japanLocalInputToUtcIso,
+  formatJapanDateTime,
+  type MailDocItem,
+  type SendProgress,
+} from '@/lib/mail-client'
 import styles from './BulkEmailModal.module.css'
 
 interface BulkEmailModalProps {
@@ -13,6 +20,8 @@ interface BulkEmailModalProps {
   periodLabel: string
   /** 選択従業員の送信メッセージ（明細PDF含む）を構築する。null の場合は送信対象外。 */
   makeItem: (employee: MockEmployee) => MailDocItem | null
+  /** single のときは見出しを「メール送信」にする（個別送信） */
+  mode?: 'bulk' | 'single'
   onClose: () => void
   onSent: () => void
 }
@@ -24,6 +33,7 @@ export function BulkEmailModal({
   monthOrSeason,
   periodLabel,
   makeItem,
+  mode = 'bulk',
   onClose,
   onSent,
 }: BulkEmailModalProps): ReactElement {
@@ -47,8 +57,22 @@ export function BulkEmailModal({
   const [errors, setErrors] = useState<string[]>([])
   const [failedIds, setFailedIds] = useState<Set<number>>(new Set())
   const [mailReady, setMailReady] = useState<boolean | null>(null)
+  const [sendAtLocal, setSendAtLocal] = useState('')
+  const [scheduleTick, setScheduleTick] = useState(0)
 
   const electronMail = isMailSendAvailable()
+  const periodKey = makeEmailPeriodKey(type, year, monthOrSeason)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      await loadScheduledEmails(type, year, monthOrSeason)
+      if (!cancelled) setScheduleTick((n) => n + 1)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [type, year, monthOrSeason])
 
   useEffect(() => {
     if (!electronMail) {
@@ -60,6 +84,17 @@ export function BulkEmailModal({
       setMailReady(res.success ? res.data.authorized : false)
     })()
   }, [electronMail])
+
+  useEffect(() => {
+    if (scheduleTick === 0) return
+    setSelected((prev) => {
+      const next = new Set<number>()
+      for (const id of prev) {
+        if (!getScheduledSendAt(id, type, year, monthOrSeason)) next.add(id)
+      }
+      return next
+    })
+  }, [scheduleTick, type, year, monthOrSeason])
 
   const toggleSelect = useCallback((id: number): void => {
     setSelected((prev) => {
@@ -87,6 +122,23 @@ export function BulkEmailModal({
     const ids = Array.from(selected)
     if (ids.length === 0) return
 
+    let sendAtIso: string | null = null
+    if (sendAtLocal.trim()) {
+      sendAtIso = japanLocalInputToUtcIso(sendAtLocal.trim())
+      if (!sendAtIso) {
+        setErrors(['送信日時の形式が正しくありません'])
+        return
+      }
+      if (new Date(sendAtIso).getTime() <= Date.now()) {
+        setErrors(['送信日時は現在の日本時間より後を指定してください。今すぐ送る場合は日時を空にしてください。'])
+        return
+      }
+      if (!electronMail) {
+        setErrors(['日時を指定した送信はデスクトップアプリ版でのみ利用できます'])
+        return
+      }
+    }
+
     // デスクトップアプリ以外（ブラウザ単体プレビュー）はモック記録のみ
     if (!electronMail) {
       sendEmailBulk(ids, type, year, monthOrSeason)
@@ -113,7 +165,22 @@ export function BulkEmailModal({
         return
       }
 
-      const results = await sendDocsByEmail(items, setProgress)
+      const results = await sendDocsByEmail(
+        items,
+        setProgress,
+        sendAtIso ? { sendAt: sendAtIso, type, periodKey } : undefined,
+      )
+
+      if (results.some((r) => r.scheduled)) {
+        for (const r of results) {
+          if (r.success && r.scheduled && typeof r.refId === 'number' && sendAtIso) {
+            rememberScheduledEmail(r.refId, type, year, monthOrSeason, sendAtIso)
+          }
+        }
+        onSent()
+        onClose()
+        return
+      }
 
       const newFailed = new Set<number>()
       const newErrors: string[] = []
@@ -150,7 +217,7 @@ export function BulkEmailModal({
       setSending(false)
       setProgress(null)
     }
-  }, [selected, electronMail, type, year, monthOrSeason, employees, makeItem, onSent, onClose])
+  }, [selected, sendAtLocal, electronMail, type, year, monthOrSeason, periodKey, employees, makeItem, onSent, onClose])
 
   const sendableCount = targets.filter((t) => t.hasEmail && !t.sent).length
   const selectedCount = selected.size
@@ -168,7 +235,7 @@ export function BulkEmailModal({
     <div className={styles.overlay} {...overlay}>
       <div className={styles.modal}>
         <div className={styles.modalHeader}>
-          <h2>メール一括送信</h2>
+          <h2>{mode === 'single' ? 'メール送信' : 'メール一括送信'}</h2>
           <span className={styles.periodLabel}>{periodLabel}</span>
           <button className={styles.closeButton} onClick={onClose} type="button" disabled={sending}>×</button>
         </div>
@@ -226,6 +293,10 @@ export function BulkEmailModal({
                       <span className={styles.errBadge}>送信失敗</span>
                     ) : t.sent ? (
                       <span className={styles.sentBadge}>送信済</span>
+                    ) : getScheduledSendAt(t.id, type, year, monthOrSeason) ? (
+                      <span className={styles.scheduleBadge}>
+                        予約 {formatJapanDateTime(getScheduledSendAt(t.id, type, year, monthOrSeason) ?? '')}
+                      </span>
                     ) : !t.hasEmail ? (
                       <span className={styles.noEmailBadge}>メール未登録</span>
                     ) : (
@@ -243,7 +314,9 @@ export function BulkEmailModal({
             {sending && (
               <>
                 <span className={styles.statusText}>
-                  {progress?.phase === 'sending'
+                    {progress?.phase === 'scheduling'
+                    ? '送信予約を保存しています...'
+                    : progress?.phase === 'sending'
                     ? 'Gmailで送信中...'
                     : progress
                       ? `明細PDFを生成中... (${progress.index + 1}/${progress.total}) ${progress.name}`
@@ -259,17 +332,34 @@ export function BulkEmailModal({
         )}
 
         <div className={styles.modalFooter}>
-          <button className={styles.cancelButton} onClick={onClose} type="button" disabled={sending}>
-            {errors.length > 0 ? '閉じる' : 'キャンセル'}
-          </button>
-          <button
-            className={styles.sendButton}
-            onClick={handleSend}
-            disabled={selectedCount === 0 || sending || mailReady === false}
-            type="button"
-          >
-            {sending ? '送信中...' : `${selectedCount}名に送信`}
-          </button>
+          <div className={styles.scheduleBox}>
+            <label className={styles.scheduleLabel}>
+              送信日時（日本時間）
+              <input
+                className={styles.scheduleInput}
+                type="datetime-local"
+                value={sendAtLocal}
+                onChange={(e) => setSendAtLocal(e.target.value)}
+                disabled={sending}
+              />
+            </label>
+            <p className={styles.scheduleHint}>
+              空欄なら今すぐ送信します。未来の日時を入れると、その時刻（日本時間）に送ります。アプリが閉じているときは、次に起動したときに送ります。
+            </p>
+          </div>
+          <div className={styles.footerButtons}>
+            <button className={styles.cancelButton} onClick={onClose} type="button" disabled={sending}>
+              {errors.length > 0 ? '閉じる' : 'キャンセル'}
+            </button>
+            <button
+              className={styles.sendButton}
+              onClick={handleSend}
+              disabled={selectedCount === 0 || sending || mailReady === false}
+              type="button"
+            >
+              {sending ? '処理中...' : sendAtLocal.trim() ? `${selectedCount}名を予約` : `${selectedCount}名に送信`}
+            </button>
+          </div>
         </div>
       </div>
     </div>

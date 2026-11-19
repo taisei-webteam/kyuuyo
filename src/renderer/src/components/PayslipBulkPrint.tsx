@@ -19,6 +19,7 @@ interface PayslipBulkPrintProps {
   fileName: string
   titleLabel?: string
   periodLabel?: string
+  paymentDate?: string
   variant?: 'salary' | 'bonus'
   onDone: () => void
 }
@@ -35,6 +36,7 @@ export function PayslipBulkPrint({
   fileName,
   titleLabel,
   periodLabel,
+  paymentDate,
   variant = 'salary',
   onDone,
 }: PayslipBulkPrintProps): ReactElement {
@@ -92,6 +94,7 @@ export function PayslipBulkPrint({
                 month={month}
                 titleLabel={titleLabel}
                 periodLabel={periodLabel}
+                paymentDate={paymentDate}
                 variant={variant}
               />
             </div>

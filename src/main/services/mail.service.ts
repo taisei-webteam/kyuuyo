@@ -11,11 +11,14 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { getSqlite } from '../db/connection.js';
 import type {
   MailConfigStatus,
   MailConfigUpdate,
   MailMessageInput,
+  MailScheduleRequest,
   MailSendResult,
+  ScheduledMail,
 } from '../../shared/types.js';
 
 const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
@@ -403,4 +406,187 @@ export async function sendTestMail(): Promise<MailSendResult> {
     },
   ]);
   return result;
+}
+
+function parseStoredMessage(payload: string): MailMessageInput | null {
+  try {
+    const msg = JSON.parse(payload) as Partial<MailMessageInput>;
+    if (typeof msg.to !== 'string' || msg.to.length === 0 || !Array.isArray(msg.attachments)) {
+      return null;
+    }
+    return {
+      to: msg.to,
+      subject: typeof msg.subject === 'string' ? msg.subject : '',
+      body: typeof msg.body === 'string' ? msg.body : '',
+      html: typeof msg.html === 'string' ? msg.html : undefined,
+      attachments: msg.attachments.map((a) => ({
+        filename: String(a.filename ?? 'attachment.pdf'),
+        contentBase64: String(a.contentBase64 ?? ''),
+        mimeType: typeof a.mimeType === 'string' ? a.mimeType : undefined,
+      })),
+      refId: typeof msg.refId === 'number' ? msg.refId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 明細メールを指定時刻まで保存する。同一従業員・期間の未送信予約は置き換える。
+ * sendAt は UTC の ISO 8601。画面側で日本時間から変換する。
+ */
+export function scheduleMails(req: MailScheduleRequest): ScheduledMail[] {
+  const when = new Date(req.sendAt);
+  if (Number.isNaN(when.getTime())) {
+    throw new Error('送信日時が不正です');
+  }
+  if (when.getTime() <= Date.now()) {
+    throw new Error('送信日時は現在より後を指定してください');
+  }
+  if (req.type !== 'payslip' && req.type !== 'bonus') {
+    throw new Error('送信種別が不正です');
+  }
+  if (req.messages.length === 0) {
+    throw new Error('予約するメールがありません');
+  }
+
+  const sendAt = when.toISOString();
+  const raw = getSqlite();
+  const deletePending = raw.prepare(`
+    DELETE FROM scheduled_mails
+    WHERE employee_id = ? AND type = ? AND period_key = ? AND status = 'pending'
+  `);
+  const insert = raw.prepare(`
+    INSERT INTO scheduled_mails (
+      employee_id, type, period_key, to_address, send_at, payload, status
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+  `);
+
+  const saved: ScheduledMail[] = [];
+  const write = raw.transaction((messages: MailMessageInput[]) => {
+    for (const msg of messages) {
+      if (typeof msg.refId !== 'number') {
+        throw new Error('予約する明細に従業員IDがありません');
+      }
+      deletePending.run(msg.refId, req.type, req.periodKey);
+      const info = insert.run(
+        msg.refId,
+        req.type,
+        req.periodKey,
+        msg.to,
+        sendAt,
+        JSON.stringify(msg),
+      );
+      saved.push({
+        id: Number(info.lastInsertRowid),
+        employeeId: msg.refId,
+        type: req.type,
+        periodKey: req.periodKey,
+        toAddress: msg.to,
+        sendAt,
+        status: 'pending',
+        error: null,
+      });
+    }
+  });
+  write(req.messages);
+  return saved;
+}
+
+/** 指定期間の未送信予約を返す */
+export function listScheduledMails(type: string, periodKey: string): ScheduledMail[] {
+  const rows = getSqlite().prepare(`
+    SELECT id,
+           employee_id AS employeeId,
+           type,
+           period_key AS periodKey,
+           to_address AS toAddress,
+           send_at AS sendAt,
+           status,
+           error
+    FROM scheduled_mails
+    WHERE type = ? AND period_key = ? AND status = 'pending'
+    ORDER BY employee_id
+  `).all(type, periodKey) as ScheduledMail[];
+  return rows;
+}
+
+interface DueScheduledRow {
+  id: number;
+  employee_id: number;
+  type: string;
+  period_key: string;
+  to_address: string;
+  payload: string;
+}
+
+/**
+ * 期限を過ぎた予約を送信する。
+ * 連携未完了のときは予約を残し、次回の確認で再送する。
+ */
+export async function processDueScheduledMails(): Promise<void> {
+  const raw = getSqlite();
+  const due = raw.prepare(`
+    SELECT id, employee_id, type, period_key, to_address, payload
+    FROM scheduled_mails
+    WHERE status = 'pending' AND send_at <= ?
+    ORDER BY send_at, id
+  `).all(new Date().toISOString()) as DueScheduledRow[];
+
+  const markFailed = raw.prepare(`
+    UPDATE scheduled_mails SET status = 'failed', error = ? WHERE id = ?
+  `);
+  const markSent = raw.prepare(`
+    UPDATE scheduled_mails SET status = 'sent', error = NULL WHERE id = ?
+  `);
+  const recordLog = raw.prepare(`
+    INSERT INTO email_logs (employee_id, type, period_key, to_address)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(employee_id, type, period_key) DO NOTHING
+  `);
+
+  for (const row of due) {
+    const msg = parseStoredMessage(row.payload);
+    if (!msg) {
+      markFailed.run('保存済みメールの内容を読めませんでした', row.id);
+      continue;
+    }
+    try {
+      const [result] = await sendMail([msg]);
+      if (!result?.success) {
+        const error = result?.error ?? '送信に失敗しました';
+        if (error.includes('連携が未完了')) return;
+        markFailed.run(error.slice(0, 500), row.id);
+        continue;
+      }
+      recordLog.run(row.employee_id, row.type, row.period_key, row.to_address);
+      markSent.run(row.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '送信に失敗しました';
+      if (message.includes('連携が未完了')) return;
+      markFailed.run(message.slice(0, 500), row.id);
+    }
+  }
+}
+
+let workerStarted = false;
+let processingScheduled = false;
+
+/** 起動中、期限を過ぎた予約を定期的に送る。アプリが閉じていた分は次回起動時に送る。 */
+export function startScheduledMailWorker(): void {
+  if (workerStarted) return;
+  workerStarted = true;
+  const tick = (): void => {
+    if (processingScheduled) return;
+    processingScheduled = true;
+    void processDueScheduledMails()
+      .catch((err: unknown) => {
+        console.error('[mail] scheduled send failed:', err);
+      })
+      .finally(() => {
+        processingScheduled = false;
+      });
+  };
+  tick();
+  setInterval(tick, 15_000);
 }

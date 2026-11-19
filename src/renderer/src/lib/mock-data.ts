@@ -2562,9 +2562,57 @@ export interface EmailSendRecord {
 }
 
 const emailHistory: EmailSendRecord[] = []
+/** 未送信の予約。キーは `${employeeId}|${periodKey}`、値は UTC ISO */
+const scheduledEmailAt = new Map<string, string>()
+/** 読み込み中の予約一覧が、その後の予約・送信を上書きしないようにする */
+let scheduledSyncGen = 0
 
-function makeEmailPeriodKey(type: 'payslip' | 'bonus', year: number, monthOrSeason: number | string): string {
+export function makeEmailPeriodKey(type: 'payslip' | 'bonus', year: number, monthOrSeason: number | string): string {
   return `${type}-${year}-${monthOrSeason}`
+}
+
+function scheduledEmailKey(employeeId: number, periodKey: string): string {
+  return `${employeeId}|${periodKey}`
+}
+
+export function rememberScheduledEmail(
+  employeeId: number,
+  type: 'payslip' | 'bonus',
+  year: number,
+  monthOrSeason: number | string,
+  sendAtIso: string,
+): void {
+  scheduledSyncGen += 1
+  scheduledEmailAt.set(scheduledEmailKey(employeeId, makeEmailPeriodKey(type, year, monthOrSeason)), sendAtIso)
+}
+
+export function getScheduledSendAt(
+  employeeId: number,
+  type: 'payslip' | 'bonus',
+  year: number,
+  monthOrSeason: number | string,
+): string | null {
+  return scheduledEmailAt.get(scheduledEmailKey(employeeId, makeEmailPeriodKey(type, year, monthOrSeason))) ?? null
+}
+
+/** SQLite の未送信予約を読み、画面の「予約」表示に使う */
+export async function loadScheduledEmails(
+  type: 'payslip' | 'bonus',
+  year: number,
+  monthOrSeason: number | string,
+): Promise<void> {
+  const periodKey = makeEmailPeriodKey(type, year, monthOrSeason)
+  const gen = scheduledSyncGen
+  if (!hasApi() || typeof window.api.mail.scheduleList !== 'function') return
+  const res = await window.api.mail.scheduleList(type, periodKey)
+  if (!res.success || gen !== scheduledSyncGen) return
+  for (const key of [...scheduledEmailAt.keys()]) {
+    if (key.endsWith(`|${periodKey}`)) scheduledEmailAt.delete(key)
+  }
+  for (const row of res.data) {
+    if (row.status !== 'pending') continue
+    scheduledEmailAt.set(scheduledEmailKey(row.employeeId, periodKey), row.sendAt)
+  }
 }
 
 export function sendEmail(employeeId: number, type: 'payslip' | 'bonus', year: number, monthOrSeason: number | string): void {
@@ -2578,6 +2626,8 @@ export function sendEmail(employeeId: number, type: 'payslip' | 'bonus', year: n
       sentAt: new Date().toISOString(),
     })
   }
+  scheduledSyncGen += 1
+  scheduledEmailAt.delete(scheduledEmailKey(employeeId, periodKey))
   // Electron 環境では SQLite にも記録（再起動後も「送信済」を保持）。失敗は致命的でないため握りつぶす。
   if (hasApi()) {
     void window.api.mail.logRecord({ employeeId, type, periodKey })

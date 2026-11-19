@@ -389,7 +389,24 @@ function runMigrations(raw: Database.Database): void {
     CREATE TABLE IF NOT EXISTS app_meta (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS scheduled_mails (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      type TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      to_address TEXT NOT NULL,
+      send_at TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_mails_pending
+      ON scheduled_mails(employee_id, type, period_key)
+      WHERE status = 'pending';
   `);
 
   // 早出開始が未設定の従業員は 08:00〜定時開始 を入れる（丸めの基準）

@@ -24,7 +24,9 @@ import type {
   MailConfigStatus,
   MailConfigUpdate,
   MailMessageInput,
+  MailScheduleRequest,
   MailSendResult,
+  ScheduledMail,
   PunchSyncConfigStatus,
   PunchSyncConfigUpdate,
   EmailLog,
@@ -142,6 +144,10 @@ const api = {
       ipcRenderer.invoke(IPC.MAIL.AUTHORIZE),
     send: (messages: MailMessageInput[]): Promise<IpcResult<MailSendResult[]>> =>
       ipcRenderer.invoke(IPC.MAIL.SEND, { messages }),
+    schedule: (data: MailScheduleRequest): Promise<IpcResult<ScheduledMail[]>> =>
+      ipcRenderer.invoke(IPC.MAIL.SCHEDULE, data),
+    scheduleList: (type: string, periodKey: string): Promise<IpcResult<ScheduledMail[]>> =>
+      ipcRenderer.invoke(IPC.MAIL.SCHEDULE_LIST, { type, periodKey }),
     test: (): Promise<IpcResult<MailSendResult>> =>
       ipcRenderer.invoke(IPC.MAIL.TEST),
     logList: (type: string, periodKey: string): Promise<IpcResult<EmailLog[]>> =>

@@ -195,6 +195,20 @@ interface ElectronMailApi {
     success: false;
     error: string;
   }>;
+  schedule(data: import('../../shared/types').MailScheduleRequest): Promise<{
+    success: true;
+    data: import('../../shared/types').ScheduledMail[];
+  } | {
+    success: false;
+    error: string;
+  }>;
+  scheduleList(type: string, periodKey: string): Promise<{
+    success: true;
+    data: import('../../shared/types').ScheduledMail[];
+  } | {
+    success: false;
+    error: string;
+  }>;
   test(): Promise<{
     success: true;
     data: import('../../shared/types').MailSendResult;

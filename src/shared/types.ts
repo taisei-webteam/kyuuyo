@@ -386,6 +386,31 @@ export interface MailSendResult {
   refId?: number;
   success: boolean;
   error?: string;
+  /** true のとき、即時送信ではなく指定日時の予約として保存した */
+  scheduled?: boolean;
+}
+
+/** 給与・賞与メールの送信予約 */
+export interface MailScheduleRequest {
+  /** 送信時刻（UTC の ISO 8601）。画面では日本時間として指定する */
+  sendAt: string;
+  type: 'payslip' | 'bonus';
+  /** 期間キー（例: 'payslip-2026-5' / 'bonus-2026-夏季'） */
+  periodKey: string;
+  messages: MailMessageInput[];
+}
+
+/** 保存済みの送信予約 */
+export interface ScheduledMail {
+  id: number;
+  employeeId: number;
+  type: string;
+  periodKey: string;
+  toAddress: string;
+  /** 送信時刻（UTC の ISO 8601） */
+  sendAt: string;
+  status: 'pending' | 'sent' | 'failed';
+  error: string | null;
 }
 
 // ========================================
