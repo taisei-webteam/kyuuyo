@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import { App } from './App'
+// フォントはアプリに同梱する。外部から読み込むと、通信が滞ったとき画面が真っ白のまま止まる。
+import '@fontsource-variable/noto-sans-jp/wght.css'
 import './index.css'
 import './styles/print.css'
 

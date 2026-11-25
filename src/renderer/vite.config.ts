@@ -54,8 +54,33 @@ function devDbSnapshotPlugin(): Plugin {
   }
 }
 
+/**
+ * 同梱フォントを、これまで外部から読み込んでいたときと同じ名前・太さの範囲 (400〜700) で登録する。
+ * 範囲を広げると 800 / 900 指定の文字が今より太く表示される。
+ */
+function bundledFontPlugin(): Plugin {
+  const packagedName = "font-family: 'Noto Sans JP Variable'"
+  const packagedWeight = 'font-weight: 100 900'
+  return {
+    name: 'bundled-noto-sans-jp',
+    enforce: 'pre',
+    transform(code, id) {
+      if (!id.includes('@fontsource-variable/noto-sans-jp') || !id.split('?')[0].endsWith('.css')) return null
+      if (!code.includes(packagedName) || !code.includes(packagedWeight)) {
+        this.error('同梱フォントの定義が想定と異なります。@fontsource-variable/noto-sans-jp の内容を確認してください。')
+      }
+      return {
+        code: code
+          .replaceAll(packagedName, "font-family: 'Noto Sans JP'")
+          .replaceAll(packagedWeight, 'font-weight: 400 700'),
+        map: null,
+      }
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), devDbSnapshotPlugin()],
+  plugins: [react(), devDbSnapshotPlugin(), bundledFontPlugin()],
   // パッケージ版は file:// で読み込むため相対パスにする
   base: './',
   resolve: {
