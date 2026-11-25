@@ -29,7 +29,7 @@
     "@types/better-sqlite3": "^7.6.12",
     "drizzle-kit": "^0.30.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.0",
+    "electron-builder": "^26.18.0",
     "esbuild": "^0.28.0",
     "typescript": "^5.7.0"
   }
