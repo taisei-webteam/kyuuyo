@@ -2,10 +2,11 @@
  * Electron Main Process エントリポイント
  * らくらく給与明細α
  */
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 
 // AnyDesk などでウィンドウが隠れたと判定されると、入力欄に文字が入らなくなる。
 app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
@@ -130,6 +131,41 @@ function createWindow(): void {
   });
 }
 
+/**
+ * 起動に失敗したら、記録を残して画面で知らせてから終了する。
+ * 黙って残ると単一起動ロックを握り続け、次に起動しても何も表示されない。
+ */
+function failStartup(err: unknown): void {
+  console.error('[main] startup failed:', err);
+  const summary = err instanceof Error ? err.message : String(err);
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+
+  const logPath = path.join(app.getPath('userData'), 'startup-error.log');
+  let logNote = `詳細は次のファイルに記録しました。\n${logPath}`;
+  try {
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(
+      logPath,
+      `[${new Date().toISOString()}] v${app.getVersion()}\n${detail}\n\n`,
+      'utf8',
+    );
+  } catch {
+    logNote = '詳細をファイルに記録できませんでした。';
+  }
+
+  dialog.showErrorBox(
+    'らくらく給与明細α を起動できません',
+    `起動中にエラーが発生したため、アプリを終了します。\n\n${summary}\n\n${logNote}\n\n解決しない場合は担当者へご連絡ください。`,
+  );
+
+  try {
+    closeDb();
+  } catch {
+    // 終了を優先する
+  }
+  app.exit(1);
+}
+
 // 多重起動防止（本番で同一アプリの2重起動を抑止し、DB同時アクセスを防ぐ）
 // 開発版は配布版と userData/単一起動ロックを分離する。
 if (!app.isPackaged) {
@@ -172,8 +208,13 @@ if (!gotSingleInstanceLock) {
     createWindow();
 
     // 配布版のみ自動更新を確認（開発時は無効）
+    // 更新確認の準備に失敗しても、画面は出ているので作業は続けられる。
     if (app.isPackaged && mainWindow) {
-      setupAutoUpdater(mainWindow);
+      try {
+        setupAutoUpdater(mainWindow);
+      } catch (err) {
+        console.error('[updater] setup failed:', err);
+      }
     }
 
     app.on('activate', () => {
@@ -181,6 +222,8 @@ if (!gotSingleInstanceLock) {
         createWindow();
       }
     });
+  }).catch((err: unknown) => {
+    failStartup(err);
   });
 
   app.on('window-all-closed', () => {
