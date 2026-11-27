@@ -7,6 +7,8 @@ import {
   getPayslips,
   createPayslips,
   preserveSavedPayslipFigures,
+  fillPayslipsFromEmployeeMaster,
+  reloadEmployeesFromDb,
   buildPayslipsFromMaster,
   applyAttendanceToPayslips,
   replaceOnePayslip,
@@ -216,7 +218,8 @@ export function PayslipCreate(): ReactElement {
   const saveSeqRef = useRef(0)
   const saveTailRef = useRef<Promise<void>>(Promise.resolve())
 
-  const employees = useMemo(() => getEmployees(), [])
+  const [employeeTick, setEmployeeTick] = useState(0)
+  const employees = useMemo(() => getEmployees(), [employeeTick])
 
   // リロード後も編集中の年月・従業員選択を維持する
   useEffect(() => {
@@ -238,7 +241,17 @@ export function PayslipCreate(): ReactElement {
     setLoadingMonth(true)
     void (async () => {
       try {
+        await reloadEmployeesFromDb()
+        if (cancelled) return
+        setEmployeeTick((tick) => tick + 1)
         await loadPayslipsFromDb(selectedYear, selectedMonth)
+        if (cancelled) return
+        const loaded = getPayslips(selectedYear, selectedMonth)
+        const filled = fillPayslipsFromEmployeeMaster(loaded, getEmployees())
+        if (filled !== loaded && filled.length > 0) {
+          setPayslips(selectedYear, selectedMonth, filled)
+          if (hasElectronApi) await savePayslipsToDb(selectedYear, selectedMonth, filled)
+        }
         await loadEmailHistory('payslip', selectedYear, selectedMonth)
         await loadScheduledEmails('payslip', selectedYear, selectedMonth)
       } finally {
@@ -442,6 +455,8 @@ export function PayslipCreate(): ReactElement {
     setCreating(true)
     setCreateMessage(null)
     try {
+      await reloadEmployeesFromDb()
+      setEmployeeTick((tick) => tick + 1)
       await hydrateInsuranceRatesFromDb(selectedYear)
       const realAttendance = await loadAttendanceForMonth()
       let savedRows: Payslip[] = []
@@ -450,7 +465,10 @@ export function PayslipCreate(): ReactElement {
         if (existing.success) savedRows = existing.data
       }
       const generated = createPayslips(selectedYear, selectedMonth, realAttendance)
-      const data = preserveSavedPayslipFigures(generated, savedRows)
+      const data = fillPayslipsFromEmployeeMaster(
+        preserveSavedPayslipFigures(generated, savedRows),
+        getEmployees(),
+      )
       const saved = await persistPayslips(data)
       const keptCount = data.filter((row) => savedRows.some((savedRow) => savedRow.employeeId === row.employeeId)).length
       if (keptCount > 0) {
@@ -961,7 +979,7 @@ export function PayslipCreate(): ReactElement {
             <>
               <p className={styles.notCreatedDesc}>
                 まだ作成されていません。<br />
-                勤怠と支給項目から給与を作ります。健康保険料・厚生年金・貸付・共済掛金は従業員管理の金額が入り、雇用保険は自動計算します。
+                勤怠と支給項目から給与を作ります。健康保険料・厚生年金・住民税・貸付・共済掛金は従業員管理の金額が入り、パートの基本給は時給から計算します。雇用保険は自動計算します。
               </p>
               <button className={styles.btnCreateLarge} onClick={handleCreate} disabled={creating}>
                 {creating ? '作成中...' : `${selectedMonth}月分を作成`}

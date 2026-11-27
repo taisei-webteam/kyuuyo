@@ -1639,8 +1639,8 @@ function generatePayslips(
       : []
     const totalPayment = subtotalPayment + employmentInsuranceOverage
 
-    // 健康保険料は従業員管理の固定額（健康保険計。介護を含むときは合算済み）。
-    // 厚生年金・貸付・共済掛金も従業員管理の金額を初期値にする。
+    // 健康保険料・厚生年金・住民税・貸付・共済掛金は従業員管理の金額（一括入力を含む）。
+    // 健康保険料は健康保険計（介護を含むときは合算済み）をそのまま使い、介護欄は 0。
     // 雇用保険だけ総支給（雇用保険料超過分を除く）から自動計算する。役員は適用除外で 0。
     const healthInsurance = emp.healthInsurance ?? 0
     const nursingInsurance = 0
@@ -1660,13 +1660,21 @@ function generatePayslips(
       emp.employeeType,
     )
     const incomeTax = 0
-    const residentTax = 0
+    // 住民税は特別徴収の月額。一括入力・従業員詳細の金額を日割りせずそのまま入れる。
+    const residentTax = Math.max(0, emp.residentTax ?? 0)
     const loanDeduction = emp.loanDeduction ?? 0
     const kyosaiDeduction = emp.kyosaiDeduction ?? 0
     const extraDeductionLines = padExtraLines([], FREE_DEDUCTION_SLOTS)
 
     const totalDeduction =
-      healthInsurance + welfarePension + employmentInsurance + loanDeduction + kyosaiDeduction
+      healthInsurance +
+      nursingInsurance +
+      welfarePension +
+      employmentInsurance +
+      incomeTax +
+      residentTax +
+      loanDeduction +
+      kyosaiDeduction
 
     const netPayment = totalPayment - totalDeduction
 
@@ -2090,6 +2098,108 @@ export function buildAttendanceDaysFromRecords(
   }
 
   return days
+}
+
+/**
+ * 作成済み明細のうち、まだ 0 のままの項目へ従業員マスタの金額を入れる。
+ * 明細側で金額を変えてある場合は上書きしない。
+ * 対象は一括入力で入れる健康保険料・厚生年金・住民税と、パートの時給から出す基本給。
+ */
+export function fillUnsetMasterAmounts(ps: MockPayslip, emp: MockEmployee): MockPayslip {
+  let healthInsurance = ps.healthInsurance
+  let nursingInsurance = ps.nursingInsurance
+  let welfarePension = ps.welfarePension
+  let residentTax = ps.residentTax
+  let basicSalary = ps.basicSalary
+  let overtimePay = ps.overtimePay
+  let changed = false
+
+  if (healthInsurance === 0 && nursingInsurance === 0 && emp.healthInsurance > 0) {
+    healthInsurance = emp.healthInsurance
+    nursingInsurance = 0
+    changed = true
+  }
+  if (welfarePension === 0 && emp.welfarePension > 0) {
+    welfarePension = emp.welfarePension
+    changed = true
+  }
+  if (residentTax === 0 && emp.residentTax > 0) {
+    residentTax = emp.residentTax
+    changed = true
+  }
+  const hourlyWage = emp.employeeType === 'パート' && emp.hourlyRate > 0
+  if (hourlyWage && basicSalary === 0 && ps.workHours > 0) {
+    basicSalary = Math.floor(emp.hourlyRate * ps.workHours)
+    changed = true
+  }
+  if (hourlyWage && overtimePay === 0 && ps.overtimeHours > 0) {
+    overtimePay = calcOvertimePay(emp, ps.overtimeHours)
+    changed = true
+  }
+  if (!changed) return ps
+
+  const next: MockPayslip = {
+    ...ps,
+    healthInsurance,
+    nursingInsurance,
+    welfarePension,
+    residentTax,
+    basicSalary,
+    overtimePay,
+  }
+  const wagesChanged = basicSalary !== ps.basicSalary || overtimePay !== ps.overtimePay
+  const employmentInsurance = wagesChanged
+    ? calcSalaryEmploymentInsurance(next, emp.employeeType)
+    : ps.employmentInsurance
+  const priced: MockPayslip = { ...next, employmentInsurance }
+  const extraPaymentTotal = sumExtraLines(priced.extraPaymentLines)
+  const extraDeductionTotal = sumExtraLines(priced.extraDeductionLines)
+  const totalPayment =
+    priced.basicSalary +
+    priced.overtimePay +
+    priced.transportAllowance +
+    priced.positionAllowance +
+    priced.familyAllowance +
+    priced.specialAllowance +
+    priced.dangerAllowance +
+    priced.salesAllowance +
+    extraPaymentTotal
+  const totalDeduction =
+    priced.healthInsurance +
+    priced.nursingInsurance +
+    priced.welfarePension +
+    priced.employmentInsurance +
+    priced.incomeTax +
+    priced.residentTax +
+    priced.savingsDeduction +
+    priced.loanDeduction +
+    (priced.kyosaiDeduction ?? 0) +
+    priced.otherDeduction +
+    extraDeductionTotal
+  return {
+    ...priced,
+    otherAllowance: extraPaymentTotal,
+    totalPayment,
+    totalDeduction,
+    netPayment: totalPayment - totalDeduction,
+  }
+}
+
+/** 従業員マスタの未反映分（0のまま）を明細一覧へ入れる。変化が無ければ同じ配列を返す。 */
+export function fillPayslipsFromEmployeeMaster(
+  payslips: MockPayslip[],
+  employees: MockEmployee[],
+): MockPayslip[] {
+  const empMap = new Map(employees.map((emp) => [emp.id, emp]))
+  let changed = false
+  const next = payslips.map((ps) => {
+    const emp = empMap.get(ps.employeeId)
+    if (!emp) return ps
+    const filled = fillUnsetMasterAmounts(ps, emp)
+    if (filled !== ps) changed = true
+    return filled
+  })
+  return changed ? next : payslips
 }
 
 /** 従業員マスタと勤怠から明細を計算する（キャッシュは書き換えない）。 */

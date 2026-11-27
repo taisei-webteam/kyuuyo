@@ -270,6 +270,7 @@ export function ResidentTaxBulkModal({
 
         <p className={styles.desc}>
           市区町村の「特別徴収税額の決定通知書」に記載された毎月の住民税額を入力します。
+          給与を作成すると、この金額を住民税の控除にそのまま入れます。
           画面で直接入力するか、CSVで一括取込できます。
         </p>
 
